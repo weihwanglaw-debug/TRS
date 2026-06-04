@@ -382,3 +382,59 @@
 .cursor-loading {
   cursor: wait;
 }
+
+
+/* ── Quill Snow theme — integrates with TRS theme variables ── */
+.ql-toolbar.ql-snow {
+  background:    var(--color-background-secondary);
+  border-color:  var(--color-table-border) !important;
+  border-radius: 0;
+}
+.ql-container.ql-snow {
+  border-color: var(--color-table-border) !important;
+  background:   var(--color-page-bg);
+  color:        var(--color-body-text);
+  font-size:    13px;
+}
+.ql-editor {
+  min-height: 200px;
+}
+.ql-editor.ql-blank::before {
+  color: var(--color-text-tertiary, #aaa);
+  font-style: normal;
+}
+/* Icon colours follow body text so they work in both light and dark themes */
+.ql-snow .ql-stroke {
+  stroke: var(--color-body-text) !important;
+}
+.ql-snow .ql-fill,
+.ql-snow .ql-stroke.ql-fill {
+  fill: var(--color-body-text) !important;
+}
+.ql-snow .ql-picker-label,
+.ql-snow .ql-picker-options {
+  color:            var(--color-body-text) !important;
+  background-color: var(--color-page-bg)  !important;
+  border-color:     var(--color-table-border) !important;
+}
+.ql-snow .ql-picker-options .ql-picker-item:hover,
+.ql-snow .ql-toolbar button:hover .ql-stroke,
+.ql-snow .ql-toolbar button.ql-active .ql-stroke {
+  stroke: var(--color-primary) !important;
+}
+.ql-snow .ql-toolbar button:hover .ql-fill,
+.ql-snow .ql-toolbar button.ql-active .ql-fill {
+  fill: var(--color-primary) !important;
+}
+.ql-snow .ql-picker-label:hover,
+.ql-snow .ql-picker-label.ql-active {
+  color: var(--color-primary) !important;
+}
+/* Read-only state */
+.ql-container.ql-snow.ql-disabled {
+  background: var(--color-background-secondary);
+  opacity: 0.7;
+}
+.ql-container.ql-snow.ql-disabled .ql-editor {
+  cursor: default;
+}

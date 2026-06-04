@@ -20,11 +20,10 @@ import {
   apiUploadFile, assetUrl,
 } from "@/lib/api";
 
-// ── Tiptap rich-text editor ───────────────────────────────────────────────────
-// Install: npm install @tiptap/react @tiptap/pm @tiptap/starter-kit @tiptap/extension-link
-import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Link from "@tiptap/extension-link";
+// ── Quill rich-text editor ────────────────────────────────────────────────────
+// Install: npm install react-quilljs quill && npm install -D @types/quill
+import { useQuill } from "react-quilljs";
+import "quill/dist/quill.snow.css";
 
 const MAX_IMAGE_MB = 2;
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -32,7 +31,26 @@ const MAX_PDF_MB = 8;
 
 function isBlobUrl(url: string) { return url.startsWith("blob:"); }
 
-// ── Tiptap toolbar ────────────────────────────────────────────────────────────
+// ── Quill WYSIWYG editor ──────────────────────────────────────────────────────
+// Uses react-quilljs (hook wrapper) + Quill Snow theme.
+// The Snow theme renders the familiar toolbar with dropdowns for heading,
+// font size, alignment, lists, bold, italic, underline, link, etc.
+const QUILL_MODULES = {
+  toolbar: [
+    [{ header: [2, 3, 4, false] }],
+    ["bold", "italic", "underline", "strike"],
+    [{ list: "ordered" }, { list: "bullet" }],
+    [{ align: [] }],
+    ["link"],
+    ["clean"],
+  ],
+};
+
+const QUILL_FORMATS = [
+  "header", "bold", "italic", "underline", "strike",
+  "list", "bullet", "align", "link",
+];
+
 function RichTextEditor({
   value,
   onChange,
@@ -42,107 +60,46 @@ function RichTextEditor({
   onChange: (html: string) => void;
   disabled: boolean;
 }) {
-  const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Link.configure({ openOnClick: false, autolink: true }),
-    ],
-    content: value,
-    editable: !disabled,
-    onUpdate: ({ editor }) => onChange(editor.getHTML()),
+  const { quill, quillRef } = useQuill({
+    modules:  QUILL_MODULES,
+    formats:  QUILL_FORMATS,
+    readOnly: disabled,
+    theme:    "snow",
   });
 
-  // Sync external value changes (e.g. when event loads)
+  // Populate editor when value loads from API
+  const initialised = useRef(false);
   useEffect(() => {
-    if (!editor) return;
-    if (editor.getHTML() !== value) {
-      editor.commands.setContent(value || "", { emitUpdate: false });
+    if (!quill) return;
+    if (!initialised.current) {
+      quill.clipboard.dangerouslyPasteHTML(value || "");
+      initialised.current = true;
     }
-  }, [value, editor]);
+  }, [quill, value]);
 
-  // Sync editable state
+  // Sync disabled state
   useEffect(() => {
-    editor?.setEditable(!disabled);
-  }, [disabled, editor]);
+    if (!quill) return;
+    quill.enable(!disabled);
+  }, [quill, disabled]);
 
-  if (!editor) return null;
-
-  const btn = (active: boolean) =>
-    `px-2 py-1 text-xs font-semibold transition-colors ${
-      active
-        ? "text-white"
-        : "opacity-60 hover:opacity-100"
-    }`;
-  const activeStyle = (active: boolean): React.CSSProperties =>
-    active ? { backgroundColor: "var(--color-primary)", color: "#fff" } : {};
+  // Fire onChange on every text-change
+  useEffect(() => {
+    if (!quill) return;
+    const handler = () => onChange(quill.root.innerHTML);
+    quill.on("text-change", handler);
+    return () => { quill.off("text-change", handler); };
+  }, [quill, onChange]);
 
   return (
-    <div style={{ border: "1px solid var(--color-table-border)" }}>
-      {!disabled && (
-        <div
-          className="flex flex-wrap gap-0.5 p-2"
-          style={{ borderBottom: "1px solid var(--color-table-border)", backgroundColor: "var(--color-background-secondary)" }}
-        >
-          {/* Headings */}
-          <button type="button"
-            className={btn(editor.isActive("heading", { level: 2 }))}
-            style={activeStyle(editor.isActive("heading", { level: 2 }))}
-            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</button>
-          <button type="button"
-            className={btn(editor.isActive("heading", { level: 3 }))}
-            style={activeStyle(editor.isActive("heading", { level: 3 }))}
-            onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>H3</button>
-          <span className="w-px mx-1 self-stretch" style={{ backgroundColor: "var(--color-table-border)" }} />
-          {/* Inline */}
-          <button type="button"
-            className={btn(editor.isActive("bold"))}
-            style={activeStyle(editor.isActive("bold"))}
-            onClick={() => editor.chain().focus().toggleBold().run()}>B</button>
-          <button type="button"
-            className={btn(editor.isActive("italic"))}
-            style={{ ...activeStyle(editor.isActive("italic")), fontStyle: "italic" }}
-            onClick={() => editor.chain().focus().toggleItalic().run()}>I</button>
-          <span className="w-px mx-1 self-stretch" style={{ backgroundColor: "var(--color-table-border)" }} />
-          {/* Lists */}
-          <button type="button"
-            className={btn(editor.isActive("bulletList"))}
-            style={activeStyle(editor.isActive("bulletList"))}
-            onClick={() => editor.chain().focus().toggleBulletList().run()}>• List</button>
-          <button type="button"
-            className={btn(editor.isActive("orderedList"))}
-            style={activeStyle(editor.isActive("orderedList"))}
-            onClick={() => editor.chain().focus().toggleOrderedList().run()}>1. List</button>
-          <span className="w-px mx-1 self-stretch" style={{ backgroundColor: "var(--color-table-border)" }} />
-          {/* Link */}
-          <button type="button"
-            className={btn(editor.isActive("link"))}
-            style={activeStyle(editor.isActive("link"))}
-            onClick={() => {
-              if (editor.isActive("link")) {
-                editor.chain().focus().unsetLink().run();
-              } else {
-                const url = window.prompt("Enter URL");
-                if (url) editor.chain().focus().setLink({ href: url }).run();
-              }
-            }}>Link</button>
-          <span className="w-px mx-1 self-stretch" style={{ backgroundColor: "var(--color-table-border)" }} />
-          <button type="button"
-            className="px-2 py-1 text-xs opacity-60 hover:opacity-100"
-            onClick={() => editor.chain().focus().undo().run()}>Undo</button>
-          <button type="button"
-            className="px-2 py-1 text-xs opacity-60 hover:opacity-100"
-            onClick={() => editor.chain().focus().redo().run()}>Redo</button>
-        </div>
-      )}
-      <EditorContent
-        editor={editor}
-        className="prose prose-sm max-w-none p-4 min-h-[180px] focus-within:outline-none"
-        style={{
-          fontSize: 13,
-          color: "var(--color-body-text)",
-          backgroundColor: disabled ? "var(--color-background-secondary)" : "var(--color-page-bg)",
-        }}
-      />
+    <div
+      className="quill-wrapper"
+      style={{
+        opacity: disabled ? 0.7 : 1,
+        // Snow theme border uses its own styles via quill.snow.css
+      }}
+    >
+      <div ref={quillRef} style={{ minHeight: 200 }} />
     </div>
   );
 }
@@ -316,8 +273,8 @@ export default function EventEdit() {
     if (r.error) { updateDocRow(idx, { labelError: r.error.message }); return; }
     updateDocRow(idx, { fileUrl: r.data! });
 
-    // FIX: read fresh doc state via a no-op setter to avoid stale closure
-    // after the async apiUploadFile call above.
+    // If saved event exists, persist immediately.
+    // Use a ref-safe approach: read current doc state via a one-shot setter to avoid stale closure.
     if (!isNew && eventId) {
       let currentDoc: DocRow | undefined;
       setDocs(prev => {
@@ -333,8 +290,7 @@ export default function EventEdit() {
     }
   };
 
-  // FIX: accept a docs snapshot at call time so saveDocuments always operates
-  // on the state that was current when handleSave captured it, not a stale closure.
+  // Save all unsaved/updated document rows after event is saved
   const saveDocuments = async (savedEventId: string, docsSnapshot: DocRow[]) => {
     for (let i = 0; i < docsSnapshot.length; i++) {
       const doc = docsSnapshot[i];
