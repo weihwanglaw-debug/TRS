@@ -1,0 +1,1530 @@
+{
+  "branding": {
+    "logoUrl": "",
+    "appName": "TRS"
+  },
+  "hero": {
+    "title": "Singapore Badminton Tournament Registration",
+    "subtitle": "Register for upcoming tournaments, manage your entries, and stay updated on fixtures and results."
+  },
+  "nav": {
+    "menuItems": [
+      {
+        "label": "Dashboard",
+        "href": "/admin"
+      },
+      {
+        "label": "Events",
+        "href": "/admin/events"
+      },
+      {
+        "label": "Registrations",
+        "href": "/admin/registrations"
+      },
+      {
+        "label": "Fixtures",
+        "href": "/admin/fixtures"
+      }
+    ]
+  },
+  "footer": {
+    "socialLinks": [
+      {
+        "platform": "Facebook",
+        "url": "https://facebook.com/sbatournaments"
+      },
+      {
+        "platform": "Instagram",
+        "url": "https://instagram.com/sbatournaments"
+      },
+      {
+        "platform": "X",
+        "url": "https://x.com/sbatournaments"
+      },
+      {
+        "platform": "LinkedIn",
+        "url": "https://linkedin.com/company/sbatournaments"
+      }
+    ],
+    "contactEmail": "tournaments@sba.org.sg",
+    "copyrightText": "\u00a9 2026 Singapore Badminton Association. All rights reserved.",
+    "extraLinks": [
+      {
+        "label": "Privacy Policy",
+        "href": "/privacy"
+      },
+      {
+        "label": "Terms of Service",
+        "href": "/terms"
+      }
+    ]
+  },
+  "consentText": "I confirm that all information provided is accurate and complete. I agree to the tournament rules and regulations, and I consent to the collection and use of my personal data for the purpose of tournament registration, communication, and administration in accordance with the Personal Data Protection Act (PDPA).",
+  "payment": {
+    "currency": "SGD"
+  },
+  "events": [
+    {
+      "id": "evt-1",
+      "name": "Singapore Open Badminton Championship 2026",
+      "description": "The premier annual badminton championship bringing together top players from across Singapore. Compete in singles and doubles categories across multiple age groups.",
+      "venue": "Singapore Sports Hub",
+      "venueAddress": "1 Stadium Drive, Singapore 397629",
+      "bannerUrl": "",
+      "galleryUrls": [],
+      "prospectusUrl": "/sample-prospectus.pdf",
+      "eventStartDate": "2026-04-10",
+      "eventEndDate": "2026-04-12",
+      "openDate": "2026-02-01",
+      "closeDate": "2026-03-20",
+      "maxParticipants": 256,
+      "sponsorInfo": "Proudly sponsored by SportsDirect and YonexSG",
+      "consentStatement": "",
+      "isSports": true,
+      "sportType": "Badminton",
+      "fixtureMode": "internal",
+      "programs": [
+        {
+          "id": "prog-1",
+          "name": "Men's Singles",
+          "type": "Knockout",
+          "minAge": 18,
+          "maxAge": 45,
+          "gender": "Male",
+          "fee": 80,
+          "minPlayers": 1,
+          "maxPlayers": 1,
+          "maxParticipants": 64,
+          "status": "open",
+          "fields": {
+            "enableSbaId": true,
+            "enableDocumentUpload": false,
+            "enableGuardianInfo": false,
+            "customFields": []
+          },
+          "minParticipants": 4,
+          "currentParticipants": 48,
+          "sbaRequired": true,
+          "paymentRequired": true,
+          "fixtureFormat": "knockout",
+          "scoringRule": "badminton_21",
+          "maxSeeds": 4,
+          "formatConfig": {
+            "seedingMethod": "snake",
+            "byeHandling": "top_seed_gets_bye"
+          },
+          "participantSeeds": [
+            {
+              "id": "p1-1",
+              "club": "Pasir Ris BC",
+              "participants": [
+                "Lee Wei Jie"
+              ],
+              "sbaId": "SBA-001",
+              "seed": 1
+            },
+            {
+              "id": "p1-2",
+              "club": "Tampines BC",
+              "participants": [
+                "Tan Ah Kow"
+              ],
+              "sbaId": "SBA-007",
+              "seed": 2
+            },
+            {
+              "id": "p1-3",
+              "club": "Jurong BC",
+              "participants": [
+                "Ravi Kumar"
+              ],
+              "sbaId": "SBA-003",
+              "seed": 3
+            },
+            {
+              "id": "p1-4",
+              "club": "Bishan SC",
+              "participants": [
+                "Wong Beng Huat"
+              ],
+              "sbaId": "SBA-009",
+              "seed": 4
+            },
+            {
+              "id": "p1-5",
+              "club": "Serangoon BC",
+              "participants": [
+                "Ahmad Farid"
+              ],
+              "sbaId": "SBA-011",
+              "seed": null
+            },
+            {
+              "id": "p1-6",
+              "club": "Yishun BC",
+              "participants": [
+                "Lim Jun Wei"
+              ],
+              "sbaId": "SBA-015",
+              "seed": null
+            },
+            {
+              "id": "p1-7",
+              "club": "Ang Mo Kio BC",
+              "participants": [
+                "Chua Wei Liang"
+              ],
+              "sbaId": "SBA-018",
+              "seed": null
+            },
+            {
+              "id": "p1-8",
+              "club": "Clementi BC",
+              "participants": [
+                "Ng Kok Peng"
+              ],
+              "sbaId": "SBA-022",
+              "seed": null
+            }
+          ],
+          "feeStructure": "per_entry"
+        },
+        {
+          "id": "prog-2",
+          "name": "Women's Singles",
+          "type": "Knockout",
+          "minAge": 18,
+          "maxAge": 45,
+          "gender": "Female",
+          "fee": 80,
+          "minPlayers": 1,
+          "maxPlayers": 1,
+          "maxParticipants": 64,
+          "status": "open",
+          "fields": {
+            "enableSbaId": true,
+            "enableDocumentUpload": false,
+            "enableGuardianInfo": false,
+            "customFields": []
+          },
+          "minParticipants": 4,
+          "currentParticipants": 14,
+          "sbaRequired": true,
+          "paymentRequired": true,
+          "fixtureFormat": "knockout",
+          "scoringRule": "badminton_21",
+          "maxSeeds": 4,
+          "formatConfig": {
+            "seedingMethod": "snake",
+            "byeHandling": "top_seed_gets_bye"
+          },
+          "participantSeeds": [
+            {
+              "id": "p2-1",
+              "club": "Tampines BC",
+              "participants": [
+                "Tan Mei Ling"
+              ],
+              "sbaId": "SBA-002",
+              "seed": 1
+            },
+            {
+              "id": "p2-2",
+              "club": "Bishan SC",
+              "participants": [
+                "Wong Xiu Ying"
+              ],
+              "sbaId": "SBA-004",
+              "seed": 2
+            },
+            {
+              "id": "p2-3",
+              "club": "Pasir Ris BC",
+              "participants": [
+                "Lim Shu Fen"
+              ],
+              "sbaId": "SBA-006",
+              "seed": null
+            },
+            {
+              "id": "p2-4",
+              "club": "Jurong BC",
+              "participants": [
+                "Priya Nair"
+              ],
+              "sbaId": "SBA-008",
+              "seed": null
+            },
+            {
+              "id": "p2-5",
+              "club": "Queenstown BC",
+              "participants": [
+                "Rachel Koh"
+              ],
+              "sbaId": "SBA-012",
+              "seed": null
+            },
+            {
+              "id": "p2-6",
+              "club": "Toa Payoh BC",
+              "participants": [
+                "Melissa Tan"
+              ],
+              "sbaId": "SBA-016",
+              "seed": null
+            },
+            {
+              "id": "p2-7",
+              "club": "Bedok BC",
+              "participants": [
+                "Nur Aisyah"
+              ],
+              "sbaId": "SBA-019",
+              "seed": null
+            },
+            {
+              "id": "p2-8",
+              "club": "Woodlands BC",
+              "participants": [
+                "Chen Li Ying"
+              ],
+              "sbaId": "SBA-023",
+              "seed": null
+            }
+          ],
+          "feeStructure": "per_entry"
+        },
+        {
+          "id": "prog-3",
+          "name": "Men's Doubles",
+          "type": "Knockout",
+          "minAge": 18,
+          "maxAge": 45,
+          "gender": "Male",
+          "fee": 120,
+          "minPlayers": 2,
+          "maxPlayers": 2,
+          "maxParticipants": 32,
+          "status": "open",
+          "fields": {
+            "enableSbaId": true,
+            "enableDocumentUpload": false,
+            "enableGuardianInfo": false,
+            "customFields": []
+          },
+          "minParticipants": 4,
+          "currentParticipants": 32,
+          "sbaRequired": true,
+          "paymentRequired": true,
+          "fixtureFormat": "knockout",
+          "scoringRule": "badminton_21",
+          "maxSeeds": 4,
+          "formatConfig": {
+            "seedingMethod": "snake",
+            "byeHandling": "top_seed_gets_bye"
+          },
+          "participantSeeds": [
+            {
+              "id": "p3-1",
+              "club": "Pasir Ris BC",
+              "participants": [
+                "Lee Wei Jie",
+                "Tan Ah Kow"
+              ],
+              "seed": 1
+            },
+            {
+              "id": "p3-2",
+              "club": "Tampines BC",
+              "participants": [
+                "Ravi Kumar",
+                "Ahmad Farid"
+              ],
+              "seed": 2
+            },
+            {
+              "id": "p3-3",
+              "club": "Jurong BC",
+              "participants": [
+                "Wong Beng Huat",
+                "Lim Jun Wei"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p3-4",
+              "club": "Bishan SC",
+              "participants": [
+                "Chua Wei Liang",
+                "Ng Kok Peng"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p3-5",
+              "club": "Serangoon BC",
+              "participants": [
+                "Kevin Tan",
+                "Marcus Lee"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p3-6",
+              "club": "Yishun BC",
+              "participants": [
+                "Bryan Goh",
+                "Daniel Sim"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p3-7",
+              "club": "Ang Mo Kio BC",
+              "participants": [
+                "Ethan Lim",
+                "Felix Wong"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p3-8",
+              "club": "Clementi BC",
+              "participants": [
+                "George Tan",
+                "Henry Koh"
+              ],
+              "seed": null
+            }
+          ],
+          "feeStructure": "per_player"
+        },
+        {
+          "id": "prog-4",
+          "name": "Mixed Doubles",
+          "type": "Knockout",
+          "minAge": 18,
+          "maxAge": 45,
+          "gender": "Mixed",
+          "fee": 120,
+          "minPlayers": 2,
+          "maxPlayers": 2,
+          "maxParticipants": 32,
+          "status": "open",
+          "fields": {
+            "enableSbaId": true,
+            "enableDocumentUpload": false,
+            "enableGuardianInfo": false,
+            "customFields": [
+              {
+                "label": "Club Name",
+                "type": "text",
+                "required": false
+              }
+            ]
+          },
+          "minParticipants": 4,
+          "currentParticipants": 20,
+          "sbaRequired": true,
+          "paymentRequired": true,
+          "fixtureFormat": "group_knockout",
+          "scoringRule": "badminton_21",
+          "maxSeeds": 4,
+          "formatConfig": {
+            "numGroups": 2,
+            "advancePerGroup": 2,
+            "crossGroupPairing": "standard"
+          },
+          "participantSeeds": [
+            {
+              "id": "p4-1",
+              "club": "Pasir Ris BC",
+              "participants": [
+                "Lee Wei Jie",
+                "Tan Mei Ling"
+              ],
+              "seed": 1
+            },
+            {
+              "id": "p4-2",
+              "club": "Tampines BC",
+              "participants": [
+                "Ravi Kumar",
+                "Wong Xiu Ying"
+              ],
+              "seed": 2
+            },
+            {
+              "id": "p4-3",
+              "club": "Jurong BC",
+              "participants": [
+                "Ahmad Farid",
+                "Lim Shu Fen"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p4-4",
+              "club": "Bishan SC",
+              "participants": [
+                "Chua Wei Liang",
+                "Priya Nair"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p4-5",
+              "club": "Serangoon BC",
+              "participants": [
+                "Marcus Lee",
+                "Rachel Koh"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p4-6",
+              "club": "Yishun BC",
+              "participants": [
+                "Daniel Sim",
+                "Melissa Tan"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p4-7",
+              "club": "Queenstown BC",
+              "participants": [
+                "Kevin Tan",
+                "Nur Aisyah"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p4-8",
+              "club": "Toa Payoh BC",
+              "participants": [
+                "Felix Wong",
+                "Chen Li Ying"
+              ],
+              "seed": null
+            }
+          ],
+          "feeStructure": "per_player"
+        }
+      ]
+    },
+    {
+      "id": "evt-2",
+      "name": "National Junior Badminton Tournament 2026",
+      "description": "Nurturing the next generation of badminton talent. Open to junior players across multiple age categories with professional coaching oversight.",
+      "venue": "Jurong East Sports Centre",
+      "venueAddress": "21 Jurong East Street 31, Singapore 609517",
+      "bannerUrl": "",
+      "galleryUrls": [],
+      "prospectusUrl": "/sample-prospectus.pdf",
+      "eventStartDate": "2026-04-20",
+      "eventEndDate": "2026-04-22",
+      "openDate": "2026-02-15",
+      "closeDate": "2026-02-28",
+      "maxParticipants": 128,
+      "sponsorInfo": "Supported by Ministry of Education Sports Division",
+      "consentStatement": "",
+      "isSports": true,
+      "sportType": "Badminton",
+      "fixtureMode": "internal",
+      "programs": [
+        {
+          "id": "prog-5",
+          "name": "Boys U15 Singles",
+          "type": "Knockout",
+          "minAge": 13,
+          "maxAge": 15,
+          "gender": "Male",
+          "fee": 40,
+          "minPlayers": 1,
+          "maxPlayers": 1,
+          "maxParticipants": 32,
+          "status": "open",
+          "fields": {
+            "enableSbaId": false,
+            "enableDocumentUpload": true,
+            "enableGuardianInfo": true,
+            "customFields": [
+              {
+                "label": "School Name",
+                "type": "text",
+                "required": true
+              }
+            ]
+          },
+          "minParticipants": 4,
+          "currentParticipants": 10,
+          "sbaRequired": false,
+          "paymentRequired": true,
+          "fixtureFormat": "knockout",
+          "scoringRule": "badminton_21",
+          "maxSeeds": 4,
+          "formatConfig": {
+            "seedingMethod": "snake",
+            "byeHandling": "top_seed_gets_bye"
+          },
+          "participantSeeds": [
+            {
+              "id": "p5-1",
+              "club": "Bishan SC",
+              "participants": [
+                "Michael Ng"
+              ],
+              "seed": 1
+            },
+            {
+              "id": "p5-2",
+              "club": "Tampines BC",
+              "participants": [
+                "Jake Tan"
+              ],
+              "seed": 2
+            },
+            {
+              "id": "p5-3",
+              "club": "Pasir Ris BC",
+              "participants": [
+                "Ryan Lee"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p5-4",
+              "club": "Jurong BC",
+              "participants": [
+                "Ivan Lim"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p5-5",
+              "club": "Serangoon BC",
+              "participants": [
+                "Adam Yusof"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p5-6",
+              "club": "Yishun BC",
+              "participants": [
+                "Ben Koh"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p5-7",
+              "club": "Ang Mo Kio BC",
+              "participants": [
+                "Chris Goh"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p5-8",
+              "club": "Clementi BC",
+              "participants": [
+                "David Sim"
+              ],
+              "seed": null
+            }
+          ],
+          "feeStructure": "per_entry"
+        },
+        {
+          "id": "prog-6",
+          "name": "Girls U15 Singles",
+          "type": "Knockout",
+          "minAge": 13,
+          "maxAge": 15,
+          "gender": "Female",
+          "fee": 40,
+          "minPlayers": 1,
+          "maxPlayers": 1,
+          "maxParticipants": 32,
+          "status": "open",
+          "fields": {
+            "enableSbaId": false,
+            "enableDocumentUpload": true,
+            "enableGuardianInfo": true,
+            "customFields": [
+              {
+                "label": "School Name",
+                "type": "text",
+                "required": true
+              }
+            ]
+          },
+          "minParticipants": 4,
+          "currentParticipants": 8,
+          "sbaRequired": false,
+          "paymentRequired": true,
+          "fixtureFormat": "knockout",
+          "scoringRule": "badminton_21",
+          "maxSeeds": 2,
+          "formatConfig": {
+            "seedingMethod": "snake",
+            "byeHandling": "top_seed_gets_bye"
+          },
+          "participantSeeds": [
+            {
+              "id": "p6-1",
+              "club": "Serangoon BC",
+              "participants": [
+                "Rachel Tan"
+              ],
+              "seed": 1
+            },
+            {
+              "id": "p6-2",
+              "club": "Bishan SC",
+              "participants": [
+                "Sophia Lim"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p6-3",
+              "club": "Tampines BC",
+              "participants": [
+                "Grace Wong"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p6-4",
+              "club": "Pasir Ris BC",
+              "participants": [
+                "Hannah Ng"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p6-5",
+              "club": "Jurong BC",
+              "participants": [
+                "Isabelle Koh"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p6-6",
+              "club": "Queenstown BC",
+              "participants": [
+                "Julia Tan"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p6-7",
+              "club": "Toa Payoh BC",
+              "participants": [
+                "Karen Sim"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p6-8",
+              "club": "Bedok BC",
+              "participants": [
+                "Laura Goh"
+              ],
+              "seed": null
+            }
+          ],
+          "feeStructure": "per_entry"
+        },
+        {
+          "id": "prog-7",
+          "name": "Boys U19 Singles",
+          "type": "Knockout",
+          "minAge": 16,
+          "maxAge": 19,
+          "gender": "Male",
+          "fee": 50,
+          "minPlayers": 1,
+          "maxPlayers": 1,
+          "maxParticipants": 32,
+          "status": "open",
+          "fields": {
+            "enableSbaId": false,
+            "enableDocumentUpload": false,
+            "enableGuardianInfo": false,
+            "customFields": []
+          },
+          "minParticipants": 4,
+          "currentParticipants": 5,
+          "sbaRequired": false,
+          "paymentRequired": true,
+          "fixtureFormat": "knockout",
+          "scoringRule": "badminton_21",
+          "maxSeeds": 2,
+          "formatConfig": {
+            "seedingMethod": "snake",
+            "byeHandling": "top_seed_gets_bye"
+          },
+          "participantSeeds": [
+            {
+              "id": "p7-1",
+              "club": "Pasir Ris BC",
+              "participants": [
+                "Nathan Tan"
+              ],
+              "seed": 1
+            },
+            {
+              "id": "p7-2",
+              "club": "Jurong BC",
+              "participants": [
+                "Owen Lim"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p7-3",
+              "club": "Tampines BC",
+              "participants": [
+                "Patrick Ng"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p7-4",
+              "club": "Bishan SC",
+              "participants": [
+                "Quinn Lee"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p7-5",
+              "club": "Serangoon BC",
+              "participants": [
+                "Rizwan Ahmad"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p7-6",
+              "club": "Yishun BC",
+              "participants": [
+                "Samuel Koh"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p7-7",
+              "club": "Ang Mo Kio BC",
+              "participants": [
+                "Thomas Goh"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p7-8",
+              "club": "Clementi BC",
+              "participants": [
+                "Umar Hassan"
+              ],
+              "seed": null
+            }
+          ],
+          "feeStructure": "per_entry"
+        }
+      ]
+    },
+    {
+      "id": "evt-3",
+      "name": "Inter-Club Badminton League 2026",
+      "description": "The premier inter-club competition featuring team-based group stage and knockout rounds. Rally your club members and compete for the league title.",
+      "venue": "Toa Payoh Sports Hall",
+      "venueAddress": "301 Lor 6 Toa Payoh, Singapore 319392",
+      "bannerUrl": "",
+      "galleryUrls": [],
+      "prospectusUrl": "/sample-prospectus.pdf",
+      "eventStartDate": "2026-05-05",
+      "eventEndDate": "2026-05-08",
+      "openDate": "2026-03-15",
+      "closeDate": "2026-02-28",
+      "maxParticipants": 200,
+      "sponsorInfo": "",
+      "consentStatement": "",
+      "isSports": true,
+      "sportType": "Badminton",
+      "fixtureMode": "internal",
+      "programs": [
+        {
+          "id": "prog-8",
+          "name": "Team Event",
+          "type": "Group Stage + Knockout",
+          "minAge": 18,
+          "maxAge": 55,
+          "gender": "Mixed",
+          "fee": 200,
+          "minPlayers": 3,
+          "maxPlayers": 5,
+          "maxParticipants": 16,
+          "status": "open",
+          "fields": {
+            "enableSbaId": false,
+            "enableDocumentUpload": false,
+            "enableGuardianInfo": false,
+            "customFields": [
+              {
+                "label": "Club Name",
+                "type": "text",
+                "required": true
+              },
+              {
+                "label": "Team Captain",
+                "type": "text",
+                "required": true
+              }
+            ]
+          },
+          "minParticipants": 4,
+          "currentParticipants": 6,
+          "sbaRequired": false,
+          "paymentRequired": true,
+          "fixtureFormat": "league",
+          "scoringRule": "badminton_21",
+          "maxSeeds": 0,
+          "formatConfig": {
+            "pointsForWin": 2,
+            "pointsForDraw": 1,
+            "homeAndAway": false
+          },
+          "participantSeeds": [
+            {
+              "id": "p8-1",
+              "club": "Pasir Ris BC",
+              "participants": [
+                "Pasir Ris BC Team"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p8-2",
+              "club": "Tampines BC",
+              "participants": [
+                "Tampines BC Team"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p8-3",
+              "club": "Jurong BC",
+              "participants": [
+                "Jurong BC Team"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p8-4",
+              "club": "Bishan SC",
+              "participants": [
+                "Bishan SC Team"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p8-5",
+              "club": "Serangoon BC",
+              "participants": [
+                "Serangoon BC Team"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p8-6",
+              "club": "Yishun BC",
+              "participants": [
+                "Yishun BC Team"
+              ],
+              "seed": null
+            }
+          ],
+          "feeStructure": "per_entry"
+        }
+      ]
+    },
+    {
+      "id": "evt-4",
+      "name": "Southeast Asian Badminton Invitational 2026",
+      "description": "An invitational tournament welcoming players from across Southeast Asia. SBA sanctioned event with international ranking points.",
+      "venue": "OCBC Arena",
+      "venueAddress": "5 Stadium Drive, Singapore 397631",
+      "bannerUrl": "",
+      "galleryUrls": [],
+      "prospectusUrl": "/sample-prospectus.pdf",
+      "eventStartDate": "2026-06-01",
+      "eventEndDate": "2026-06-03",
+      "openDate": "2026-04-01",
+      "closeDate": "2026-05-01",
+      "maxParticipants": 128,
+      "sponsorInfo": "Title sponsor: OCBC Bank",
+      "consentStatement": "",
+      "isSports": true,
+      "sportType": "Badminton",
+      "fixtureMode": "external",
+      "programs": [
+        {
+          "id": "prog-9",
+          "name": "Men's Singles",
+          "type": "Knockout",
+          "minAge": 18,
+          "maxAge": 40,
+          "gender": "Male",
+          "fee": 100,
+          "minPlayers": 1,
+          "maxPlayers": 1,
+          "maxParticipants": 32,
+          "status": "open",
+          "fields": {
+            "enableSbaId": true,
+            "enableDocumentUpload": true,
+            "enableGuardianInfo": false,
+            "customFields": [
+              {
+                "label": "Country",
+                "type": "text",
+                "required": true
+              }
+            ]
+          },
+          "minParticipants": 4,
+          "currentParticipants": 18,
+          "sbaRequired": true,
+          "paymentRequired": true,
+          "fixtureFormat": "knockout",
+          "scoringRule": "badminton_21",
+          "maxSeeds": 4,
+          "formatConfig": {
+            "seedingMethod": "snake",
+            "byeHandling": "top_seed_gets_bye"
+          },
+          "participantSeeds": [
+            {
+              "id": "p9-1",
+              "club": "Singapore",
+              "participants": [
+                "Lee Wei Jie"
+              ],
+              "sbaId": "SBA-001",
+              "seed": 1
+            },
+            {
+              "id": "p9-2",
+              "club": "Malaysia",
+              "participants": [
+                "Tan Boon Heong"
+              ],
+              "sbaId": null,
+              "seed": 2
+            },
+            {
+              "id": "p9-3",
+              "club": "Indonesia",
+              "participants": [
+                "Kevin Sanjaya"
+              ],
+              "sbaId": null,
+              "seed": 3
+            },
+            {
+              "id": "p9-4",
+              "club": "Thailand",
+              "participants": [
+                "Khosit Phetpradab"
+              ],
+              "sbaId": null,
+              "seed": 4
+            },
+            {
+              "id": "p9-5",
+              "club": "Singapore",
+              "participants": [
+                "Loh Kean Yew"
+              ],
+              "sbaId": "SBA-003",
+              "seed": null
+            },
+            {
+              "id": "p9-6",
+              "club": "Vietnam",
+              "participants": [
+                "Nguyen Tien Minh"
+              ],
+              "sbaId": null,
+              "seed": null
+            },
+            {
+              "id": "p9-7",
+              "club": "Philippines",
+              "participants": [
+                "Brian Yang"
+              ],
+              "sbaId": null,
+              "seed": null
+            },
+            {
+              "id": "p9-8",
+              "club": "Myanmar",
+              "participants": [
+                "Thet Htar Thuzar"
+              ],
+              "sbaId": null,
+              "seed": null
+            }
+          ],
+          "feeStructure": "per_entry"
+        },
+        {
+          "id": "prog-10",
+          "name": "Women's Singles",
+          "type": "Knockout",
+          "minAge": 18,
+          "maxAge": 40,
+          "gender": "Female",
+          "fee": 100,
+          "minPlayers": 1,
+          "maxPlayers": 1,
+          "maxParticipants": 32,
+          "status": "open",
+          "fields": {
+            "enableSbaId": true,
+            "enableDocumentUpload": true,
+            "enableGuardianInfo": false,
+            "customFields": [
+              {
+                "label": "Country",
+                "type": "text",
+                "required": true
+              }
+            ]
+          },
+          "minParticipants": 4,
+          "currentParticipants": 12,
+          "sbaRequired": true,
+          "paymentRequired": true,
+          "fixtureFormat": "knockout",
+          "scoringRule": "badminton_21",
+          "maxSeeds": 4,
+          "formatConfig": {
+            "seedingMethod": "snake",
+            "byeHandling": "top_seed_gets_bye"
+          },
+          "participantSeeds": [
+            {
+              "id": "p10-1",
+              "club": "Singapore",
+              "participants": [
+                "Yeo Jia Min"
+              ],
+              "sbaId": "SBA-002",
+              "seed": 1
+            },
+            {
+              "id": "p10-2",
+              "club": "Thailand",
+              "participants": [
+                "Ratchanok Intanon"
+              ],
+              "sbaId": null,
+              "seed": 2
+            },
+            {
+              "id": "p10-3",
+              "club": "Indonesia",
+              "participants": [
+                "Gregoria Mariska"
+              ],
+              "sbaId": null,
+              "seed": null
+            },
+            {
+              "id": "p10-4",
+              "club": "Malaysia",
+              "participants": [
+                "Goh Jin Wei"
+              ],
+              "sbaId": null,
+              "seed": null
+            },
+            {
+              "id": "p10-5",
+              "club": "Singapore",
+              "participants": [
+                "Wong Xiu Ying"
+              ],
+              "sbaId": "SBA-004",
+              "seed": null
+            },
+            {
+              "id": "p10-6",
+              "club": "Vietnam",
+              "participants": [
+                "Vu Thi Trang"
+              ],
+              "sbaId": null,
+              "seed": null
+            },
+            {
+              "id": "p10-7",
+              "club": "Philippines",
+              "participants": [
+                "Kristine Domingo"
+              ],
+              "sbaId": null,
+              "seed": null
+            },
+            {
+              "id": "p10-8",
+              "club": "Myanmar",
+              "participants": [
+                "Thet Htar Thuzar B"
+              ],
+              "sbaId": null,
+              "seed": null
+            }
+          ],
+          "feeStructure": "per_entry"
+        }
+      ]
+    },
+    {
+      "id": "evt-5",
+      "name": "Community Badminton Fest 2026",
+      "description": "A fun, community-focused badminton festival for players of all skill levels. Come enjoy a day of friendly competition and sportsmanship.",
+      "venue": "Bishan Sports Hall",
+      "venueAddress": "5 Bishan Street 14, Singapore 579783",
+      "bannerUrl": "",
+      "galleryUrls": [],
+      "prospectusUrl": "",
+      "eventStartDate": "2026-03-01",
+      "eventEndDate": "2026-03-02",
+      "openDate": "2026-01-01",
+      "closeDate": "2026-02-15",
+      "maxParticipants": 100,
+      "sponsorInfo": "",
+      "consentStatement": "",
+      "isSports": true,
+      "sportType": "Badminton",
+      "fixtureMode": "internal",
+      "programs": [
+        {
+          "id": "prog-11",
+          "name": "Open Singles",
+          "type": "Knockout",
+          "minAge": 12,
+          "maxAge": 60,
+          "gender": "Mixed",
+          "fee": 20,
+          "minPlayers": 1,
+          "maxPlayers": 1,
+          "maxParticipants": 64,
+          "status": "open",
+          "fields": {
+            "enableSbaId": false,
+            "enableDocumentUpload": false,
+            "enableGuardianInfo": false,
+            "customFields": []
+          },
+          "minParticipants": 4,
+          "currentParticipants": 30,
+          "sbaRequired": false,
+          "paymentRequired": false,
+          "fixtureFormat": "group_knockout",
+          "scoringRule": "badminton_21",
+          "maxSeeds": 0,
+          "formatConfig": {
+            "numGroups": 3,
+            "advancePerGroup": 2,
+            "crossGroupPairing": "standard"
+          },
+          "participantSeeds": [
+            {
+              "id": "p11-1",
+              "club": "Pasir Ris BC",
+              "participants": [
+                "Alex Tan"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p11-2",
+              "club": "Tampines BC",
+              "participants": [
+                "Bob Lee"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p11-3",
+              "club": "Jurong BC",
+              "participants": [
+                "Charles Ng"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p11-4",
+              "club": "Bishan SC",
+              "participants": [
+                "David Koh"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p11-5",
+              "club": "Serangoon BC",
+              "participants": [
+                "Eddie Sim"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p11-6",
+              "club": "Yishun BC",
+              "participants": [
+                "Frank Goh"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p11-7",
+              "club": "Ang Mo Kio BC",
+              "participants": [
+                "Gary Wong"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p11-8",
+              "club": "Clementi BC",
+              "participants": [
+                "Henry Tan"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p11-9",
+              "club": "Queenstown BC",
+              "participants": [
+                "Ian Lim"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p11-10",
+              "club": "Toa Payoh BC",
+              "participants": [
+                "James Ng"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p11-11",
+              "club": "Bedok BC",
+              "participants": [
+                "Kevin Koh"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p11-12",
+              "club": "Woodlands BC",
+              "participants": [
+                "Larry Sim"
+              ],
+              "seed": null
+            }
+          ],
+          "feeStructure": "per_entry"
+        },
+        {
+          "id": "prog-12",
+          "name": "Fun Doubles",
+          "type": "Knockout",
+          "minAge": 12,
+          "maxAge": 60,
+          "gender": "Mixed",
+          "fee": 30,
+          "minPlayers": 2,
+          "maxPlayers": 2,
+          "maxParticipants": 32,
+          "status": "open",
+          "fields": {
+            "enableSbaId": false,
+            "enableDocumentUpload": false,
+            "enableGuardianInfo": false,
+            "customFields": []
+          },
+          "minParticipants": 4,
+          "currentParticipants": 14,
+          "sbaRequired": false,
+          "paymentRequired": false,
+          "fixtureFormat": "knockout",
+          "scoringRule": "badminton_21",
+          "maxSeeds": 0,
+          "formatConfig": {
+            "seedingMethod": "random",
+            "byeHandling": "random"
+          },
+          "participantSeeds": [
+            {
+              "id": "p12-1",
+              "club": "Pasir Ris BC",
+              "participants": [
+                "Alex Tan",
+                "Bob Lee"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p12-2",
+              "club": "Tampines BC",
+              "participants": [
+                "Charles Ng",
+                "David Koh"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p12-3",
+              "club": "Jurong BC",
+              "participants": [
+                "Eddie Sim",
+                "Frank Goh"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p12-4",
+              "club": "Bishan SC",
+              "participants": [
+                "Gary Wong",
+                "Henry Tan"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p12-5",
+              "club": "Serangoon BC",
+              "participants": [
+                "Ian Lim",
+                "James Ng"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p12-6",
+              "club": "Yishun BC",
+              "participants": [
+                "Kevin Koh",
+                "Larry Sim"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p12-7",
+              "club": "Queenstown BC",
+              "participants": [
+                "Mike Tan",
+                "Nick Lee"
+              ],
+              "seed": null
+            },
+            {
+              "id": "p12-8",
+              "club": "Toa Payoh BC",
+              "participants": [
+                "Oscar Ng",
+                "Peter Koh"
+              ],
+              "seed": null
+            }
+          ],
+          "feeStructure": "per_player"
+        }
+      ]
+    },
+    {
+      "id": "evt-6",
+      "name": "Annual Dinner & Prize Giving 2026",
+      "description": "Annual gala dinner and prize giving ceremony.",
+      "venue": "Raffles City Convention Centre",
+      "venueAddress": "80 Bras Basah Rd, Singapore 189560",
+      "bannerUrl": "",
+      "galleryUrls": [],
+      "prospectusUrl": "",
+      "eventStartDate": "2026-06-15",
+      "eventEndDate": "2026-06-15",
+      "openDate": "2026-05-01",
+      "closeDate": "2026-06-01",
+      "maxParticipants": 300,
+      "sponsorInfo": "",
+      "consentStatement": "",
+      "isSports": false,
+      "sportType": "",
+      "fixtureMode": "internal",
+      "programs": [
+        {
+          "id": "prog-13",
+          "name": "Dinner Registration",
+          "type": "Registration",
+          "minAge": 0,
+          "maxAge": 99,
+          "gender": "All",
+          "fee": 50,
+          "minPlayers": 1,
+          "maxPlayers": 1,
+          "maxParticipants": 300,
+          "status": "open",
+          "fields": {
+            "enableSbaId": false,
+            "enableDocumentUpload": false,
+            "enableGuardianInfo": false,
+            "customFields": []
+          },
+          "minParticipants": 1,
+          "currentParticipants": 85,
+          "sbaRequired": false,
+          "paymentRequired": true,
+          "feeStructure": "per_entry"
+        }
+      ]
+    }
+  ],
+  "admin": {
+    "users": [
+      {
+        "id": "u1",
+        "email": "admin@trs.com",
+        "password": "admin123",
+        "role": "superadmin",
+        "name": "System Admin",
+        "lastLogin": "2026-03-04"
+      },
+      {
+        "id": "u2",
+        "email": "manager@trs.com",
+        "password": "manager123",
+        "role": "eventadmin",
+        "name": "Event Manager",
+        "lastLogin": "2026-03-01"
+      }
+    ]
+  },
+  "mockStats": {
+    "totalRegistrations": 6,
+    "confirmed": 2,
+    "pending": 3,
+    "cancelled": 1
+  }
+}
