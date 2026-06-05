@@ -47,8 +47,14 @@ const QUILL_MODULES = {
 };
 
 const QUILL_FORMATS = [
-  "header", "bold", "italic", "underline", "strike",
-  "list", "bullet", "align", "link",
+  "header",
+  "bold",
+  "italic",
+  "underline",
+  "strike",
+  "list",
+  "align",
+  "link",
 ];
 
 function RichTextEditor({
