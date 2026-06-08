@@ -270,6 +270,57 @@ export default function ParticipantFieldsForm({
   return (
     <div className="grid sm:grid-cols-2 gap-5">
 
+      {/* ── SBA ID (conditional) ── */}
+      {programFields.enableSbaId && (
+        <div className="sm:col-span-2">
+          <FieldWrapper label="SBA ID" error={errors.sbaId}>
+            {sbaEnabled && onSbaRetrieve ? (
+              // Registration flow: SBA lookup button
+              <>
+                <div className="flex gap-2">
+                  <input
+                    className="field-input flex-1 font-mono"
+                    value={values.sbaId ?? ''}
+                    placeholder="e.g. SBA-001"
+                    disabled={disabled}
+                    onChange={e => {
+                      onSbaIdChange?.(e.target.value);
+                      set({ sbaId: e.target.value });
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={onSbaRetrieve}
+                    disabled={disabled || sbaStatus === "loading"}
+                    className="btn-primary px-4 py-2 text-xs font-semibold whitespace-nowrap disabled:opacity-60"
+                  >
+                    {sbaStatus === "loading" ? "Loading…" : "Retrieve →"}
+                  </button>
+                </div>
+                {sbaStatus === "found" && (
+                  <p className="text-xs mt-1 flex items-center gap-1"
+                    style={{ color: "var(--badge-open-text)" }}>
+                    <CheckCircle className="h-3 w-3" />
+                    Details auto-filled. Clear the SBA ID to edit manually.
+                  </p>
+                )}
+                {sbaStatus === "not_found" && (
+                  <p className="text-xs mt-1 flex items-center gap-1"
+                    style={{ color: "var(--badge-closed-text)" }}>
+                    <XCircle className="h-3 w-3" /> SBA ID not found.
+                  </p>
+                )}
+              </>
+            ) : (
+              // Admin edit: plain text input, no lookup button
+              <input className="field-input font-mono" value={values.sbaId ?? ''}
+                disabled={disabled}
+                onChange={e => set({ sbaId: e.target.value })} />
+            )}
+          </FieldWrapper>
+        </div>
+      )}
+
       {/* ── Full Name ── */}
       <FieldWrapper label="Full Name (as per NRIC/Passport)" error={errors.fullName}>
         <div className="relative">
@@ -392,57 +443,6 @@ export default function ParticipantFieldsForm({
             {TSHIRT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </FieldWrapper>
-      )}
-
-      {/* ── SBA ID (conditional) ── */}
-      {programFields.enableSbaId && (
-        <div className="sm:col-span-2">
-          <FieldWrapper label="SBA ID" error={errors.sbaId}>
-            {sbaEnabled && onSbaRetrieve ? (
-              // Registration flow: SBA lookup button
-              <>
-                <div className="flex gap-2">
-                  <input
-                    className="field-input flex-1 font-mono"
-                    value={values.sbaId ?? ''}
-                    placeholder="e.g. SBA-001"
-                    disabled={disabled}
-                    onChange={e => {
-                      onSbaIdChange?.(e.target.value);
-                      set({ sbaId: e.target.value });
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={onSbaRetrieve}
-                    disabled={disabled || sbaStatus === "loading"}
-                    className="btn-primary px-4 py-2 text-xs font-semibold whitespace-nowrap disabled:opacity-60"
-                  >
-                    {sbaStatus === "loading" ? "Loading…" : "Retrieve →"}
-                  </button>
-                </div>
-                {sbaStatus === "found" && (
-                  <p className="text-xs mt-1 flex items-center gap-1"
-                    style={{ color: "var(--badge-open-text)" }}>
-                    <CheckCircle className="h-3 w-3" />
-                    Details auto-filled. Clear the SBA ID to edit manually.
-                  </p>
-                )}
-                {sbaStatus === "not_found" && (
-                  <p className="text-xs mt-1 flex items-center gap-1"
-                    style={{ color: "var(--badge-closed-text)" }}>
-                    <XCircle className="h-3 w-3" /> SBA ID not found.
-                  </p>
-                )}
-              </>
-            ) : (
-              // Admin edit: plain text input, no lookup button
-              <input className="field-input font-mono" value={values.sbaId ?? ''}
-                disabled={disabled}
-                onChange={e => set({ sbaId: e.target.value })} />
-            )}
-          </FieldWrapper>
-        </div>
       )}
 
       {/* ── Guardian Info (conditional) ── */}
