@@ -16,7 +16,7 @@ import Dashboard from "@/pages/admin/Dashboard";
 import AdminEvents from "@/pages/admin/Events";
 import EventEdit from "@/pages/admin/EventEdit";
 import AdminRegistrations from "@/pages/admin/Registrations";
-import AdminPayments from "@/pages/admin/AdminPayments";   // NEW
+import PaymentReconciliation from "@/pages/admin/PaymentReconciliation"
 import AdminFixtures from "@/pages/admin/Fixtures";
 import MasterConfig from "@/pages/admin/Masterconfig";
 import UserManagement from "@/pages/admin/Usermanagement";
@@ -49,7 +49,7 @@ const App = () => (
                   <Route path="registrations/participants" element={<ParticipantDetails />} />
                   <Route path="participants" element={<ParticipantDetails />} />
                   <Route path="registrations/:regId/participants" element={<ParticipantDetails />} />
-                  <Route path="payments" element={<AdminPayments />} />   {/* NEW */}
+                  <Route path="payment-reconciliation" element={<PaymentReconciliation />} />
                   <Route path="fixtures" element={<AdminFixtures />} />
                   <Route path="sba-rankings" element={<SbaRankingsPage />} />
                   <Route path="config" element={<MasterConfig />} />

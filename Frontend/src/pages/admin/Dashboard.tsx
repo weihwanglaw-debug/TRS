@@ -1,14 +1,3 @@
-/**
- * Dashboard.tsx — updated
- *
- * Changes from original:
- *   1. Imports apiGetReconciliationStats (new)
- *   2. Fetches reconciliation stats alongside existing stats call
- *   3. "Pending Payments" card renamed to "Payment Reconciliation"
- *      — count is reconciliationTotal (caseA + caseB + caseC)
- *      — navigates to /admin/payments (new page) instead of /admin/registrations
- *   4. Everything else unchanged
- */
 
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -97,7 +86,7 @@ export default function Dashboard() {
       bg:     reconcTotal > 0 ? "var(--badge-closed-bg)" : "var(--color-row-hover)",
       border: reconcTotal > 0 ? "var(--badge-closed-text)" : "var(--color-table-border)",
       sub:    "Payments needing attention",
-      action: "/admin/payments",   // NEW route
+      action: "/admin/payment-reconciliation",
     },
     {
       label:  "Pending Fixture Setup",

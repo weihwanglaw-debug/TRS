@@ -1100,10 +1100,11 @@ export default function AdminRegistrations() {
             }}>
               <Users className="h-4 w-4" /> Participant List
             </button>
+
+
             <button
-              disabled={!(openAction.reg.regStatus !== "Cancelled")}
+              disabled={openAction.reg.regStatus === "Cancelled"}
               onClick={() => { setCancelModal(openAction.reg); setOpenAction(null); }}
-              style={{ color: openAction.reg.regStatus !== "Cancelled" ? "var(--badge-closed-text)" : undefined }}
             >
               <XCircle className="h-4 w-4" /> Cancel
             </button>

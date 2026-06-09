@@ -432,6 +432,9 @@ namespace TRS_API.Controllers
                     verifiedSession,
                     $"{result.Code}: {result.Message}");
 
+                  if (string.Equals(result.Code, "CHECKOUT_EXPIRED"))
+                    return Conflict(new { code = result.Code, message = result.Message });    
+
                 if (string.Equals(result.Code, "CHECKOUT_CONTEXT_MISSING", StringComparison.Ordinal))
                     return Conflict(new { code = result.Code, message = result.Message });
 

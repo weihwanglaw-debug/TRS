@@ -46,6 +46,17 @@ public sealed class PaymentFinalizationService
                 "Payment is confirmed, but registration details are still being reconciled. Please contact the organiser if you do not receive a confirmation email shortly.");
         }
 
+        if (pendingCheckout.ExpiresAt < DateTime.UtcNow)
+        {
+            _log.LogWarning(
+                "Session {SessionId} expired at {ExpiresAt} — rejecting late finalisation",
+                session.Id, pendingCheckout.ExpiresAt);
+
+               return PaymentFinalizationResult.Fail(
+                "CHECKOUT_EXPIRED",
+                "Checkout session expired before payment was confirmed. Payment requires manual refund.");
+        }
+
         CreateRegistrationRequest? createReq;
         try
         {

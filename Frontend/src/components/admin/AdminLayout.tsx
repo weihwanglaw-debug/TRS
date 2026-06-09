@@ -24,13 +24,13 @@ export default function AdminLayout() {
   if (!isAuthenticated) return null;
 
   const links = [
-    { to: "/admin",                label: "Dashboard",           icon: LayoutDashboard, end: true  },
-    { to: "/admin/events",         label: "Events & Programs",   icon: CalendarDays,    end: false },
-    { to: "/admin/registrations",  label: "Registrations",       icon: Users,           end: false },
-    { to: "/admin/payments",       label: "Payments",            icon: CreditCard,      end: false },
-    { to: "/admin/fixtures",       label: "Fixtures",            icon: GitBranch,       end: false },
-    { to: "/admin/sba-rankings",   label: "SBA Rankings",        icon: ListOrdered,     end: false },
-    { to: "/admin/participants",   label: "Participant Details",  icon: UserSquare,      end: false },
+    { to: "/admin",                         label: "Dashboard",             icon: LayoutDashboard, end: true  },
+    { to: "/admin/events",                  label: "Events & Programs",     icon: CalendarDays,    end: false },
+    { to: "/admin/registrations",           label: "Registrations",         icon: Users,           end: false },
+    { to: "/admin/payment-reconciliation",  label: "Payment Reconciliation",icon: CreditCard,      end: false },
+    { to: "/admin/fixtures",                label: "Fixtures",              icon: GitBranch,       end: false },
+    { to: "/admin/sba-rankings",            label: "SBA Rankings",          icon: ListOrdered,     end: false },
+    { to: "/admin/participants",            label: "Participant Details",   icon: UserSquare,      end: false },
     ...(isSuperAdmin ? [
       { to: "/admin/users",  label: "User Management", icon: Shield,    end: false },
       { to: "/admin/config", label: "Master Config",   icon: Settings,  end: false },

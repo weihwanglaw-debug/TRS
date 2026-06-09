@@ -31,7 +31,7 @@ The system is built and deployed as a monorepo: React frontend (`tournament-hub`
 - `/admin/events/:eventId` — Event create/edit (EventEdit.tsx) — programs, documents, gallery, AdditionalInfo (Tiptap rich text)
 - `/admin/registrations` — Registration list with filters, paging, CSV export
 - `/admin/registrations/participants` — Participant detail view
-- `/admin/payments` — Payment reconciliation (AdminPayments.tsx)
+- `/admin/payment-reconciliation` — Payment reconciliation (PaymentReconciliation.tsx)
 - `/admin/fixtures` — Fixture wizard and bracket management
 - `/admin/sba-rankings` — SBA ranking import and browse
 - `/admin/config` — Master system configuration (key-value pairs)
