@@ -33,6 +33,10 @@ export * from "./registrationsApi";
 // SBA rankings & member lookup
 export * from "./sbaApi";
 
+// Badminton clubs
+export * from "./clubsApi";
+
+
 // Fixture API (pre-existing — re-exported for convenience)
 export {
   apiGetFixture,

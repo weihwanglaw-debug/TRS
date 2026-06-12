@@ -65,6 +65,9 @@ public class FixtureGenerationService
         }
 
         var fixture = await _db.Fixtures.FirstOrDefaultAsync(f => f.EventId == eventId && f.ProgramId == programId);
+        if (fixture != null && ExistingFixtureLocked(fixture))
+            return FixtureGenerationResult.Fail("LOCKED", "Cannot regenerate a fixture after results have been entered.");
+
         if (fixture == null)
         {
             fixture = new Fixture
@@ -202,7 +205,13 @@ public class FixtureGenerationService
         if (match == null)
             return FixtureGenerationResult.Fail("NOT_FOUND", "Match not found.");
 
-        match.Games = req.Games.Select(g => new GameScore { P1 = g.P1, P2 = g.P2 }).ToList();
+        var validation = ValidateScoreRequest(match, req);
+        if (validation != null)
+            return validation;
+
+        match.Games = (req.Games ?? new List<FixtureGameScoreRequest>())
+            .Select(g => new GameScore { P1 = g.P1, P2 = g.P2 })
+            .ToList();
         if (!match.Games.Any()) match.Games = new List<GameScore> { new() };
         match.Walkover = req.Walkover;
         match.WalkoverWinner = req.Walkover ? req.WalkoverWinner : "";
@@ -246,6 +255,8 @@ public class FixtureGenerationService
         var round = (state.HeatRounds ?? new List<HeatRound>()).FirstOrDefault(r => r.RoundNumber == req.RoundNumber);
         if (round == null)
             return FixtureGenerationResult.Fail("NOT_FOUND", "Heat round not found.");
+        if (round.IsComplete)
+            return FixtureGenerationResult.Fail("ROUND_COMPLETE", "Completed heat rounds cannot be edited.");
 
         var result = round.Results.FirstOrDefault(r => r.TeamId == req.TeamId);
         if (result == null)
@@ -272,6 +283,8 @@ public class FixtureGenerationService
             return FixtureGenerationResult.Fail("NOT_FOUND", "Heat round not found.");
         if (round.IsComplete)
             return FixtureGenerationResult.Fail("ALREADY_COMPLETE", "This round has already been advanced.");
+        if (round.Results.Any(r => string.IsNullOrWhiteSpace(r.Result)))
+            return FixtureGenerationResult.Fail("RESULTS_REQUIRED", "Enter all heat results before advancing.");
 
         var nextRound = rounds.FirstOrDefault(r => r.RoundNumber == req.FromRound + 1);
         if (nextRound == null)
@@ -282,6 +295,10 @@ public class FixtureGenerationService
             return FixtureGenerationResult.Fail("INVALID_ADVANCE", "Select at least one participant to advance.");
         if (advancing.Any(id => round.Results.All(r => r.TeamId != id)))
             return FixtureGenerationResult.Fail("INVALID_ADVANCE", "One or more advancing participants are invalid.");
+
+        var expectedAdvanceCount = Math.Min(state.Config.HeatsConfig?.AdvancePerRound ?? advancing.Count, round.Results.Count);
+        if (advancing.Count != expectedAdvanceCount)
+            return FixtureGenerationResult.Fail("INVALID_ADVANCE", $"Select exactly {expectedAdvanceCount} participant(s) to advance.");
 
         round.IsComplete = true;
         foreach (var item in round.Results)
@@ -310,6 +327,19 @@ public class FixtureGenerationService
             return FixtureGenerationResult.Fail("NOT_FOUND", "Final heat round not found.");
 
         var places = req.Places ?? new Dictionary<string, int>();
+        if (places.Count == 0)
+            return FixtureGenerationResult.Fail("INVALID_PLACES", "Assign at least one final place.");
+
+        var finalTeamIds = finalRound.Results.Select(r => r.TeamId).ToHashSet(StringComparer.Ordinal);
+        if (places.Keys.Any(id => !finalTeamIds.Contains(id)))
+            return FixtureGenerationResult.Fail("INVALID_PLACES", "One or more placed participants are invalid.");
+
+        var placesAwarded = state.Config.HeatsConfig?.PlacesAwarded ?? finalRound.Results.Count;
+        if (places.Values.Any(place => place < 1 || place > placesAwarded))
+            return FixtureGenerationResult.Fail("INVALID_PLACES", $"Places must be between 1 and {placesAwarded}.");
+        if (places.Values.Count != places.Values.Distinct().Count())
+            return FixtureGenerationResult.Fail("INVALID_PLACES", "Duplicate final places are not allowed.");
+
         foreach (var result in finalRound.Results)
         {
             if (places.TryGetValue(result.TeamId, out var place))
@@ -370,6 +400,26 @@ public class FixtureGenerationService
 
         if (req.NumSeeds < 0)
             return FixtureGenerationResult.Fail("INVALID_CONFIG", "Number of seeds cannot be negative.");
+        if (req.StandingPoints != null && (req.StandingPoints.Win < 0 || req.StandingPoints.Draw < 0 || req.StandingPoints.Loss < 0))
+            return FixtureGenerationResult.Fail("INVALID_CONFIG", "Standing points cannot be negative.");
+
+        if (string.Equals(req.Format, "group_knockout", StringComparison.OrdinalIgnoreCase))
+        {
+            if ((req.NumGroups ?? 0) < 2)
+                return FixtureGenerationResult.Fail("INVALID_CONFIG", "Group knockout requires at least 2 groups.");
+            if ((req.AdvancePerGroup ?? 0) < 1)
+                return FixtureGenerationResult.Fail("INVALID_CONFIG", "At least 1 participant must advance per group.");
+        }
+
+        if (string.Equals(req.Format, "heats", StringComparison.OrdinalIgnoreCase) && req.HeatsConfig != null)
+        {
+            if (req.HeatsConfig.NumRounds < 2)
+                return FixtureGenerationResult.Fail("INVALID_CONFIG", "Heats require at least 2 rounds.");
+            if (req.HeatsConfig.AdvancePerRound < 1)
+                return FixtureGenerationResult.Fail("INVALID_CONFIG", "At least 1 participant must advance per heat round.");
+            if (req.HeatsConfig.PlacesAwarded < 1)
+                return FixtureGenerationResult.Fail("INVALID_CONFIG", "At least 1 final place must be awarded.");
+        }
 
         var config = new FixtureConfig
         {
@@ -494,12 +544,144 @@ public class FixtureGenerationService
             return (state.HeatRounds ?? new List<HeatRound>()).Any(r => r.IsComplete);
 
         return state.Matches.Concat(state.Groups.SelectMany(g => g.Matches))
-            .Any(m => !string.Equals(m.Status, "Scheduled", StringComparison.OrdinalIgnoreCase));
+            .Any(m => !IsByeMatch(m) && !string.Equals(m.Status, "Scheduled", StringComparison.OrdinalIgnoreCase));
     }
 
     private bool IsCompleted(FixtureMatch match) =>
         string.Equals(match.Status, "Completed", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(match.Status, "Walkover", StringComparison.OrdinalIgnoreCase);
+
+    private bool ExistingFixtureLocked(Fixture fixture)
+    {
+        if (fixture.IsLocked)
+            return true;
+
+        if (string.IsNullOrWhiteSpace(fixture.BracketStateJson))
+            return false;
+
+        try
+        {
+            var state = JsonSerializer.Deserialize<FixtureState>(fixture.BracketStateJson, _jsonOptions);
+            return state != null && IsLocked(state);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private FixtureGenerationResult? ValidateScoreRequest(FixtureMatch match, SaveFixtureScoreRequest req)
+    {
+        if (IsByeMatch(match))
+            return FixtureGenerationResult.Fail("BYE_NO_SCORE", "BYE matches are advanced automatically and cannot be scored.");
+
+        static bool ValidWinner(string? winner) =>
+            string.Equals(winner, "team1", StringComparison.Ordinal) ||
+            string.Equals(winner, "team2", StringComparison.Ordinal);
+
+        if (req.Walkover)
+        {
+            if (!ValidWinner(req.WalkoverWinner))
+                return FixtureGenerationResult.Fail("INVALID_WINNER", "Choose a valid walkover winner.");
+            return null;
+        }
+
+        var games = req.Games ?? new List<FixtureGameScoreRequest>();
+        if (!games.Any())
+            return FixtureGenerationResult.Fail("INVALID_SCORE", "Enter at least one game score.");
+
+        var team1Games = 0;
+        var team2Games = 0;
+        var tiedGames = 0;
+        foreach (var game in games)
+        {
+            if (!decimal.TryParse(game.P1, out var p1) || !decimal.TryParse(game.P2, out var p2))
+                return FixtureGenerationResult.Fail("INVALID_SCORE", "Game scores must be numeric.");
+            if (p1 < 0 || p2 < 0)
+                return FixtureGenerationResult.Fail("INVALID_SCORE", "Game scores cannot be negative.");
+
+            if (p1 > p2) team1Games++;
+            else if (p2 > p1) team2Games++;
+            else tiedGames++;
+        }
+
+        if (!ValidWinner(req.Winner))
+        {
+            if (string.Equals(match.Phase, "knockout", StringComparison.OrdinalIgnoreCase))
+                return FixtureGenerationResult.Fail("INVALID_WINNER", "Knockout matches require a winner.");
+            if (team1Games == team2Games)
+                return null;
+
+            return FixtureGenerationResult.Fail("INVALID_WINNER", "Choose a valid match winner or submit tied scores for a draw.");
+        }
+
+        if (tiedGames > 0)
+            return FixtureGenerationResult.Fail("INVALID_SCORE", "Winner-based results cannot include tied game scores.");
+
+        if (team1Games == team2Games)
+            return FixtureGenerationResult.Fail("INVALID_SCORE", "The submitted games do not determine a match winner.");
+        if (req.Winner == "team1" && team1Games < team2Games)
+            return FixtureGenerationResult.Fail("WINNER_MISMATCH", "Selected winner does not match the submitted game scores.");
+        if (req.Winner == "team2" && team2Games < team1Games)
+            return FixtureGenerationResult.Fail("WINNER_MISMATCH", "Selected winner does not match the submitted game scores.");
+
+        return null;
+    }
+
+    private int CompareHeadToHead(GroupStandingEntry a, GroupStandingEntry b, Dictionary<string, Dictionary<string, int>> headToHead)
+    {
+        if (headToHead.TryGetValue(a.Team.Id, out var opponents) &&
+            opponents.TryGetValue(b.Team.Id, out var result))
+            return result;
+
+        return 0;
+    }
+
+    private List<GroupStandingEntry> OrderTiedStandingGroup(List<GroupStandingEntry> tied, Dictionary<string, Dictionary<string, int>> headToHead)
+    {
+        if (tied.Count == 2)
+        {
+            var h2h = CompareHeadToHead(tied[0], tied[1], headToHead);
+            if (h2h < 0) return tied;
+            if (h2h > 0) return new List<GroupStandingEntry> { tied[1], tied[0] };
+        }
+
+        return tied
+            .OrderByDescending(s => s.GamesFor - s.GamesAgainst)
+            .ThenByDescending(s => s.PointsFor - s.PointsAgainst)
+            .ThenByDescending(s => s.PointsFor)
+            .ThenBy(s => s.Team.Seed ?? int.MaxValue)
+            .ThenBy(s => s.Team.Id, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static bool SamePrimaryStanding(GroupStandingEntry a, GroupStandingEntry b) =>
+        a.Points == b.Points && a.Wins == b.Wins;
+
+    private List<GroupStandingEntry> OrderGroupStandings(List<GroupStandingEntry> standings, Dictionary<string, Dictionary<string, int>> headToHead)
+    {
+        var primary = standings
+            .OrderByDescending(s => s.Points)
+            .ThenByDescending(s => s.Wins)
+            .ToList();
+
+        var ordered = new List<GroupStandingEntry>();
+        for (var i = 0; i < primary.Count;)
+        {
+            var tied = new List<GroupStandingEntry> { primary[i] };
+            var j = i + 1;
+            while (j < primary.Count && SamePrimaryStanding(primary[i], primary[j]))
+            {
+                tied.Add(primary[j]);
+                j++;
+            }
+
+            ordered.AddRange(OrderTiedStandingGroup(tied, headToHead));
+            i = j;
+        }
+
+        return ordered;
+    }
 
     private FixtureMatch? FindMatch(FixtureState state, string matchId)
     {
@@ -519,9 +701,9 @@ public class FixtureGenerationService
             .Select(g => ComputeGroupStandings(g, config).Take(advance).Select(s => s.Team).ToList())
             .ToList();
 
-        var paired = new List<(FixtureTeam Team1, FixtureTeam Team2)>();
         if (groups.Count == 2)
         {
+            var paired = new List<(FixtureTeam Team1, FixtureTeam Team2)>();
             var groupA = advancers.ElementAtOrDefault(0) ?? new List<FixtureTeam>();
             var groupB = advancers.ElementAtOrDefault(1) ?? new List<FixtureTeam>();
             for (var i = 0; i < advance; i++)
@@ -530,23 +712,19 @@ public class FixtureGenerationService
                 var t2 = groupB.ElementAtOrDefault(advance - 1 - i);
                 if (t1 != null && t2 != null) paired.Add((t1, t2));
             }
-        }
-        else
-        {
-            for (var i = 0; i < advance; i++)
-            {
-                for (var j = 0; j < groups.Count - 1; j++)
-                {
-                    var t1 = advancers.ElementAtOrDefault(j)?.ElementAtOrDefault(i);
-                    var t2 = advancers.ElementAtOrDefault(j + 1)?.ElementAtOrDefault(i);
-                    if (t1 != null && t2 != null) paired.Add((t1, t2));
-                }
-            }
+
+            var matches = paired.Select(p => BlankMatch(p.Team1, p.Team2, 1, "knockout")).ToList();
+            ApplyRoundLabels(matches);
+            return matches;
         }
 
-        var matches = paired.Select(p => BlankMatch(p.Team1, p.Team2, 1, "knockout")).ToList();
-        ApplyRoundLabels(matches);
-        return matches;
+        var qualifiers = advancers
+            .SelectMany(groupAdvancers => groupAdvancers)
+            .GroupBy(team => team.Id, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .ToList();
+
+        return GenerateKnockoutMatches(qualifiers);
     }
 
     private List<FixtureMatch> GenerateNextKnockoutRound(List<FixtureMatch> matches)
@@ -633,25 +811,7 @@ public class FixtureGenerationService
             }
         }
 
-        var ordered = standings.Values.ToList();
-        ordered.Sort((a, b) =>
-        {
-            var pointsDiff = b.Points.CompareTo(a.Points);
-            if (pointsDiff != 0) return pointsDiff;
-
-            var h2h = CompareHeadToHead(a, b, headToHead);
-            if (h2h != 0) return h2h;
-
-            var gameRatio = (b.GamesFor / (decimal)Math.Max(b.Played, 1))
-                .CompareTo(a.GamesFor / (decimal)Math.Max(a.Played, 1));
-            if (gameRatio != 0) return gameRatio;
-
-            var pointRatio = (b.PointsFor / (decimal)(b.PointsAgainst == 0 ? 1 : b.PointsAgainst))
-                .CompareTo(a.PointsFor / (decimal)(a.PointsAgainst == 0 ? 1 : a.PointsAgainst));
-            if (pointRatio != 0) return pointRatio;
-
-            return string.Compare(a.Team.Id, b.Team.Id, StringComparison.Ordinal);
-        });
+        var ordered = OrderGroupStandings(standings.Values.ToList(), headToHead);
 
         for (var i = 0; i < ordered.Count; i++)
             ordered[i].Rank = i + 1;
@@ -674,15 +834,6 @@ public class FixtureGenerationService
 
         mapA[teamB] = compareResult;
         mapB[teamA] = -compareResult;
-    }
-
-    private int CompareHeadToHead(GroupStandingEntry a, GroupStandingEntry b, Dictionary<string, Dictionary<string, int>> headToHead)
-    {
-        if (headToHead.TryGetValue(a.Team.Id, out var opponents) &&
-            opponents.TryGetValue(b.Team.Id, out var result))
-            return result;
-
-        return 0;
     }
 
     private FixtureState GenerateState(List<FixtureSeedEntry> seeds, FixtureConfig config)
@@ -804,10 +955,10 @@ public class FixtureGenerationService
         while (pow < teams.Count) pow *= 2;
 
         var slots = Enumerable.Repeat<FixtureTeam?>(null, pow).ToList();
-        var seedOrder = new[] { 0, pow - 1, pow / 2 - 1, pow / 2 };
+        var seedLine = BuildSeedLine(pow);
         for (var i = 0; i < teams.Count; i++)
         {
-            var pos = i < seedOrder.Length ? seedOrder[i] : -1;
+            var pos = seedLine.IndexOf(i + 1);
             if (pos != -1 && slots[pos] == null) slots[pos] = teams[i];
             else
             {
@@ -819,11 +970,29 @@ public class FixtureGenerationService
         var matches = new List<FixtureMatch>();
         for (var i = 0; i < pow; i += 2)
         {
-            matches.Add(BlankMatch(slots[i] ?? ByeTeam(), slots[i + 1] ?? ByeTeam(), 1, "knockout"));
+            var match = BlankMatch(slots[i] ?? ByeTeam(), slots[i + 1] ?? ByeTeam(), 1, "knockout");
+            AutoCompleteBye(match);
+            matches.Add(match);
         }
 
         ApplyRoundLabels(matches);
         return matches;
+    }
+
+    private List<int> BuildSeedLine(int size)
+    {
+        if (size <= 1) return new List<int> { 1 };
+        if (size == 2) return new List<int> { 1, 2 };
+        if (size == 4) return new List<int> { 1, 4, 3, 2 };
+
+        var previous = BuildSeedLine(size / 2);
+        var result = new List<int>();
+        foreach (var seed in previous)
+        {
+            result.Add(seed);
+            result.Add(size + 1 - seed);
+        }
+        return result;
     }
 
     private List<FixtureSeedEntry> SortedSeeds(List<FixtureSeedEntry> seeds)
@@ -871,6 +1040,24 @@ public class FixtureGenerationService
         Label = "BYE",
         Participants = new List<string>(),
     };
+
+    private bool IsByeTeam(FixtureTeam team) =>
+        string.Equals(team.Label, "BYE", StringComparison.OrdinalIgnoreCase) ||
+        team.Id.StartsWith("bye-", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsByeMatch(FixtureMatch match) =>
+        IsByeTeam(match.Team1) || IsByeTeam(match.Team2);
+
+    private void AutoCompleteBye(FixtureMatch match)
+    {
+        var team1Bye = IsByeTeam(match.Team1);
+        var team2Bye = IsByeTeam(match.Team2);
+        if (team1Bye == team2Bye)
+            return;
+
+        match.Winner = team1Bye ? "team2" : "team1";
+        match.Status = "Completed";
+    }
 
     private void ApplyRoundLabels(List<FixtureMatch> matches)
     {

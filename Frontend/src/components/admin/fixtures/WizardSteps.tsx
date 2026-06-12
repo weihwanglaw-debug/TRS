@@ -419,7 +419,10 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
   const GroupPreview = () => (
     <>
       {bracket.groups.map(grp => {
-        const standings = computeGroupStandings(grp);
+        const points = bracket.config.standingPoints;
+        const standings = computeGroupStandings(grp, undefined, points
+          ? { win: points.win, draw: points.draw, loss: points.loss }
+          : undefined);
         return (
           <div key={grp.id} style={{ border: "1px solid var(--color-table-border)" }}>
             <div className="px-4 py-2 font-bold text-xs uppercase tracking-wide"

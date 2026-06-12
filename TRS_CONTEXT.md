@@ -1,268 +1,192 @@
-# TRS_CONTEXT.md — Tournament Registration System
-**Generated from codebase. All facts are code-verified.**
+# TRS_CONTEXT.md
 
----
+This document summarizes the current Tournament Registration System implementation. Code is the source of truth.
 
-## 1. System Purpose
+## System Purpose
 
-TRS is a web-based tournament registration platform for sports events. It enables:
-- Public users to browse events and register participants for programs (singles, doubles, teams)
-- Online payment via Stripe Checkout (credit card and PayNow SGD)
-- Admin management of events, registrations, payments, refunds, fixtures, and SBA rankings
-- Automated PDF receipt generation and email confirmation on payment
+TRS is a tournament registration platform for public event browsing, participant registration, online payment, admin operations, payment reconciliation, SBA ranking lookup/import, and fixture management.
 
-The system is built and deployed as a monorepo: React frontend (`tournament-hub`) + ASP.NET Core 8 API (`TRS-API`), backed by SQL Server Express, with Stripe as the sole payment gateway and file storage served from the API's `wwwroot/uploads/` directory.
+The repository is a monorepo:
 
----
+- `Frontend/`: React 18, TypeScript, Vite, React Router, Tailwind CSS, shadcn/Radix UI components, Lucide icons, Quill/react-quill integration.
+- `Backend/TRS_API/`: ASP.NET Core 8 Web API.
+- `Backend/TRS_Data/`: Entity Framework Core 8 models and SQL Server mapping.
+- `Backend/TRS_FixtureTests/`: standalone console-based fixture regression checks.
 
-## 2. Frontend Structure
+## Main User Flows
 
-**Stack:** React 18, TypeScript, Vite, React Router v6, TanStack Query, Tailwind CSS, shadcn/ui, Tiptap (rich text)
+### Public User
 
-**Public pages:**
-- `/` — Landing page (event carousel, hero, advertise section)
-- `/event/:id` — Event detail with program listing, registration cart, and payment initiation
-- `/payment/result` — Post-Stripe redirect handler; calls `confirm-session` to finalise registration
-- `/login` — Admin login modal
+1. Views the landing page at `/`.
+2. Opens an event at `/event/:id`.
+3. Selects programs and fills participant forms.
+4. Uploads participant documents when enabled by program settings.
+5. Accepts consent.
+6. For free registrations, submits directly to `POST /api/registrations`.
+7. For paid registrations, creates a Stripe Checkout session through `POST /api/Payment/create-checkout-session`.
+8. Returns through `/payment/result`, which calls `POST /api/Payment/confirm-session` and displays the registration/receipt state.
 
-**Admin pages (all under `/admin`, wrapped in `AdminLayout`):**
-- `/admin` — Dashboard (stats cards, recent activity)
-- `/admin/events` — Event list
-- `/admin/events/:eventId` — Event create/edit (EventEdit.tsx) — programs, documents, gallery, AdditionalInfo (Tiptap rich text)
-- `/admin/registrations` — Registration list with filters, paging, CSV export
-- `/admin/registrations/participants` — Participant detail view
-- `/admin/payment-reconciliation` — Payment reconciliation (PaymentReconciliation.tsx)
-- `/admin/fixtures` — Fixture wizard and bracket management
-- `/admin/sba-rankings` — SBA ranking import and browse
-- `/admin/config` — Master system configuration (key-value pairs)
-- `/admin/users` — User management (superadmin only)
-- `/admin/change-password` — Self-service password change
+### Admin User
 
-**API layer (`src/lib/api/`):**
-- `_base.ts` — `apiFetch` wrapper with 401 interceptor, `publicHeaders()`, `adminHeaders()`, `assetUrl()`
-- `eventsApi.ts` — events and programs CRUD, documents sub-resource
-- `registrationsApi.ts` — registrations, payments, refunds, reconciliation
-- `uploadsApi.ts` — file uploads (multipart)
-- `authApi.ts` — login, logout, me, change-password
-- `configApi.ts` — system config read/write
-- `sbaApi.ts` — SBA rankings search, import
-- `usersApi.ts` — admin user management
-- `fixtureApi.ts` — fixture generation and bracket management
+1. Logs in through `/login`.
+2. Uses JWT-backed admin routes under `/admin`.
+3. Manages events, programs, documents, registrations, payments, refunds, fixtures, SBA rankings, system config, users, and password changes according to role.
+4. When registering players from the public event detail page while logged in, paid carts use admin payment bypass: payer contact is taken from the admin profile, cart payment/consent fields are hidden, and the confirmation modal captures the selected payment outcome.
 
-**State management:** React component state and `useState`/`useRef`/`useEffect` patterns. No Redux or Zustand. TanStack Query is installed but not actively used for server-state caching in most pages (direct `apiFetch` calls in `useEffect`).
+## Frontend Routes
 
-**Contexts:**
-- `AuthContext` — JWT token lifecycle (localStorage), `apiGetMe` on boot for session restore, `mustChangePassword` flag
-- `ThemeContext` — CSS custom property based theming
-- `LiveConfigContext` — loads `GET /api/config` on boot; exposes branding and system config to all components
+Routes are defined in `Frontend/src/App.tsx`.
 
----
+Public routes:
 
-## 3. Backend Structure
+- `/`: landing page.
+- `/event/:id`: event detail and registration cart.
+- `/payment/result`: payment redirect result and confirmation.
+- `/login`: admin login.
+- `*`: not found page.
 
-**Stack:** ASP.NET Core 8, Entity Framework Core 8, SQL Server Express, Stripe.NET SDK, QuestPDF (receipt generation), BCrypt.Net, Ganss.Xss (HTML sanitisation)
+Admin routes under `AdminLayout`:
 
-**Controllers (all under `/api/`):**
+- `/admin`: dashboard.
+- `/admin/events`: event list.
+- `/admin/events/:eventId`: event create/edit.
+- `/admin/registrations`: registration list.
+- `/admin/registrations/participants`: participant details/search.
+- `/admin/participants`: participant details/search alias.
+- `/admin/registrations/:regId/participants`: participant details scoped by registration.
+- `/admin/payment-reconciliation`: payment reconciliation.
+- `/admin/fixtures`: fixture management.
+- `/admin/sba-rankings`: SBA rankings.
+- `/admin/config`: system configuration.
+- `/admin/users`: admin user management.
+- `/admin/change-password`: password change.
 
-| Controller | Route Prefix | Auth |
-|---|---|---|
-| AuthController | `/api/auth` | Mixed (login=public, rest=Authorize) |
-| ConfigController | `/api/config` | GET=public, PUT=superadmin |
-| EventsController | `/api/events` | GET=public, mutate=superadmin+eventadmin |
-| RegistrationsController | `/api/registrations` | GET/:id=public, POST=public, admin ops=superadmin+eventadmin |
-| PaymentController | `/api/Payment` | All public (no Authorize attribute) |
-| StripeWebhookController | `/api/webhooks/stripe` | AllowAnonymous |
-| FixturesController | `/api/fixtures` | superadmin+eventadmin |
-| SbaController | `/api/sba` | GET=public, POST import=superadmin+eventadmin |
-| UploadsController | `/api/uploads` | No auth on endpoint (token optional via `authHeader()` in frontend) |
-| UsersController | `/api/admin/users` | superadmin only |
-| AdminPaymentReconciliationController | `/api/admin/payment-reconciliation` | superadmin+eventadmin |
+## Frontend API Layer
 
-**Services:**
-- `AuthService` — BCrypt password hash/verify, JWT generation (HS256, configurable expiry, default 8h)
-- `RegistrationWorkflowService` — validates pricing, capacity, duplicates, age/gender, creates full registration graph in a DB transaction
-- `PaymentFinalizationService` — idempotent session-first checkout finalisation shared by webhook and `confirm-session`
-- `FixtureGenerationService` — generates bracket state JSON for knockout, group+knockout, round-robin, heats formats
-- `EmailService` — SMTP confirmation email with PDF receipt attachment (System.Net.Mail)
-- `ReceiptService` — QuestPDF receipt generation from DB data and SystemConfig branding
-- `BackgroundJobQueue` / `BackgroundJobWorker` — in-memory queue for fire-and-forget receipt+email jobs
-- `PaymentCleanupWorker` — hosted service, runs hourly, prunes expired `PendingCheckouts`
+API modules live in `Frontend/src/lib/api/`.
 
----
+- `_base.ts`: `apiFetch`, `API_BASE`, `publicHeaders`, `adminHeaders`, `assetUrl`, `ApiResult`, artificial `delay`.
+- `authApi.ts`: login, logout, current user, password change.
+- `eventsApi.ts`: events, programs, documents.
+- `registrationsApi.ts`: registration CRUD/admin operations, payment updates, refunds, stats, export.
+- `clubsApi.ts`: badminton club lookup.
+- `uploadsApi.ts`: multipart uploads.
+- `configApi.ts`: system config.
+- `sbaApi.ts`: SBA ranking types, members, import.
+- `usersApi.ts`: admin user management.
+- `fixtureApi.ts`: fixtures and bracket/heats operations. Backend fixture endpoints are the authoritative source for draw generation, advancement, result validation, and stored fixture state; frontend fixture helpers are for preview/display and lightweight UX only.
 
-## 4. Authentication Flow
+`apiFetch` clears local auth state and redirects to `/login` on 401 responses.
 
-1. Admin POSTs credentials to `POST /api/auth/login`
-2. Backend verifies email+password via BCrypt; loads `AdminUser` where `IsActive=true`
-3. Returns `{ token, user }` — token is a signed HS256 JWT containing `sub`, `email`, `ClaimTypes.Role`, `name`, `mustChangePassword`
-4. Frontend stores token in `localStorage["trs_token"]` and user in `localStorage["trs_user"]`
-5. On every page load, `AuthContext` calls `GET /api/auth/me` with the stored token to validate it; if 401, token is wiped and user is redirected to `/login`
-6. All admin API calls include `Authorization: Bearer <token>` via `adminHeaders()`
-7. Any 401 response from any `apiFetch` call triggers immediate wipe+redirect (401 interceptor in `_base.ts`)
-8. `POST /api/auth/logout` is stateless — no server-side token revocation; client discards token
-9. Password change is enforced: `mustChangePassword=true` in JWT causes AdminLayout to redirect to `/admin/change-password`
+## Backend Components
 
-**Roles:** `superadmin` (all access) and `eventadmin` (event/registration ops, cannot manage users or orphan refunds)
+### Controllers
 
-**No token blacklist exists.** A valid token remains valid until expiry even after password change or logout.
+- `AuthController`: admin login, logout, current user, password change.
+- `ConfigController`: public config read, superadmin config update.
+- `EventsController`: event CRUD, documents, programs.
+- `BadmintonClubsController`: public club lookup and admin club maintenance.
+- `RegistrationsController`: public registration creation/lookup/receipt and admin registration/payment/refund operations.
+- `PaymentController`: Stripe checkout creation, session confirmation, legacy payment info/verify endpoints.
+- `StripeWebhookController`: Stripe webhook processing.
+- `FixturesController`: fixture generation, save, delete, scoring, scheduling, advancement.
+- `SbaController`: ranking types, member lookup/search, XLSX import.
+- `UploadsController`: local file upload.
+- `UsersController`: superadmin user management.
+- `AdminPaymentReconciliationController`: reconciliation stats, failed checkout rows, orphan refunds.
 
----
+### Services
 
-## 5. Payment Flow (Stripe)
+- `AuthService`: BCrypt password verification/hash and JWT generation.
+- `RegistrationWorkflowService`: registration validation, pricing, persistence, receipt/email queueing.
+- `PaymentFinalizationService`: idempotent session-first Stripe finalization.
+- `FixtureGenerationService`: authoritative bracket/heats generation, fixture mutation, score validation, advancement, and final placement rules.
+- `ReceiptService`: QuestPDF receipt generation.
+- `EmailService`: SMTP payment confirmation email with receipt attachment.
+- `BackgroundJobQueue` and `BackgroundJobWorker`: in-memory background work queue.
+- `PaymentCleanupWorker`: hourly cleanup of expired `PendingCheckout` rows.
 
-### Session-First Flow (paid registrations — the primary flow):
+### Logging
 
-```
-Browser (EventDetail)
-  1. User fills cart, clicks "Pay"
-  2. Cart payload stored in sessionStorage
-  3. POST /api/Payment/create-checkout-session
-       { registrationPayload: <cart>, paymentMethod, successUrl, cancelUrl }
-  4. Backend: validates+prices payload via RegistrationWorkflowService
-              creates PendingCheckout row (GatewaySessionId PK)
-              creates Stripe Session with flow=session_first metadata
-  5. Returns { checkoutUrl, gatewaySessionId }
-  6. Browser redirects to Stripe
-  7a. [On success] Stripe webhooks to POST /api/webhooks/stripe
-         HandleCheckoutCompleted → PaymentFinalizationService.FinalizeSessionFirstAsync()
-              reads PendingCheckout, deserialises payload
-              calls RegistrationWorkflowService.CreateAsync() (PaymentStatus=S)
-              writes: EventRegistration, ParticipantGroups, Participants, Payment, PaymentItems
-              deletes PendingCheckout row
-              queues receipt generation + email
-  7b. Browser returns to /payment/result?status=success
-         POST /api/Payment/confirm-session { gatewaySessionId, registrationPayload }
-              verifies session with Stripe (must be "paid")
-              calls PaymentFinalizationService.FinalizeSessionFirstAsync()
-              if webhook already ran: returns existing registrationId (idempotent)
-              if CHECKOUT_CONTEXT_MISSING (webhook ran+purged PendingCheckout first):
-                  returns 409 → frontend treats as alreadyProcessed=true
-  8. Frontend displays receipt using GET /api/registrations/:id
-```
+Serilog is configured in `Program.cs` with console output and a custom `EFCoreSink`.
 
-### Free Registration Flow:
-```
-  1. POST /api/registrations (direct write, PaymentStatus=S, RegStatus=Confirmed)
-  2. Backend queues receipt+email
-  3. Frontend shows success without Stripe redirect
-```
+- `EFCoreSink` writes warnings and above to `AppLogs`.
+- Framework `Microsoft.*` and `System.*` logs below `Error` are filtered out.
+- Framework `Error` and `Fatal` logs are eligible for `AppLogs`.
+- Sink failures are swallowed to avoid logging recursion.
 
-### PayNow:
-- Same session-first flow; `paymentMethod=paynow` sets `PaymentMethodTypes=["paynow"]` on Stripe Session
-- PayNow only available for SGD currency
-- Stripe session `ExpiresAt` is set to 30 minutes from creation for PayNow
+## Data Model Overview
 
-### Receipt generation:
-- QuestPDF reads SystemConfig for branding (logo, app name)
-- Receipt number format: `TRS-{yyyyMMdd}-{5-digit random}`
-- Receipt attached to confirmation email as PDF
+Main EF Core tables/sets:
 
----
+- Config/auth/logging: `SystemConfig`, `AdminUsers`, `AppLogs`, `AdminAuditLog`, `PaymentAuditLog`.
+- Events: `Events`, `EventGalleryImages`, `EventDocuments`, `Programs`, `ProgramFields`, `ProgramCustomFields`.
+- Registration: `EventRegistrations`, `ParticipantGroups`, `Participants`, `ParticipantCustomFieldValues`, legacy `EventParticipants`.
+- Payment: `Payments`, `PaymentItems`, `Refunds`, `PendingCheckouts`, `WebhookLogs`.
+- Competition: `Fixtures`, `SbaRankings`.
+- Utilities: `BackgroundJobs`, `BadmintonClub`.
 
-## 6. Registration Flow
+Important mapping detail: `TRSDbContext.BadmintonClubs` maps to the SQL table `BadmintonClub`.
 
-1. Public user views event at `/event/:id`
-2. Selects program(s) from event detail page; fills in participant details in `ParticipantFieldsForm`
-3. Cart state held in component state; participant documents uploaded via `POST /api/uploads`
-4. Consent shown in `ConsentModal`; user accepts
-5. For paid: see payment flow above (session-first)
-6. For free: `POST /api/registrations` → immediate confirmation
+## Authentication
 
-**Data created per registration:**
-- 1 `EventRegistration` (contact info, total amount, status)
-- N `ParticipantGroup` rows (one per program slot selected)
-- M `Participant` rows per group (1=singles, 2=doubles, etc.)
-- `ParticipantCustomFieldValue` rows for any custom fields
-- 1 `Payment` row
-- N `PaymentItem` rows (one per group, or one per player if `per_player` fee structure)
+- JWT Bearer authentication is configured in `Program.cs`.
+- JWT secret is required at startup.
+- Tokens include email, role, name, user id, and `mustChangePassword`.
+- Roles are `superadmin` and `eventadmin`.
+- `AuthContext` stores token/user data in `localStorage`.
+- `AdminLayout` enforces authentication and redirects users with `mustChangePassword` to `/admin/change-password`.
+- Logout is stateless; there is no token blacklist.
 
----
+## Payment Summary
 
-## 7. Admin vs Public User Flows
+Primary paid flow is session-first:
 
-### Public user:
-- Read-only access to events and programs (active only)
-- Submit registrations (rate-limited: 5 req/min on payment endpoints)
-- View own registration by ID (GET /api/registrations/:id — no auth check, ID-only security)
-- Download receipt PDF (GET /api/registrations/:id/receipt — no auth)
-- Cannot access any `/admin/*` routes (AdminLayout enforces login)
+1. Frontend sends full registration payload to `POST /api/Payment/create-checkout-session`.
+2. Backend validates and prices the payload.
+3. Backend stores payload in `PendingCheckouts`.
+4. Backend creates a Stripe Checkout Session.
+5. Stripe webhook and browser return path both attempt finalization through `PaymentFinalizationService`.
+6. Finalization creates registration, groups, participants, payment, and payment items.
+7. Pending checkout row is removed after successful finalization.
+8. Receipt generation and email are queued in memory.
 
-### Admin (eventadmin):
-- Create/edit/delete events, programs, documents
-- View all registrations with filters and pagination
-- Update registration/group status
-- Confirm registrations manually (cash/bank/waived/pending collection)
-- Initiate refunds per payment item
-- Cancel registrations with automatic Stripe refunds
-- View payment reconciliation (Case A/B)
-- Import SBA rankings (xlsx)
-- Manage fixtures
-- Export registrations to CSV (via frontend `exportCsv.ts`)
-- Cannot manage users, cannot issue orphan refunds
+Free registrations are created directly through `POST /api/registrations`.
 
-### Admin (superadmin):
-- All eventadmin capabilities
-- Manage admin users (create, update, soft-delete, reset password)
-- Update system config (master branding, SMTP, etc.)
-- Issue orphan refunds (Case C — unmatched Stripe payments)
-- Access all reconciliation operations
+## File Uploads
 
----
+`POST /api/uploads` writes files to `Backend/TRS_API/wwwroot/uploads/<folder>/<yyyy>/<MM>/<guid>.<ext>` and returns a relative `/uploads/...` path.
 
-## 8. Environment Setup
+Allowed uploads:
 
-**Backend config keys (appsettings.json / environment variables):**
-```
-ConnectionStrings:TRSConnection         — SQL Server connection string
-Jwt:Secret                              — HS256 signing key (required; throws on missing)
-Jwt:Issuer                              — JWT issuer claim
-Jwt:Audience                            — JWT audience claim
-Jwt:ExpiryHours                         — JWT TTL in hours (default: 8)
-Stripe:SecretKey                        — Stripe secret API key
-Stripe:WebhookSecret                    — Stripe webhook signing secret
-Cors:AllowedOrigins                     — Array of allowed frontend origins
-RateLimiting:WindowMinutes              — Rate limit window (default: 1)
-RateLimiting:PermitLimit                — Max requests per window (default: 5)
-Email:Smtp:Host                         — SMTP server hostname
-Email:Smtp:Port                         — SMTP port (default: 587)
-Email:Smtp:Username                     — SMTP username
-Email:Smtp:Password                     — SMTP password
-Email:Smtp:EnableSsl                    — TLS (default: true)
-Email:FromAddress                       — Sender address
-Email:FromName                          — Sender display name
-```
+- JPEG, PNG, WEBP up to 2 MB.
+- PDF up to 8 MB.
 
-**Frontend env vars (Vite):**
-```
-VITE_API_BASE_URL    — Backend base URL (e.g. https://localhost:7183)
-VITE_MOCK_DELAY_MS   — Artificial API delay in ms (default: 60)
-```
+The API serves static files through `app.UseStaticFiles()`.
 
-**Static files:** Uploads stored in `TRS_API/wwwroot/uploads/` served by `app.UseStaticFiles()`. No CDN or blob storage.
+## Configuration
 
----
+Backend configuration comes from `appsettings*.json` and environment variables:
 
-## 9. Known Risks / Unknowns
+- `ConnectionStrings:TRSConnection`
+- `Jwt:Secret`, `Jwt:Issuer`, `Jwt:Audience`, `Jwt:ExpiryHours`
+- `Stripe:SecretKey`, `Stripe:WebhookSecret`
+- `Cors:AllowedOrigins`
+- `RateLimiting:WindowMinutes`, `RateLimiting:PermitLimit`
+- `Email:*`
 
-**Security:**
-- `POST /api/uploads` has no `[Authorize]` attribute. The frontend sends a Bearer token but the backend does not enforce it. Any unauthenticated user can upload files.
-- `GET /api/registrations/:id` is fully public. Anyone with a numeric registration ID can view all participant details and payment info for that registration.
-- `GET /api/registrations/:id/receipt` is fully public. Same exposure as above.
-- JWT has no revocation mechanism. Changing a password or deactivating an account does not invalidate existing tokens until expiry.
-- Rate limiting is applied only to the `payment` endpoint group (5 req/min). No rate limit on registration creation, uploads, or public event reads.
-- CORS `AllowCredentials()` is set alongside `AllowAnyHeader/AllowAnyMethod` — overly permissive for production.
+Frontend configuration:
 
-**Architecture:**
-- `EventParticipant` table exists (legacy junction) alongside the newer `Participant` → `ParticipantGroup` model. `EventParticipant` rows are never created by current code paths (confirmed from controller and workflow code). It is a dead table.
-- Uploaded files are stored on local disk (`wwwroot/uploads/`). This is not compatible with multi-instance deployment or container restarts without a persistent volume.
-- Email sending is synchronous inside the background job worker. SMTP failure silently swallows errors (logged only).
-- `ConfirmSessionRequest` includes a `RegistrationPayload` field but the backend's `confirm-session` endpoint ignores it — the payload is read from `PendingCheckout` in DB, not from the request. The frontend still sends it (harmless but misleading).
-- Receipt number generation uses `Random.Shared.Next()` — possible collision if two receipts are generated in the same millisecond.
-- The `TRSDbContext` `Class1.cs` file in `TRS_Data` is an empty placeholder with no content.
+- `VITE_API_BASE_URL`
+- `VITE_MOCK_DELAY_MS`
 
-**[UNKNOWN]:**
-- Whether migration scripts are up to date with all model changes (no migration files present in the zip)
-- Whether `appsettings.Production.json` or secrets management is in place
-- Whether the QuestPDF license is configured (Community vs Commercial)
-- Whether Stripe webhook endpoint URL has been registered in the Stripe dashboard
-- Deployment target (IIS, Docker, Azure App Service — no Dockerfile or deployment config present)
+## Known Implementation Constraints
+
+- Public registration and receipt lookup are ID-based and unauthenticated.
+- Upload endpoint does not enforce `[Authorize]`.
+- Background jobs are in-memory and lost on process restart.
+- SQL scripts exist, but EF migration files are not present.
+- Stripe SDK services are instantiated directly in controllers.
+- Some legacy models/tables remain: `EventParticipant`, `BackgroundJob`.
+- `RegistrationStatus` and `RegStatus` both exist on registrations.
+- Local disk upload storage requires persistent storage in production.

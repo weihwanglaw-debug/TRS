@@ -119,13 +119,21 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onChangeDra
   const removeOfficial = (idx: number) =>
     set({ officials: draft.officials.filter((_, i) => i !== idx) });
 
+  const completedScores = draft.games
+    .filter(g => g.p1 !== "" && g.p2 !== "")
+    .map(g => ({ p1: Number(g.p1), p2: Number(g.p2) }))
+    .filter(g => Number.isFinite(g.p1) && Number.isFinite(g.p2));
+  const team1Games = completedScores.filter(g => g.p1 > g.p2).length;
+  const team2Games = completedScores.filter(g => g.p2 > g.p1).length;
+  const hasDrawScore = completedScores.length > 0 && completedScores.length === draft.games.length && team1Games === team2Games;
+
   const selectWinner = (side: "team1" | "team2") => {
     if (draft.walkover) return;
     // Toggle off if already selected
     set({ winner: draft.winner === side ? null : side });
   };
 
-  const canSave = draft.walkover ? !!draft.walkoverWinner : draft.winner !== null;
+  const canSave = draft.walkover ? !!draft.walkoverWinner : draft.winner !== null || hasDrawScore;
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
@@ -169,9 +177,22 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onChangeDra
                   ? set({ walkoverWinner: "team2" })
                   : selectWinner("team2")} />
             </div>
-            {/* Intentionally no "Draw/No Result" button here.
-               A saved result requires a winner (or a walkover winner), so showing a draw option
-               is misleading and looks broken to admins. */}
+            {!draft.walkover && (
+              <div className="mt-3 flex items-center justify-between gap-3 px-4 py-3"
+                style={{ border: "1px solid var(--color-table-border)", backgroundColor: hasDrawScore && draft.winner === null ? "var(--color-row-hover)" : "transparent" }}>
+                <div>
+                  <p className="text-sm font-semibold">Draw</p>
+                  <p className="text-xs opacity-50">Tied result</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => set({ winner: null })}
+                  disabled={!hasDrawScore}
+                  className="btn-outline px-3 py-2 text-xs font-semibold disabled:opacity-40">
+                  {hasDrawScore && draft.winner === null ? "Draw Selected" : "Use Draw"}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* ── Walkover toggle ── */}

@@ -30,6 +30,9 @@ public partial class TRSDbContext : DbContext
     public virtual DbSet<PaymentAuditLog>            PaymentAuditLogs           { get; set; }
     public virtual DbSet<AdminAuditLog>              AdminAuditLogs             { get; set; }
     public virtual DbSet<PendingCheckout>            PendingCheckouts           { get; set; }
+    public virtual DbSet<AppLog>                     AppLogs                    { get; set; }
+    public virtual DbSet<BadmintonClub>              BadmintonClubs             { get; set; }
+
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -458,6 +461,32 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.PayloadJson).HasColumnType("nvarchar(max)").HasColumnName("PayloadJSON");
             e.Property(x => x.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
         });
+
+        mb.Entity<AppLog>(e => {
+            e.ToTable("AppLogs");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("Id").ValueGeneratedOnAdd();
+            e.Property(x => x.Level).HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.Message).HasColumnType("nvarchar(max)");
+            e.Property(x => x.Exception).HasColumnType("nvarchar(max)");
+            e.Property(x => x.SourceContext).HasMaxLength(300);
+            e.Property(x => x.Timestamp).HasDefaultValueSql("(sysutcdatetime())");
+        });
+
+        mb.Entity<BadmintonClub>(e => {
+            e.ToTable("BadmintonClub");
+            e.HasKey(x => x.ClubId);
+            e.Property(x => x.ClubId).HasColumnName("ClubId");
+            e.Property(x => x.Name).HasMaxLength(255);
+            e.Property(x => x.ContactNumber).HasMaxLength(50);
+            e.Property(x => x.Email).HasMaxLength(255);
+            e.Property(x => x.Address).HasMaxLength(500);
+            e.Property(x => x.Country).HasMaxLength(100);
+            e.Property(x => x.IsActive).HasDefaultValue(true);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("(getdate())");
+        });
+
+        
 
         OnModelCreatingPartial(mb);
     }

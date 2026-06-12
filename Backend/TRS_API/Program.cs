@@ -7,6 +7,8 @@ using TRS_API.BackgroundJobs;
 using TRS_API.Services;
 using TRS_Data.Models;
 using Microsoft.OpenApi.Models;
+using Serilog;
+using Serilog.Events;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -116,9 +118,17 @@ builder.Services.AddRateLimiter(options =>
         opt.PermitLimit = builder.Configuration.GetValue<int>("RateLimiting:PermitLimit", 5);
     }));
 
+builder.Host.UseSerilog((context, services, loggerConfiguration) => loggerConfiguration
+    .ReadFrom.Configuration(context.Configuration)
+    .WriteTo.Console()
+    .WriteTo.Sink(new EFCoreSink(services),
+        restrictedToMinimumLevel: LogEventLevel.Warning));
+
 var app = builder.Build();
 
+
 // ── Middleware ────────────────────────────────────────────────────────────────
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -144,6 +154,8 @@ app.Use(async (ctx, next) => {
     ctx.Response.Headers["X-XSS-Protection"] = "1; mode=block";
     await next();
 });
+
+
 
 app.UseCors("AllowFrontend");
 app.UseRateLimiter();

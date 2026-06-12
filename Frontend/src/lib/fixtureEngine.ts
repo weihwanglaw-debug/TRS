@@ -209,6 +209,7 @@ export function computeGroupStandings(
   tiebreakOrder: TiebreakCriteria[] = ["head_to_head", "game_ratio", "point_ratio"],
   pointsConfig = { win: 2, draw: 1, loss: 0 }
 ): GroupStanding[] {
+  void tiebreakOrder;
   const map: Record<string, GroupStanding> = {};
   for (const team of group.teams) {
     map[team.id] = {
@@ -248,26 +249,44 @@ export function computeGroupStandings(
     else { h2h[a][b] = "draw"; h2h[b][a] = "draw"; }
   }
 
-  standings.sort((a, b) => {
-    if (b.points !== a.points) return b.points - a.points;
-    for (const c of tiebreakOrder) {
-      let diff = 0;
-      switch (c) {
-        case "head_to_head": {
-          const r = h2h[a.team.id]?.[b.team.id];
-          if (r === "A") return -1; if (r === "B") return 1; break;
-        }
-        case "game_ratio":    diff = (b.gamesFor/(b.played||1)) - (a.gamesFor/(a.played||1)); break;
-        case "point_ratio":   diff = (b.pointsFor/(b.pointsAgainst||1)) - (a.pointsFor/(a.pointsAgainst||1)); break;
-        case "goal_difference": diff = (b.pointsFor-b.pointsAgainst) - (a.pointsFor-a.pointsAgainst); break;
-        case "goals_scored":  diff = b.pointsFor - a.pointsFor; break;
-      }
-      if (diff !== 0) return diff > 0 ? 1 : -1;
+  const compareMetrics = (a: GroupStanding, b: GroupStanding) => {
+    const gameDiff = (b.gamesFor - b.gamesAgainst) - (a.gamesFor - a.gamesAgainst);
+    if (gameDiff !== 0) return gameDiff;
+    const pointDiff = (b.pointsFor - b.pointsAgainst) - (a.pointsFor - a.pointsAgainst);
+    if (pointDiff !== 0) return pointDiff;
+    const pointsFor = b.pointsFor - a.pointsFor;
+    if (pointsFor !== 0) return pointsFor;
+    return (a.team.seed ?? Number.MAX_SAFE_INTEGER) - (b.team.seed ?? Number.MAX_SAFE_INTEGER)
+      || a.team.id.localeCompare(b.team.id);
+  };
+
+  const primary = standings.sort((a, b) =>
+    (b.points - a.points) || (b.wins - a.wins)
+  );
+
+  const ordered: GroupStanding[] = [];
+  for (let i = 0; i < primary.length;) {
+    const tied = [primary[i]];
+    let j = i + 1;
+    while (j < primary.length && primary[j].points === primary[i].points && primary[j].wins === primary[i].wins) {
+      tied.push(primary[j]);
+      j++;
     }
-    return a.team.id.localeCompare(b.team.id);
-  });
-  standings.forEach((s, i) => { s.rank = i + 1; });
-  return standings;
+
+    if (tied.length === 2) {
+      const [a, b] = tied;
+      const r = h2h[a.team.id]?.[b.team.id];
+      if (r === "A") ordered.push(a, b);
+      else if (r === "B") ordered.push(b, a);
+      else ordered.push(...tied.sort(compareMetrics));
+    } else {
+      ordered.push(...tied.sort(compareMetrics));
+    }
+    i = j;
+  }
+
+  ordered.forEach((s, i) => { s.rank = i + 1; });
+  return ordered;
 }
 
 // ── Heats generation ──────────────────────────────────────────────────────────
@@ -430,11 +449,15 @@ export function swapTeams(state: BracketState, idA: string, idB: string): Bracke
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 export function isBracketLocked(state: BracketState): boolean {
+  const isByeMatch = (m: MatchEntry) =>
+    m.team1.label === "BYE" || m.team2.label === "BYE" ||
+    m.team1.id.startsWith("bye-") || m.team2.id.startsWith("bye-");
+
   if (state.format === "heats") {
     return (state.heatRounds ?? []).some(r => r.isComplete);
   }
   return [...state.matches, ...state.groups.flatMap(g => g.matches)]
-    .some(m => m.status !== "Scheduled");
+    .some(m => !isByeMatch(m) && m.status !== "Scheduled");
 }
 
 export function isPhaseComplete(state: BracketState): boolean {

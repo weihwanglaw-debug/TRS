@@ -155,6 +155,9 @@ public class FixturesController : ControllerBase
     public async Task<IActionResult> Save(int eventId, int programId, [FromBody] SaveFixtureRequest req)
     {
         var f = await _db.Fixtures.FirstOrDefaultAsync(x => x.EventId == eventId && x.ProgramId == programId);
+        if (f?.IsLocked == true)
+            return BadRequest(new { code = "LOCKED", message = "Cannot overwrite fixture state after results have been entered." });
+
         if (f == null)
         {
             f = new Fixture
@@ -183,6 +186,9 @@ public class FixturesController : ControllerBase
         var f = await _db.Fixtures.FirstOrDefaultAsync(x => x.EventId == eventId && x.ProgramId == programId);
         if (f != null)
         {
+            if (f.IsLocked)
+                return BadRequest(new { code = "LOCKED", message = "Cannot reset a fixture after results have been entered." });
+
             _db.Fixtures.Remove(f);
             await _db.SaveChangesAsync();
         }

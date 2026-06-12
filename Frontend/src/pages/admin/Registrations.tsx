@@ -891,8 +891,8 @@ export default function AdminRegistrations() {
     setSavingConfirmReg(true);
     try {
       const r = await apiConfirmRegistration(confirmRegModal.id, {
-        paymentStatus: "S",   // payment already succeeded via Stripe
-        adminNote: confirmRegNote.trim() || "Admin confirmed — Stripe payment verified",
+        paymentStatus: "S",   
+        adminNote: confirmRegNote.trim() || "Admin confirmed — Payment verified",
       });
       if (r.error) { setApiError(r.error.message); return; }
       if (r.data) {
@@ -1152,7 +1152,7 @@ export default function AdminRegistrations() {
         </DialogContent>
       </Dialog>
 
-      {/* Confirm Registration — Case B: Pending reg + Stripe payment succeeded */}
+  
       <Dialog open={!!confirmRegModal} onOpenChange={v => { if (!v) { setConfirmRegModal(null); setConfirmRegNote(""); } }}>
         <DialogContent className="max-w-md p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
           <DialogHeader className="p-7 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
@@ -1174,7 +1174,6 @@ export default function AdminRegistrations() {
                 className="field-input"
                 value={confirmRegNote}
                 onChange={e => setConfirmRegNote(e.target.value)}
-                placeholder="e.g. Stripe payment verified — registration confirmed manually"
               />
             </FG>
           </div>

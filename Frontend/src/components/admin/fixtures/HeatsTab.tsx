@@ -74,18 +74,33 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
 
     const handleAdvance = async () => {
       setSaving(true);
-      await onAdvanceRound(round.roundNumber, [...advancing]);
-      setSaving(false);
+      try {
+        await onAdvanceRound(round.roundNumber, [...advancing]);
+      } finally {
+        setSaving(false);
+      }
     };
 
     const handleAssignPlaces = async () => {
       setSaving(true);
-      await onAssignPlaces(places);
-      setSaving(false);
+      setError(null);
+      try {
+        for (const [teamId, result] of Object.entries(editing)) {
+          await onSaveResult(round.roundNumber, teamId, result);
+        }
+        await onAssignPlaces(places);
+      } catch {
+        setError("Save stopped due to an error. Refresh to confirm the current final results.");
+      } finally {
+        setSaving(false);
+      }
     };
 
     const allResultsEntered = round.results.every(r => editing[r.teamId]?.trim());
     const canAdvance        = advancing.size === advanceCount || advancing.size === round.results.length;
+    const selectedPlaces    = Object.values(places).filter(Boolean);
+    const hasDuplicatePlaces = selectedPlaces.length !== new Set(selectedPlaces).size;
+    const canAssignPlaces   = allResultsEntered && selectedPlaces.length > 0 && !hasDuplicatePlaces;
 
     return (
       <div style={{ border: `2px solid ${isActive ? "var(--color-primary)" : round.isComplete ? "var(--color-table-border)" : "var(--color-table-border)"}`, opacity: !isActive && !round.isComplete ? 0.4 : 1 }}>
@@ -186,7 +201,12 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
                             : (
                               <select className="field-input py-1 text-sm w-28"
                                 value={places[res.teamId] ?? ""}
-                                onChange={e => setPlaces({ ...places, [res.teamId]: +e.target.value })}>
+                                onChange={e => {
+                                  const next = { ...places };
+                                  if (!e.target.value) delete next[res.teamId];
+                                  else next[res.teamId] = +e.target.value;
+                                  setPlaces(next);
+                                }}>
                                 <option value="">—</option>
                                 {Array.from({ length: placesAwarded }, (_, i) => i + 1).map(n => (
                                   <option key={n} value={n}>{n}{["st","nd","rd"][n-1] ?? "th"} Place</option>
@@ -226,13 +246,14 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
                   <>
                     <p className="text-xs opacity-50 flex-1">
                       Enter results, then assign places for the top {placesAwarded}.
+                      {hasDuplicatePlaces ? " Duplicate places are not allowed." : ""}
                     </p>
                     <button onClick={handleSaveResults} disabled={saving}
                       className="btn-outline px-4 py-2 text-xs font-medium disabled:opacity-40">
                       Save Results
                     </button>
                     <button onClick={handleAssignPlaces}
-                      disabled={saving || Object.keys(places).length < 1}
+                      disabled={saving || !canAssignPlaces}
                       className="btn-primary flex items-center gap-2 px-5 py-2 text-sm font-semibold disabled:opacity-40">
                       {saving ? <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : null}
                       <CheckCircle className="h-4 w-4" /> Confirm Final Places

@@ -1,14 +1,15 @@
 import React from "react";
-import type { GroupEntry } from "@/types/config";
+import type { GroupEntry, StandingPoints } from "@/types/config";
 import { computeGroupStandings } from "@/lib/fixtureEngine";
 
 interface Props {
   group: GroupEntry;
   advancePerGroup?: number;
+  standingPoints?: StandingPoints;
 }
 
-export function GroupStandingsTable({ group, advancePerGroup = 2 }: Props) {
-  const standings = computeGroupStandings(group);
+export function GroupStandingsTable({ group, advancePerGroup = 2, standingPoints }: Props) {
+  const standings = computeGroupStandings(group, undefined, standingPoints);
   const anyPlayed = standings.some(s => s.played > 0);
 
   return (

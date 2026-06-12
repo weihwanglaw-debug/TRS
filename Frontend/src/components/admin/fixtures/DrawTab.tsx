@@ -356,7 +356,10 @@ function GroupStandings({ state }: { state: BracketState }) {
   return (
     <div className="space-y-4">
       {state.groups.map(grp => {
-        const standings = computeGroupStandings(grp);
+        const points = state.config.standingPoints;
+        const standings = computeGroupStandings(grp, undefined, points
+          ? { win: points.win, draw: points.draw, loss: points.loss }
+          : undefined);
         const anyPlayed = standings.some(s => s.played > 0);
         return (
           <div key={grp.id} style={{ border: "1px solid var(--color-table-border)" }}>

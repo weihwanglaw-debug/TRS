@@ -1,368 +1,259 @@
-# TRS_BUSINESS_RULES.md — Business Logic Rules
-**All rules extracted directly from code. Source file noted per rule.**
-
----
-
-## 1. Event Rules
-
-**Event visibility (EventsController.GetAll / GetById):**
-- IF `includeInactive=true` AND user is NOT `superadmin` or `eventadmin` → force `includeInactive=false`
-- Public users only see events where `IsActive=true`
-- Admin users can request inactive events via `?includeInactive=true`
-- Events are ordered by `EventStartDate` descending
-
-**Event deletion:**
-- `DELETE /api/events/:id` performs a SOFT delete: sets `IsActive=false`, `UpdatedAt=now`
-- No hard delete exists in code
-
-**Event open window (RegistrationWorkflowService.IsEventOpen):**
-- Event is OPEN if: `IsActive=true` AND `OpenDate ≤ today(UTC)` AND `CloseDate ≥ today(UTC)`
-- Uses `DateOnly.FromDateTime(DateTime.UtcNow)` — UTC date comparison
-- `RequireEventOpen=true` on paid registration flow; `RequireEventOpen=false` on webhook finalisation (payment already collected)
-
-**AdditionalInfo (HTML):**
-- Sanitised via `HtmlSanitizer` (Ganss.Xss) before DB write on every create/update
-- Strips script tags, iframes, and other dangerous elements
-- Null/whitespace input is stored as `null` in DB
-
----
-
-## 2. Program Rules
-
-**Program status:**
-- Valid values: `"open"` | `"closed"`
-- `PATCH /api/events/:eid/programs/:pid/status` only accepts `"open"` or `"closed"`; returns 400 otherwise
-- Program is registrable IF: `IsActive=true` AND `Status != "closed"`
-
-**Program deletion:**
-- Soft delete: sets `IsActive=false`, `UpdatedAt=now`
-- No hard delete in code
-
-**Fee structures:**
-- `"per_entry"` — flat fee for the entire group (1 PaymentItem per ParticipantGroup)
-- `"per_player"` — fee × number of participants (1 PaymentItem per Participant in group)
-
----
-
-## 3. Registration Rules
-
-### 3.1 Event Open Check
-```
-IF RequireEventOpen=true:
-  IF Event.IsActive=false → FAIL: EVENT_NOT_FOUND
-  IF today < Event.OpenDate OR today > Event.CloseDate → FAIL: EVENT_CLOSED
-```
-
-### 3.2 Group / Program Checks (per group in request)
-```
-IF Program.IsActive=false OR Program.Status="closed" → FAIL: PROGRAM_CLOSED
-IF (activeGroupCount + requestedGroupsForThisProgram) > Program.MaxParticipants → FAIL: PROGRAM_FULL
-```
-**Note:** Capacity is measured in `ParticipantGroup` rows (i.e., entries), not individual participants. `MaxParticipants` on `TrsProgram` is actually max entries.
-
-### 3.3 Participant Count per Group
-```
-IF group.Participants.Count < Program.MinPlayers → FAIL: INVALID_PARTICIPANT_COUNT
-IF group.Participants.Count > Program.MaxPlayers → FAIL: INVALID_PARTICIPANT_COUNT
-```
-
-### 3.4 Required Participant Fields (always required)
-```
-FullName         → FAIL: MISSING_REQUIRED_FIELD if blank
-DateOfBirth      → FAIL: MISSING_REQUIRED_FIELD if blank or unparseable
-Gender           → FAIL: MISSING_REQUIRED_FIELD if blank
-Email            → FAIL: MISSING_REQUIRED_FIELD if blank
-ContactNumber    → FAIL: MISSING_REQUIRED_FIELD if blank
-Nationality      → FAIL: MISSING_REQUIRED_FIELD if blank
-ClubSchoolCompany → FAIL: MISSING_REQUIRED_FIELD if blank
-```
-
-### 3.5 Optional Fields (enabled per program via ProgramFields flags)
-```
-IF Program.Fields.EnableTshirt=true:
-  TshirtSize required → FAIL: MISSING_REQUIRED_FIELD if blank
-IF Program.Fields.EnableGuardianInfo=true:
-  GuardianName AND GuardianContact both required → FAIL: MISSING_REQUIRED_FIELD
-IF Program.Fields.EnableSbaId=true AND Program.SbaRequired=true:
-  SbaId required → FAIL: MISSING_REQUIRED_FIELD if blank
-```
-
-### 3.6 Custom Field Validation
-```
-FOR each CustomField where IsRequired=true:
-  IF participant.CustomFieldValues[field.Label] is missing or blank → FAIL: MISSING_REQUIRED_FIELD
-```
-
-### 3.7 Age Validation
-```
-age = today.Year - dob.Year
-IF dob > today.AddYears(-age): age -= 1   (birthday not yet reached this year)
-IF age < Program.MinAge → FAIL: INVALID_AGE
-IF age > Program.MaxAge → FAIL: INVALID_AGE
-```
-Age is calculated from UTC today's date. MinAge defaults to 0, MaxAge defaults to 99.
-
-### 3.8 Gender Validation
-```
-IF Program.Gender = "Male":
-  IF participant.Gender != "Male" → FAIL: INVALID_GENDER
-IF Program.Gender = "Female":
-  IF participant.Gender != "Female" → FAIL: INVALID_GENDER
-IF Program.Gender = "Mixed":
-  IF maleCount != 1 OR femaleCount != 1 → FAIL: INVALID_GENDER
-  (exactly one male and one female required)
-```
-"Open" gender programs accept any gender combination.
-
-### 3.9 Duplicate Detection (per registration request)
-**Within same request:**
-```
-identity key = FullName + "|" + DateOfBirth (yyyy-MM-dd)
-IF duplicate identity within same group → FAIL: DUPLICATE_REGISTRATION
-```
-
-**Against existing DB registrations:**
-```
-Check existing non-Cancelled ParticipantGroups for same Program
-  for each participant in incoming group:
-    IF FullName (case-insensitive) AND DateOfBirth matches any existing participant → FAIL: DUPLICATE_REGISTRATION
-```
-This check happens TWICE: once in `ValidateParticipants()` (pre-transaction) and once in `FindDuplicateAsync()` + `CreateAsync()` under `UPDLOCK, ROWLOCK` (inside transaction).
-
-### 3.10 Pricing Validation
-```
-expectedFee = Program.Fee (if FeeStructure="per_entry")
-            = Program.Fee × group.Participants.Count (if FeeStructure="per_player")
-IF Program.PaymentRequired=false: expectedFee = 0
-IF ValidatePricingAgainstCurrentPrograms=true:
-  IF group.Fee != expectedFee → FAIL: PRICE_MISMATCH
-  IF sum(group fees) != request.Payment.Amount → FAIL: PRICE_MISMATCH
-```
-Price validation is bypassed during webhook finalisation (`ValidatePricingAgainstCurrentPrograms=false`). The Stripe session amount is used as the authoritative amount instead.
-
----
-
-## 4. Capacity Rules
-
-- Capacity is counted as: `COUNT(ParticipantGroups WHERE ProgramId=X AND GroupStatus != "Cancelled")`
-- A registration being processed is counted against capacity BEFORE the transaction commits (because `SELECT WITH (UPDLOCK, ROWLOCK)` is used)
-- A full program returns PROGRAM_FULL for any new registration, even if 1 slot remains but the incoming request requests more than 1
-- Program-level `MaxParticipants` (on `TrsProgram`) controls capacity. Event-level `MaxParticipants` (on `Event`) exists but is NOT currently enforced in any validation code — it is display-only.
-
----
-
-## 5. Payment Status Lifecycle
-
-**PaymentStatus codes (stored as VARCHAR(2) in DB):**
-```
-P  = Pending (checkout created, awaiting Stripe confirmation)
-S  = Paid / Success
-PR = Partially Refunded (some items refunded)
-FR = Fully Refunded (all items refunded)
-F  = Failed (gateway rejection)
-X  = Cancelled (user abandoned or admin voided)
-W  = Waived (admin waived fee)
-PC = Pending Collection (admin confirmed, payment to be collected later)
-```
-
-**Admin-allowed status transitions (CanAdminSetPaymentStatus):**
-```
-P  → S, W, PC     (pending → paid, waived, or deferred)
-PC → S, W, PC     (deferred → paid, waived, or keep deferred)
-S  → S only       (no downgrade)
-W  → W only       (no change)
-PR, FR, F, X → blocked (cannot change terminal refund/fail/cancel states)
-```
-
-**Auto-transitions on webhook `checkout.session.completed`:**
-```
-Payment.PaymentStatus = S
-All PaymentItems.ItemStatus = S
-Registration.RegStatus = "Confirmed"
-Registration.RegistrationStatus = "C"
-```
-
-**Auto-transitions on refund success:**
-```
-IF all PaymentItems refunded: PaymentStatus = FR
-IF some PaymentItems refunded: PaymentStatus = PR
-IF refundedAmount for item >= item.Amount: ItemStatus = R
-```
-
----
-
-## 6. Refund Rules
-
-**Source:** `RegistrationsController.ProcessRefundItemAsync()`, `AdminPaymentReconciliationController.RefundOrphanedPayment()`
-
-```
-RULE 1: Only items with ItemStatus="S" can be refunded
-  IF item.ItemStatus != "S" → FAIL: INVALID_STATE
-
-RULE 2: Cannot over-refund
-  refundedToDate = SUM(Refunds WHERE PaymentItemId=X AND RefundStatus="S")
-  remaining = item.Amount - refundedToDate
-  IF refundAmount > remaining → FAIL: OVER_REFUND
-
-RULE 3: No concurrent pending refunds on same item
-  IF existing Refund WHERE PaymentItemId=X AND RefundStatus="P" exists:
-    IF GatewayRefundId is already set → FAIL: REFUND_IN_PROGRESS
-    IF RefundAmount differs → FAIL: REFUND_IN_PROGRESS
-    (if same amount and no gateway ID, reuse the existing pending refund)
-
-RULE 4: Refund idempotency key
-  IdempotencyKey = "trs_refund_{refund.RefundId}" (Stripe-level dedup)
-
-RULE 5: Non-Stripe payments (Manual gateway)
-  RefundStatus immediately set to "S" without Stripe API call
-
-RULE 6: Orphan refunds (Case C — unmatched Stripe payment)
-  Only superadmin can issue
-  Requires Reason (non-blank)
-  Session must have PaymentStatus="paid" on Stripe
-  Session AmountTotal must be > 0
-  Refund row written with PaymentId=null, PaymentItemId=null
-  IdempotencyKey = "orphan_refund_{GatewaySessionId}"
-  Uses SERIALIZABLE transaction with UPDLOCK to prevent concurrent orphan refunds
-```
-
----
-
-## 7. Admin Override Rules
-
-**Manual payment confirmation (POST /api/registrations/:id/confirm):**
-```
-Allowed payment statuses: S (Paid), W (Waived), PC (Pending Collection)
-IF status=S or W: stamp PaidAt, generate ReceiptNumber, set all PaymentItems to S
-IF no Payment record exists: create one with PaymentGateway="Manual"
-IF Payment exists: apply CanAdminSetPaymentStatus transition rules
-Registration always set to Confirmed regardless of payment status
-All ParticipantGroups set to Confirmed
-AdminNote required (MinLength=3)
-```
-
-**Manual payment update (PATCH /api/registrations/:id/payment):**
-```
-Can update: PaymentStatus, PaymentMethod, ReceiptNumber, AdminNote
-Same CanAdminSetPaymentStatus transition rules apply
-If status becomes S: auto-generate ReceiptNumber, stamp PaidAt, flip items to S, confirm registration
-```
-
-**Status patch (PATCH /api/registrations/:id/status):**
-```
-Allowed values: Pending, Confirmed, Cancelled, CancelPending, RefundFailed
-Cascades to ALL ParticipantGroups in the registration
-```
-
-**Group status patch (PATCH /api/registrations/:id/groups/:gid/status):**
-```
-Same allowed values
-Affects only the specified group, NOT the registration status
-```
-
-**Participant update (PATCH /api/registrations/:id/participants/:pid):**
-```
-Any field can be updated individually (all nullable — only present fields are applied)
-IF FullName or Dob is changed:
-  Re-run duplicate check (excluding self by ParticipantId)
-  IF duplicate found → FAIL: DUPLICATE_PARTICIPANT
-Custom field values: upsert by label
-  IF label exists in participant → update value
-  IF label exists in program fields → insert new row
-  IF label not in program fields → silently skip
-```
-
----
-
-## 8. Cancellation Rules
-
-**POST /api/registrations/:id/cancel-with-refunds:**
-```
-Reason is required (non-blank)
-
-IF no Payment exists OR no items with ItemStatus="S":
-  → directly set Registration to Cancelled
-  → NO refund attempted
-
-IF paid items exist:
-  → set Registration to CancelPending
-  → FOR each item with ItemStatus="S":
-      compute remaining refundable = item.Amount - sum(successful refunds for item)
-      IF remaining > 0: attempt Stripe refund
-      collect errors
-
-  → IF all refunds succeeded AND no remaining S items:
-      set Registration to Cancelled
-  → ELSE:
-      set Registration to RefundFailed
-
-Registration.RegStatus reflects the FINAL outcome
-Partial failures leave Registration in "RefundFailed"
-```
-
----
-
-## 9. Fixture / Tournament Rules
-
-**Fixture modes (per event):**
-- `"internal"` — bracket managed by TRS fixture wizard
-- `"external"` — external system manages fixtures
-- `"not_required"` — no fixtures
-
-**Minimum entries to generate:**
-- At least 2 non-Cancelled ParticipantGroups required to generate a fixture
-- Returns FAIL: NOT_ENOUGH if fewer than 2
-
-**Fixture formats (FixtureGenerationService):**
-- `"knockout"` — single elimination bracket
-- `"group_knockout"` — round-robin groups → top N advance to single elimination
-- `"round_robin"` — everyone vs everyone, standings only
-- `"heats"` — individual results per round → advancement → final
-
-**Fixture uniqueness:**
-- One `Fixture` row per (EventId, ProgramId) pair — enforced by `UQ_Fixtures_EventProgram`
-- Existing fixture is replaced on regenerate (upsert logic in `FixturesController.Save`)
-
-**Locking:**
-- `Fixture.IsLocked` flag can be set; UI respects this to prevent edits, but backend does not enforce lock in score/schedule endpoints
-
-**SBA seed integration:**
-- `Program.SbaRankingType` links a program to an SBA ranking type
-- Fixture wizard uses `ParticipantGroup.Seed` (set by admin via `PATCH .../seed`) for seeding
-- SBA ID stored on `Participant.SbaId`
-
----
-
-## 10. SBA (Singapore Badminton Association) Rules
-
-- 35 ranking types: Men's/Women's/Mixed Singles/Doubles + U9–U19 Boys/Girls age groups
-- Import replaces all rows for the included sheet types (full replace, not merge)
-- Singles row: Ranking, PlayerName, MemberId, YearOfBirth, Points, Tournaments, Club, DOB
-- Doubles row: same fields × 2 players
-- Player2SbaId must be non-null to qualify for the doubles filtered unique index
-- SBA ID lookup is normalised to uppercase before storage and comparison
-- Search by name: case-sensitive `Contains()` match, limited to 20 results
-- `InferMaxAge` for U-age categories: U19→18, U17→16, U15→14, U13→12, U11→10, U9→8
-
----
-
-## 11. Payment Reconciliation Rules
-
-**Case A (RegStatus=Confirmed, Payment.PaymentStatus=P):**
-- Registration confirmed but payment shows Pending in DB
-- Indicates webhook fired but `confirm-session` already wrote registration without payment, or a data inconsistency
-
-**Case B (RegStatus=Pending, Payment.PaymentStatus=S):**
-- Payment succeeded on Stripe but registration not confirmed
-- Indicates webhook failed or race condition
-
-**Case C (WebhookLog.ProcessingStatus=F, EventType=checkout.session.completed, no matching Payment row):**
-- Money collected by Stripe but no registration created at all
-- PendingCheckout was likely missing or payload was corrupt
-- Visible in `GET /api/admin/payment-reconciliation/webhook-failures`
-- Self-healed rows (where a Payment was later written for the same session) are automatically filtered out
-- Only superadmin can issue refunds for Case C rows
-
-**Webhook deduplication:**
-- On receipt: check `WebhookLogs WHERE GatewayEventId=X AND ProcessingStatus IN (S, I)` — if found, return 200 immediately (already handled)
-- `"I"` status = "Ignored" (event types other than the three handled ones)
+# TRS_BUSINESS_RULES.md
+
+Business rules below are extracted from current controller/service/frontend code. Code is the source of truth.
+
+## Event Rules
+
+- Public event listing and detail only expose active events.
+- Admins with `superadmin` or `eventadmin` can request inactive events through `includeInactive=true`.
+- Event deletion is soft delete: `IsActive=false`, `UpdatedAt=DateTime.UtcNow`.
+- Event create/update sanitizes `AdditionalInfo` HTML with `HtmlSanitizer`.
+- Event gallery images are replaced on event update.
+- Event documents are managed through a separate documents sub-resource.
+- Event open window for registration is based on UTC date: event is open when `OpenDate <= today <= CloseDate` and `IsActive=true`.
+
+## Program Rules
+
+- Program status accepts `open` or `closed`.
+- A program is registrable when `IsActive=true` and `Status` is not `closed`.
+- Program deletion is soft delete: `IsActive=false`, `UpdatedAt=DateTime.UtcNow`.
+- Program custom fields are replaced on full program update.
+- `FeeStructure` controls payment items:
+  - `per_entry`: one fee/payment item for the group.
+  - `per_player`: fee multiplied by participant count, one payment item per participant.
+- `PaymentRequired=false` makes expected fee zero.
+
+## Registration Validation
+
+`RegistrationWorkflowService` validates public direct registration and paid session-first checkout payloads.
+
+Required registration shape:
+
+- Event must exist and be active.
+- At least one group/program must be selected.
+- Selected programs must belong to the event.
+- Contact/payment payload must satisfy request model validation.
+
+Participant fields always required:
+
+- Full name
+- DOB
+- Gender
+- Email
+- Contact number
+- Nationality
+- Club/school/company
+
+Conditional fields:
+
+- T-shirt size is required when `ProgramField.EnableTshirt=true`.
+- Guardian name/contact are required when `ProgramField.EnableGuardianInfo=true`.
+- SBA ID is required when `ProgramField.EnableSbaId=true` and `TrsProgram.SbaRequired=true`.
+- Required custom fields must have non-blank values.
+
+Participant count:
+
+- Group participant count must be between `Program.MinPlayers` and `Program.MaxPlayers`.
+
+Age:
+
+- Age is calculated against UTC today.
+- Participant age must be between `Program.MinAge` and `Program.MaxAge`.
+
+Gender:
+
+- `Male` programs require every participant gender to be `Male`.
+- `Female` programs require every participant gender to be `Female`.
+- `Mixed` programs require exactly one male and one female.
+- Other/open values do not enforce a composition check.
+
+Duplicates:
+
+- Duplicate participant identity is `FullName + DOB`.
+- Duplicate checks are case-insensitive by name.
+- Duplicates within the same group fail.
+- Existing non-cancelled participant groups for the same program are checked.
+- Duplicate check is repeated during persistence inside the transaction.
+
+Capacity:
+
+- Capacity counts non-cancelled `ParticipantGroup` rows per program.
+- `Program.MaxParticipants` is treated as max entries/groups, not max individual players.
+- Event-level `MaxParticipants` exists but is not enforced by `RegistrationWorkflowService`.
+
+Pricing:
+
+- Expected group fee comes from current program settings during validation.
+- Submitted group fee and payment total must match expected values when `ValidatePricingAgainstCurrentPrograms=true`.
+- Session finalization after Stripe payment uses `ValidatePricingAgainstCurrentPrograms=false` and Stripe amount override to avoid blocking already-collected payments after config changes.
+
+## Free and Paid Registration Flows
+
+Free/direct flow:
+
+- `POST /api/registrations` calls `RegistrationWorkflowService.CreateAsync`.
+- Successful confirmed registrations queue receipt generation and email.
+
+Paid session-first flow:
+
+- `POST /api/Payment/create-checkout-session` validates and prices payload.
+- Payload is stored in `PendingCheckouts`.
+- Stripe Checkout Session is created.
+- Browser return and Stripe webhook both attempt finalization.
+- `PaymentFinalizationService` is idempotent by `GatewaySessionId`.
+- Successful finalization creates registration, groups, participants, payment, payment items, and removes pending checkout.
+
+## Payment Rules
+
+Payment status codes used in code:
+
+- `P`: pending.
+- `S`: success/paid.
+- `PR`: partially refunded.
+- `FR`: fully refunded.
+- `F`: failed.
+- `X`: cancelled.
+- `W`: waived.
+- `PC`: pending collection.
+
+Manual admin transitions:
+
+- `P` can become `S`, `W`, or `PC`.
+- `PC` can become `S`, `W`, or stay `PC`.
+- `S` can remain `S`.
+- `W` can remain `W`.
+- Refund/failure/cancel terminal states cannot be manually overwritten through normal update rules.
+
+Receipt numbers:
+
+- Generated for successful confirmations.
+- Format is `TRS-yyyyMMdd-#####`.
+
+PayNow:
+
+- PayNow is only allowed for SGD.
+- PayNow Checkout sessions expire after 30 minutes.
+
+Pending checkout reuse:
+
+- Active pending checkouts for the same event, contact email, payment method, amount, and payload hash can be reused.
+- Mismatched active pending checkout sessions are expired/removed before creating a new one.
+
+## Refund Rules
+
+Item refund:
+
+- Only successful payment items (`ItemStatus="S"`) can be refunded.
+- Refund amount cannot exceed remaining refundable amount.
+- Existing pending refunds block conflicting duplicate refunds.
+- Stripe refund idempotency key uses the refund id.
+- Manual/non-Stripe payment refunds are marked successful without Stripe.
+
+Cancel with refunds:
+
+- Reason is required.
+- If no successful paid items exist, registration is directly cancelled.
+- If successful paid items exist, registration moves to `CancelPending`, each refundable item is processed, then final status becomes `Cancelled` or `RefundFailed`.
+
+Orphan refunds:
+
+- Only `superadmin` can refund orphan paid Stripe sessions from reconciliation.
+- Reason is required.
+- Stripe session must still be paid and have a positive amount.
+- Refund rows for orphan sessions have no `PaymentId` or `PaymentItemId`.
+- Serializable transaction and filtered unique index protect against duplicate active orphan refunds.
+
+## Admin Override Rules
+
+Registration status update:
+
+- Allowed values include `Pending`, `Confirmed`, `Cancelled`, `CancelPending`, and `RefundFailed`.
+- Registration status update cascades to all participant groups.
+
+Group status update:
+
+- Updates only the selected group.
+
+Group seed:
+
+- Admin can set or clear seed on a participant group.
+
+Participant update:
+
+- Admin can update participant personal/contact/team fields, document URL, remark, and custom field values.
+- If full name or DOB changes, duplicate participant check runs excluding the current participant.
+- Custom field updates are upserted only for labels belonging to the participant's program fields.
+
+Manual confirmation:
+
+- `POST /api/registrations/{id}/confirm` allows statuses `S`, `W`, and `PC`.
+- Admin note is required.
+- Missing payment row is created with manual gateway.
+- Registration and groups become confirmed.
+- Successful/waived statuses stamp paid/receipt-related fields where applicable.
+- In the event registration cart, logged-in admins bypass online payment for paid carts.
+- During admin bypass, cart-level payer/contact, public payment method, and consent fields are hidden; payer contact is recorded from the logged-in admin profile.
+- In the admin confirmation modal, payment method and payment reference are collected only when the selected payment status is `S` (Paid), not for `W` (Waived) or `PC` (Pending Collection).
+
+## Badminton Club Rules
+
+- Badminton club lookup uses `GET /api/clubs`.
+- Only active clubs are returned.
+- Name is required for create/update.
+- Active duplicate names are rejected.
+- Delete is soft delete (`IsActive=false`).
+- Only `superadmin` can delete.
+- Registration UI shows a club dropdown for badminton events and an "Others" option with a free-text input.
+- The custom "Others" value is persisted as `clubSchoolCompany`.
+
+## SBA Rules
+
+- Ranking types are defined in code.
+- Public endpoints expose ranking types, rankings, member lookup, and member search.
+- Import requires `superadmin` or `eventadmin`.
+- Import accepts `.xlsx` and replaces rows for imported ranking categories.
+- SBA lookup normalizes member id comparisons through code paths in `SbaController`.
+- Name search returns a limited result set.
+
+## Fixture Rules
+
+- Fixture endpoints require `superadmin` or `eventadmin`.
+- Fixture generation requires at least two non-cancelled participant groups.
+- One fixture exists per event/program pair.
+- Supported formats include knockout, group knockout, round robin, and heats.
+- Fixture state is stored as JSON in `Fixture.BracketStateJson`.
+- Backend fixture APIs are the source of truth for generated draws, bracket advancement, score validation, heat advancement, and final placements.
+- Frontend fixture code should only preview/display state, collect admin input, call backend fixture actions, and show backend validation errors.
+- Score, schedule, swaps, advancement, heats results, and final places mutate the stored fixture state through backend fixture endpoints.
+- Structural fixture changes such as regenerate, reset/delete, raw state save, and team swaps are blocked after results have been entered.
+- Knockout BYE entries are backend-generated and auto-completed so non-power-of-two draws can advance without manual BYE scoring.
+- Backend score validation rejects BYE scoring, invalid winners, invalid walkover winners, missing game scores, tied game scores, negative scores, and winners that do not match the submitted game results.
+- Draw results are supported for group/round-robin style matches by saving tied numeric scores without a winner; knockout matches still require a winner.
+- Group standings use configured win/draw/loss points, then BWF-style ordering: wins, head-to-head only for exactly two tied teams, game difference, point difference, points scored, seed, then team id.
+- Backend fixture config validation rejects negative standing points, invalid group knockout group/advance counts, and invalid heats round/advance/place counts.
+- Backend heats validation requires results before advancing, enforces the configured advance count, prevents editing completed heat rounds, and rejects duplicate or out-of-range final places.
+- Fixture regression checks live in the separate `Backend/TRS_FixtureTests` console project so they can be run or removed independently from the API project.
+
+## Upload Rules
+
+- Uploads accept image/jpeg, image/png, image/webp, and application/pdf.
+- Image max size is 2 MB.
+- PDF max size is 8 MB.
+- Folder input is sanitized by stripping `..` and trimming slashes.
+- Files are stored under API `wwwroot/uploads`.
+- Backend controller currently does not require authorization.
+
+## Logging Rules
+
+- Serilog console logging is enabled.
+- `EFCoreSink` writes Warning and above to `AppLogs`.
+- Microsoft/System logs below Error are filtered out.
+- Logging sink exceptions are swallowed.
+
+## Security and Operational Constraints
+
+- Public registration detail and receipt endpoints are accessible by numeric id.
+- JWT logout is client-side only; no token blacklist exists.
+- Admin deactivation affects future `me` checks but does not revoke already-issued JWTs immediately by server-side blacklist.
+- Background jobs are in-memory and not durable.
+- Uploaded files are local to the API host.

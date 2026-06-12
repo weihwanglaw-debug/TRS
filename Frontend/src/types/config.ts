@@ -88,6 +88,17 @@ export interface SbaRankingType {
   maxAge: number;
 }
 
+// ── BadmintonClub ───────────────────────────────────────────────────────────────────
+export interface BadmintonClub {
+  clubId:        number;
+  name:          string;
+  contactNumber: string | null;
+  email:         string | null;
+  address:       string | null;
+  country:       string | null;
+}
+ 
+
 // ── Program ───────────────────────────────────────────────────────────────────
 
 export interface Program {

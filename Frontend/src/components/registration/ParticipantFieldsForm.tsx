@@ -19,9 +19,10 @@
  *   - Submit / save buttons
  */
 
-import type { Program, CustomField, ProgramFields } from "@/types/config";
+import { useEffect, useMemo, useState } from "react";
+import type { Program, CustomField, ProgramFields, BadmintonClub } from "@/types/config";
 import { CheckCircle, XCircle, Paperclip } from "lucide-react";
-import { assetUrl } from "@/lib/api";
+import { apiGetBadmintonClubs, assetUrl } from "@/lib/api";
 
 // ── Constants (shared with both consumers) ────────────────────────────────────
 
@@ -32,6 +33,7 @@ export const MONTHS = [
 export const DAYS  = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0"));
 export const YEARS = Array.from({ length: 100 }, (_, i) => String(new Date().getFullYear() - i));
 export const TSHIRT_SIZES = ["XS","S","M","L","XL","XXL","3XL"];
+const CLUB_OTHERS_VALUE = "__others__";
 
 // ── Field values shape ────────────────────────────────────────────────────────
 // Both consumers read/write this same shape.
@@ -79,6 +81,9 @@ export interface ValidateParticipantOptions {
   selfIndex?: number;
 }
 
+const normalizeName = (name: string) =>
+  name.trim().replace(/\s+/g, " ").toLowerCase();
+
 export function validateParticipant(
   v: ParticipantFormValues,
   opts: ValidateParticipantOptions,
@@ -94,20 +99,46 @@ export function validateParticipant(
   if (!v.nationality.trim())       errs.nationality   = "Required";
   if (!v.clubSchoolCompany.trim()) errs.clubSchoolCompany = "Required";
 
-  // DOB — completeness
   if (!v.dobDay || !v.dobMonth || !v.dobYear) {
     errs.dob = "Complete date required";
   } else {
-    // DOB — age range
     const monthIdx = MONTHS.indexOf(v.dobMonth);
-    const dob = new Date(+v.dobYear, monthIdx, +v.dobDay);
-    const today = new Date();
-    let age = today.getFullYear() - dob.getFullYear();
-    const mDiff = today.getMonth() - dob.getMonth();
-    if (mDiff < 0 || (mDiff === 0 && today.getDate() < dob.getDate())) age--;
-    if (program.minAge > 0 || program.maxAge > 0) {
-      if (age < program.minAge || age > program.maxAge)
-        errs.dob = `Age must be ${program.minAge}–${program.maxAge}`;
+
+    if (monthIdx === -1) {
+      errs.dob = "Invalid month";
+    } else {
+      const dob = new Date(+v.dobYear, monthIdx, +v.dobDay);
+
+      const isValidDate =
+        dob.getFullYear() === +v.dobYear &&
+        dob.getMonth() === monthIdx &&
+        dob.getDate() === +v.dobDay;
+
+      if (!isValidDate) {
+        errs.dob = "Invalid date";
+      } else if (dob > new Date()) {
+        errs.dob = "Date of birth cannot be in the future";
+      } else {
+        const today = new Date();
+
+        let age = today.getFullYear() - dob.getFullYear();
+
+        const mDiff = today.getMonth() - dob.getMonth();
+
+        if (
+          mDiff < 0 ||
+          (mDiff === 0 && today.getDate() < dob.getDate())
+        ) {
+          age--;
+        }
+
+        if (
+          (program.minAge > 0 || program.maxAge > 0) &&
+          (age < program.minAge || age > program.maxAge)
+        ) {
+          errs.dob = `Age must be ${program.minAge}–${program.maxAge}`;
+        }
+      }
     }
   }
 
@@ -140,13 +171,36 @@ export function validateParticipant(
     const dupe = allValues.some((other, i) => {
       if (i === selfIndex) return false;
       return (
-        other.fullName.trim().toLowerCase() === v.fullName.trim().toLowerCase() &&
+        normalizeName(other.fullName) === normalizeName(v.fullName) &&
         other.dobDay   === v.dobDay &&
         other.dobMonth === v.dobMonth &&
         other.dobYear  === v.dobYear
       );
     });
     if (dupe && !errs.fullName) errs.fullName = "Duplicate participant in this submission";
+  }
+
+  if (
+    program.fields.enableDocumentUpload &&
+    v.documentFile
+  ) {
+    const allowedTypes = [
+      "application/pdf",
+      "image/jpeg",
+      "image/png",
+    ];
+
+    if (!allowedTypes.includes(v.documentFile.type)) {
+      errs.documentUpload =
+        "Only PDF, JPG and PNG files are allowed";
+    }
+
+    const maxSizeBytes = 5 * 1024 * 1024;
+
+    if (v.documentFile.size > maxSizeBytes) {
+      errs.documentUpload =
+        "Maximum file size is 5MB";
+    }
   }
 
   return errs;
@@ -167,7 +221,7 @@ export function parseDobString(dob: string): { dobDay: string; dobMonth: string;
   return {
     dobYear:  parts[0],
     dobMonth: MONTHS[parseInt(parts[1], 10) - 1] ?? "",
-    dobDay:   String(parseInt(parts[2], 10)),
+    dobDay:   String(parseInt(parts[2], 10)).padStart(2, "0"),
   };
 }
 
@@ -251,6 +305,8 @@ export interface ParticipantFieldsFormProps {
 
   // Nationality options — registration flow provides full country list
   nationalityOptions?: { code: string; label: string }[];
+
+  eventType?: string;
 }
 
 export default function ParticipantFieldsForm({
@@ -259,6 +315,7 @@ export default function ParticipantFieldsForm({
   sbaEnabled = false, sbaStatus = "idle", onSbaRetrieve, onSbaIdChange,
   suggestions, onApplySuggestion,
   nationalityOptions,
+  eventType,
 }: ParticipantFieldsFormProps) {
 
   const set = (patch: Partial<ParticipantFormValues>) => onChange(patch);
@@ -266,6 +323,45 @@ export default function ParticipantFieldsForm({
     set({ customFieldValues: { ...values.customFieldValues, [label]: value } });
 
   const sbaLocked = sbaStatus === "found";
+  const isBadminton = eventType?.toLowerCase() === "badminton";
+  const [badmintonClubs, setBadmintonClubs] = useState<BadmintonClub[]>([]);
+  const [clubSelectValue, setClubSelectValue] = useState("");
+  const [otherClubName, setOtherClubName] = useState("");
+
+  useEffect(() => {
+    if (!isBadminton) return;
+
+    apiGetBadmintonClubs().then(r => {
+      if (r.data) setBadmintonClubs(r.data);
+    });
+  }, [isBadminton]);
+
+  const clubNames = useMemo(
+    () => badmintonClubs.map(c => c.name),
+    [badmintonClubs],
+  );
+
+  useEffect(() => {
+    if (!isBadminton) return;
+
+    const savedClub = values.clubSchoolCompany ?? "";
+    if (!savedClub) {
+      if (clubSelectValue === CLUB_OTHERS_VALUE) return;
+
+      setClubSelectValue("");
+      setOtherClubName("");
+      return;
+    }
+
+    if (clubNames.includes(savedClub)) {
+      setClubSelectValue(savedClub);
+      setOtherClubName("");
+      return;
+    }
+
+    setClubSelectValue(CLUB_OTHERS_VALUE);
+    setOtherClubName(savedClub);
+  }, [clubNames, isBadminton, values.clubSchoolCompany]);
 
   return (
     <div className="grid sm:grid-cols-2 gap-5">
@@ -280,8 +376,7 @@ export default function ParticipantFieldsForm({
                 <div className="flex gap-2">
                   <input
                     className="field-input flex-1 font-mono"
-                    value={values.sbaId ?? ''}
-                    placeholder="e.g. SBA-001"
+                    value={values.sbaId ?? ''}                   
                     disabled={disabled}
                     onChange={e => {
                       onSbaIdChange?.(e.target.value);
@@ -385,7 +480,7 @@ export default function ParticipantFieldsForm({
       {/* ── Gender ── */}
       <FieldWrapper label="Gender" error={errors.gender}>
         <select className="field-input" value={values.gender}
-          disabled={disabled || sbaLocked}
+          disabled={disabled}
           style={sbaLocked ? { opacity: 0.6 } : undefined}
           onChange={e => set({ gender: e.target.value })}>
           <option value="">Select</option>
@@ -427,10 +522,48 @@ export default function ParticipantFieldsForm({
       </FieldWrapper>
 
       {/* ── Club / School / Company ── */}
-      <FieldWrapper label="Club / School / Company" error={errors.clubSchoolCompany}>
-        <input className="field-input" value={values.clubSchoolCompany}
-          disabled={disabled}
-          onChange={e => set({ clubSchoolCompany: e.target.value })} />
+      <FieldWrapper label={isBadminton ? "Club" : "Club / School / Company"} error={errors.clubSchoolCompany}>
+        {isBadminton ? (
+          <>
+            <select className="field-input" value={clubSelectValue}
+              disabled={disabled}
+              onChange={e => {
+                const next = e.target.value;
+                setClubSelectValue(next);
+
+                if (next === CLUB_OTHERS_VALUE) {
+                  setOtherClubName("");
+                  set({ clubSchoolCompany: "" });
+                  return;
+                }
+
+                if (!next) {
+                  setOtherClubName("");
+                }
+
+                set({ clubSchoolCompany: next });
+              }}>
+              <option value="">Select club</option>
+              {badmintonClubs.map(club => (
+                <option key={club.clubId} value={club.name}>{club.name}</option>
+              ))}
+              <option value={CLUB_OTHERS_VALUE}>Others</option>
+            </select>
+
+            {clubSelectValue === CLUB_OTHERS_VALUE && (
+              <input className="field-input mt-2" value={otherClubName}
+                disabled={disabled}
+                onChange={e => {
+                  setOtherClubName(e.target.value);
+                  set({ clubSchoolCompany: e.target.value });
+                }} />
+            )}
+          </>
+        ) : (
+          <input className="field-input" value={values.clubSchoolCompany}
+            disabled={disabled}
+            onChange={e => set({ clubSchoolCompany: e.target.value })} />
+        )}
       </FieldWrapper>
 
       {/* ── T-Shirt Size (conditional) ── */}
@@ -470,7 +603,36 @@ export default function ParticipantFieldsForm({
               accept=".pdf,.jpg,.jpeg,.png"
               className="field-input"
               disabled={disabled}
-              onChange={e => onFileChange?.(e.target.files?.[0] ?? null)}
+              onChange={e => {
+                const file = e.target.files?.[0] ?? null;
+
+                if (!file) {
+                  onFileChange?.(null);
+                  return;
+                }
+
+                const allowedTypes = [
+                  "application/pdf",
+                  "image/jpeg",
+                  "image/png",
+                ];
+
+                const maxSizeBytes = 5 * 1024 * 1024;
+
+                if (!allowedTypes.includes(file.type)) {
+                  alert("Only PDF, JPG and PNG files are allowed.");
+                  e.target.value = "";
+                  return;
+                }
+
+                if (file.size > maxSizeBytes) {
+                  alert("Maximum file size is 5MB.");
+                  e.target.value = "";
+                  return;
+                }
+
+                onFileChange?.(file);
+              }}
             />
             {/* Show staged new file name */}
             {newFile && (
@@ -501,9 +663,9 @@ export default function ParticipantFieldsForm({
       )}
 
       {/* ── Custom Fields ── */}
-      {programFields.customFields.map(cf => (
+      {programFields.customFields.map((cf, index) => (
         <FieldWrapper
-          key={cf.label}
+          key={`${cf.label}-${index}`}
           label={`${cf.label}${cf.required ? " *" : ""}`}
           error={errors[`custom.${cf.label}`]}
         >

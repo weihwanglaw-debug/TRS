@@ -87,10 +87,10 @@ export default function PaymentReconciliation() {
         )}
       </div>
 
-      {/* ══════════ Unmatched Stripe Payments (Case C) ══════════ */}
+
 
       <p className="text-sm opacity-60 mb-4">
-        Stripe payments where no registration was created — the payer completed checkout but the
+        Payments where no registration was created — the payer completed checkout but the
         session was never matched to a TRS registration. Issue a refund directly from here.
       </p>
 
@@ -220,7 +220,7 @@ export default function PaymentReconciliation() {
                 className="px-3 py-2 text-xs"
                 style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}
               >
-                ⚠ This will issue a full refund via Stripe and record it in TRS. This action cannot be undone.
+                This will issue a full refund via Payment Gateway and record it in TRS. This action cannot be undone.
               </div>
 
               <FG label="Reason *">

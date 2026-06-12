@@ -74,6 +74,7 @@ const NATIONALITY_OPTIONS = Array.from(new Set([...PRIORITY_COUNTRY_CODES, ...co
   });
 const COUNTRY_NAME_TO_CODE = new Map(NATIONALITY_OPTIONS.map(({ code, label }) => [label.toLowerCase(), code]));
 
+
 function generateId() { return Math.random().toString(36).slice(2, 10); }
 
 function toCountryCode(value: string) {
@@ -244,6 +245,7 @@ export default function EventDetail() {
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
   const registrationRef = useRef<HTMLDivElement>(null);
+  const programsRef = useRef<HTMLDivElement>(null);
 
   const { cfg } = useLiveConfig();
 
@@ -323,6 +325,20 @@ export default function EventDetail() {
   const [submitting,    setSubmitting]    = useState(false);
   const [submitError,   setSubmitError]   = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"card" | "paynow">("card");
+  const cartRequiresPayment = cart.some(e => {
+    const prog = event?.programs.find(p => p.id === e.programId);
+    return prog?.paymentRequired && e.fee > 0;
+  });
+  const isAdminPaymentBypass = isAuthenticated && cartRequiresPayment;
+  const canSubmitCart = isAdminPaymentBypass || consentChecked;
+  const registrationContact = isAdminPaymentBypass
+    ? {
+        name: user?.name?.trim() || user?.email || "Admin",
+        email: user?.email || contact.email,
+        phone: "",
+      }
+    : contact;
+  const showAdminPaymentDetails = adminConfirmStatus === "S";
 
   const bannerImage =
     event?.bannerUrl && !event.bannerUrl.startsWith("blob:")
@@ -600,7 +616,7 @@ export default function EventDetail() {
     });
     return {
       eventId: Number(event!.id), eventName: event!.name, regStatus: "Pending" as const,
-      contactName: contact.name, contactEmail: contact.email, contactPhone: contact.phone,
+      contactName: registrationContact.name, contactEmail: registrationContact.email, contactPhone: registrationContact.phone,
       groups,
       payment: {
         id: "PAY-TEMP", registrationId: "REG-TEMP", eventId: Number(event!.id),
@@ -621,15 +637,17 @@ export default function EventDetail() {
   //   On cancel/fail: user returns to this page with cart restored from sessionStorage.
   //   No dirty Pending records are created in the database.
   const handleCheckout = async () => {
-    if (!event || !consentChecked) return;
+    if (!event || !canSubmitCart) return;
 
-    // Validate contact fields
-    const cErrs: { name?: string; email?: string; phone?: string } = {};
-    if (!contact.name.trim())  cErrs.name  = "Required";
-    if (!contact.email.trim()) cErrs.email = "Required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)) cErrs.email = "Invalid email";
-    if (!contact.phone.trim()) cErrs.phone = "Required";
-    if (Object.keys(cErrs).length) { setContactErrors(cErrs); return; }
+    if (!isAdminPaymentBypass) {
+      // Validate contact fields
+      const cErrs: { name?: string; email?: string; phone?: string } = {};
+      if (!contact.name.trim())  cErrs.name  = "Required";
+      if (!contact.email.trim()) cErrs.email = "Required";
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)) cErrs.email = "Invalid email";
+      if (!contact.phone.trim()) cErrs.phone = "Required";
+      if (Object.keys(cErrs).length) { setContactErrors(cErrs); return; }
+    }
     setContactErrors({});
 
     setSubmitting(true);
@@ -666,7 +684,7 @@ export default function EventDetail() {
         return;
       }
 
-      // Admin registration — skip Stripe, open confirmation modal
+      // Admin registration — skip Payment Gateway, open confirmation modal
       if (isAuthenticated) {
         setAdminConfirmOpen(true);
         return;
@@ -705,6 +723,9 @@ export default function EventDetail() {
     setSelectedProgram(prog); setParticipants([...entry.participants]); setEditingCartIndex(idx);
     setErrors({}); setFormError(""); setSbaStatus({}); setSuggestions(null); setStep(2);
     setTimeout(() => registrationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+  };
+  const scrollToPrograms = () => {
+    programsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   if (eventLoading) {
@@ -766,7 +787,9 @@ export default function EventDetail() {
 
           {/* ── Section 1: Event Info ── */}
           <div className="grid md:grid-cols-2 gap-10 mb-12">
+
             <div className="space-y-5">
+              <h2 className="font-bold text-xl mb-6">Event Information</h2>
               <InfoRow icon={Calendar} label="Event Dates" value={`${formatDate(event.eventStartDate)} – ${formatDate(event.eventEndDate)}`} />
               <InfoRow icon={MapPin} label="Venue" value={`${event.venue}, ${event.venueAddress}`} />
               <InfoRow icon={Users} label="Max Participants" value={String(event.maxParticipants)} />
@@ -784,20 +807,22 @@ export default function EventDetail() {
             <div className="flex flex-col gap-4">
              {event.documents && event.documents.length > 0 && (
                 <div className="flex flex-col gap-2">
-                  {event.documents
-                    .slice()
-                    .sort((a, b) => a.displayOrder - b.displayOrder)
-                    .map(doc => (
-                      <a
-                        key={doc.id}
-                        href={assetUrl(doc.fileUrl)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn-primary inline-flex items-center gap-2 px-6 py-3 font-semibold text-sm w-fit"
-                      >
-                        <Download className="h-4 w-4" /> {doc.label}
-                      </a>
-                    ))}
+                    <h2 className="font-bold text-xl mb-6">Event Documents</h2>
+
+                      {event.documents
+                        .slice()
+                        .sort((a, b) => a.displayOrder - b.displayOrder)
+                        .map(doc => (
+                          <a
+                            key={doc.id}
+                            href={assetUrl(doc.fileUrl)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn-primary inline-flex items-center gap-2 px-6 py-3 font-semibold text-sm w-fit"
+                          >
+                            <Download className="h-4 w-4" /> {doc.label}
+                          </a>
+                        ))}
                 </div>
               )}
               {status === "upcoming" && (
@@ -827,6 +852,7 @@ export default function EventDetail() {
           {/* ── Additional Information ── */}
           {event.additionalInfo && event.additionalInfo.trim() !== "" && event.additionalInfo !== "<p></p>" && (
             <div className="mb-12">
+                 <h2 className="font-bold text-xl mb-6">Additional Information</h2>
               <div
                 className="prose prose-sm max-w-none"
                 style={{ color: "var(--color-body-text)" }}
@@ -836,7 +862,11 @@ export default function EventDetail() {
           )}
 
           {/* ── Section 2: Program Cards ── */}
-          <h2 className="font-bold text-xl mb-6">Programs</h2>
+          <div ref={programsRef}>
+          <h2 className="font-bold text-xl mb-6">           
+            {event.sportType.toLowerCase() === "badminton" ? "Event Categories" : "Programs"}
+          </h2>
+          </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
             {event.programs.map((prog) => {
               const capStatus = getProgramCapacityStatus(prog);
@@ -959,6 +989,7 @@ export default function EventDetail() {
                             }
                           }}
                           programFields={selectedProgram.fields}
+                          eventType={event.sportType}
                           errors={Object.fromEntries(
                             Object.entries(errors)
                               .filter(([k]) => k.startsWith(`p${idx}.`))
@@ -996,7 +1027,7 @@ export default function EventDetail() {
                       <button onClick={() => { setStep(cart.length > 0 ? 3 : 1); setSelectedProgram(null); setEditingCartIndex(null); }}
                         className="btn-outline px-6 py-2.5 text-sm font-medium">Back</button>
                       <button onClick={handleAddToCart} className="btn-primary px-6 py-2.5 text-sm font-semibold">
-                        {editingCartIndex !== null ? "Update Cart" : "Add to Cart"}
+                        {editingCartIndex !== null ? "Update Registration List" : "Add to Registration List"}
                       </button>
                     </div>
                   </motion.div>
@@ -1047,6 +1078,7 @@ export default function EventDetail() {
                         )}
 
                         {/* Contact person — receipt will be sent here */}
+                        {!isAdminPaymentBypass && (
                         <div className="p-5 mb-5" style={{ border: "1px solid var(--color-table-border)" }}>
                           <p className="text-xs font-semibold mb-4 opacity-60">CONTACT PERSON</p>
                           <p className="text-xs opacity-50 mb-4">The registration receipt will be emailed to this address.</p>
@@ -1061,7 +1093,7 @@ export default function EventDetail() {
                                 value={contact.name}
                                 onChange={e => { setContact(c => ({ ...c, name: e.target.value })); setContactErrors(ce => ({ ...ce, name: undefined })); }}
                               />
-                              {contactErrors.name && <p className="text-xs mt-1" style={{ color: "var(--badge-closed-text)" }}>{contactErrors.name}</p>}
+                              {contactErrors.name && <p className="text-xs mt-1" style={{ color: "var(--badge-open-text)" }}>{contactErrors.name}</p>}
                             </div>
                             <div>
                               <label className="block text-xs font-medium mb-1">
@@ -1074,7 +1106,7 @@ export default function EventDetail() {
                                 value={contact.email}
                                 onChange={e => { setContact(c => ({ ...c, email: e.target.value })); setContactErrors(ce => ({ ...ce, email: undefined })); }}
                               />
-                              {contactErrors.email && <p className="text-xs mt-1" style={{ color: "var(--badge-closed-text)" }}>{contactErrors.email}</p>}
+                              {contactErrors.email && <p className="text-xs mt-1" style={{ color: "var(--badge-open-text)" }}>{contactErrors.email}</p>}
                             </div>
                             <div>
                               <label className="block text-xs font-medium mb-1">
@@ -1086,16 +1118,14 @@ export default function EventDetail() {
                                 value={contact.phone}
                                 onChange={e => { setContact(c => ({ ...c, phone: e.target.value })); setContactErrors(ce => ({ ...ce, phone: undefined })); }}
                               />
-                              {contactErrors.phone && <p className="text-xs mt-1" style={{ color: "var(--badge-closed-text)" }}>{contactErrors.phone}</p>}
+                              {contactErrors.phone && <p className="text-xs mt-1" style={{ color: "var(--badge-open-text)" }}>{contactErrors.phone}</p>}
                             </div>
                           </div>
                         </div>
+                        )}
 
                         {/* Payment method selector — only shown when payment is required */}
-                        {cart.some(e => {
-                          const prog = event?.programs.find(p => p.id === e.programId);
-                          return prog?.paymentRequired && e.fee > 0;
-                        }) && (
+                        {cartRequiresPayment && !isAdminPaymentBypass && (
                           <div className="mb-5 p-5" style={{ border: "1px solid var(--color-table-border)" }}>
                             <p className="text-xs font-semibold mb-3 opacity-60">Payment Method</p>
                             <div className="flex gap-3">
@@ -1125,12 +1155,14 @@ export default function EventDetail() {
                           </div>
                         )}
 
+                        {!isAdminPaymentBypass && (
                         <div className="p-5 mb-5" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
                           <label className="flex items-start justify-between gap-4 cursor-pointer text-sm leading-relaxed">
                             <span style={{ color: "var(--color-body-text)" }}>{cfg.consentText}</span>
                             <Switch checked={consentChecked} onCheckedChange={setConsentChecked} />
                           </label>
                         </div>
+                        )}
                         {submitError && (
                           <div className="flex items-center gap-2 p-3 mb-3 text-sm"
                             style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
@@ -1138,25 +1170,16 @@ export default function EventDetail() {
                           </div>
                         )}
                         <div className="flex flex-wrap gap-3">
-                          <button onClick={() => {
-                            setStep(1);
-                            setSelectedProgram(null);
-                            setParticipants([]);
-                            setErrors({});
-                            setTimeout(() => registrationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-                          }} className="btn-outline px-6 py-2.5 text-sm font-medium">Add More</button>
+                          <button onClick={scrollToPrograms} className="btn-outline px-6 py-2.5 text-sm font-medium">Add More</button>
                           <button
-                            disabled={!consentChecked || submitting}
+                            disabled={!canSubmitCart || submitting}
                             onClick={handleCheckout}
                             className="btn-primary px-8 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
                             {submitting
                               ? "Processing…"
                               : isAuthenticated
                               ? "Confirm Registration"
-                              : cart.some(e => {
-                                  const prog = event?.programs.find(p => p.id === e.programId);
-                                  return prog?.paymentRequired && e.fee > 0;
-                                }) ? "Proceed to Payment" : "Confirm Registration"}
+                              : cartRequiresPayment ? "Proceed to Payment" : "Confirm Registration"}
                           </button>
                         </div>
                         {isAuthenticated && <p className="text-xs mt-3 opacity-60">As admin, registration will be confirmed directly. You can set payment status in the next step.</p>}
@@ -1178,7 +1201,7 @@ export default function EventDetail() {
           </DialogHeader>
           <div className="p-8 pt-4 space-y-4">
             <div className="p-3 text-sm" style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
-              Admin registration — Stripe will be bypassed. Select the payment outcome below.
+              Admin registration — Payment will be bypassed. Select the payment outcome below.
             </div>
             <div>
               <label className="block text-xs font-semibold mb-2 opacity-70">Payment Status *</label>
@@ -1201,7 +1224,7 @@ export default function EventDetail() {
                 ))}
               </div>
             </div>
-            {adminConfirmStatus !== "W" && (
+            {showAdminPaymentDetails && (
               <div>
                 <label className="block text-xs font-semibold mb-2 opacity-70">Payment Method</label>
                 <select className="field-input" value={adminConfirmMethod}
@@ -1213,12 +1236,14 @@ export default function EventDetail() {
                 </select>
               </div>
             )}
-            <div>
-              <label className="block text-xs font-semibold mb-2 opacity-70">Payment Reference <span className="opacity-40">(optional)</span></label>
-              <input className="field-input" value={adminConfirmRef}
-                onChange={e => setAdminConfirmRef(e.target.value)}
-                placeholder="e.g. PayNow ref, receipt number" />
-            </div>
+            {showAdminPaymentDetails && (
+              <div>
+                <label className="block text-xs font-semibold mb-2 opacity-70">Payment Reference <span className="opacity-40">(optional)</span></label>
+                <input className="field-input" value={adminConfirmRef}
+                  onChange={e => setAdminConfirmRef(e.target.value)}
+                  placeholder="e.g. PayNow ref, receipt number" />
+              </div>
+            )}
             <div>
               <label className="block text-xs font-semibold mb-2 opacity-70">Admin Remark *</label>
               <textarea className="field-input" rows={2} value={adminConfirmNote}
@@ -1257,8 +1282,8 @@ export default function EventDetail() {
                   // 2. Confirm with chosen payment status
                   const confirmResult = await apiConfirmRegistration(regResult.data!.id, {
                     paymentStatus: adminConfirmStatus,
-                    method: adminConfirmStatus !== "W" ? adminConfirmMethod : undefined,
-                    paymentReference: adminConfirmRef || undefined,
+                    method: showAdminPaymentDetails ? adminConfirmMethod : undefined,
+                    paymentReference: showAdminPaymentDetails ? adminConfirmRef || undefined : undefined,
                     adminNote: adminConfirmNote,
                   });
                   if (confirmResult.error) { setSubmitError(confirmResult.error.message); setAdminConfirmOpen(false); return; }

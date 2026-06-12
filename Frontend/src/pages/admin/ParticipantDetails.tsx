@@ -94,11 +94,12 @@ function toFormValues(p: RegistrationParticipant): ParticipantFormValues {
 interface DetailModalProps {
   row:           ParticipantRow;
   programFields: ProgramFields | null;
+  eventType?:    string;
   onClose:       () => void;
   onSaved:       (updated: RegistrationParticipant) => void;
 }
 
-function DetailModal({ row, programFields, onClose, onSaved }: DetailModalProps) {
+function DetailModal({ row, programFields, eventType, onClose, onSaved }: DetailModalProps) {
   const p = row.participant;
 
   const [form,       setForm]       = useState<ParticipantFormValues>(() => toFormValues(p));
@@ -247,6 +248,7 @@ function DetailModal({ row, programFields, onClose, onSaved }: DetailModalProps)
             values={form}
             onChange={patch => setForm(prev => ({ ...prev, ...patch }))}
             programFields={fields}
+            eventType={eventType}
             errors={errors}
             onFileChange={file => { setNewDocFile(file); }}
             existingDocUrl={p.documentUrl}
@@ -315,6 +317,14 @@ export default function ParticipantDetails() {
       if (prog) return prog.fields;
     }
     return null;
+  }, [events]);
+
+  const getEventType = useCallback((group: ParticipantGroup): string | undefined => {
+    for (const ev of events) {
+      const prog = ev.programs.find(p => p.id === group.programId);
+      if (prog) return ev.sportType;
+    }
+    return undefined;
   }, [events]);
 
   const loadRows = useCallback(async () => {
@@ -524,6 +534,7 @@ export default function ParticipantDetails() {
         <DetailModal
           row={detailRow}
           programFields={getProgramFields(detailRow.group)}
+          eventType={getEventType(detailRow.group)}
           onClose={() => setDetailRow(null)}
           onSaved={handleSaved}
         />
