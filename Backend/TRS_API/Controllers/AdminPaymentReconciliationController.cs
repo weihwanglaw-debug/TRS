@@ -143,6 +143,37 @@ public class AdminPaymentReconciliationController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("refund-history")]
+    public async Task<IActionResult> GetRefundHistory()
+    {
+        var rows = await _db.Refunds
+            .Where(r => r.PaymentId == null && r.WebhookLogId != null)
+            .Include(r => r.WebhookLog)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(200)
+            .Select(r => new
+            {
+                refundId = r.RefundId,
+                webhookLogId = r.WebhookLogId,
+                gatewaySessionId = r.GatewaySessionId,
+                gatewayRefundId = r.GatewayRefundId,
+                refundAmount = r.RefundAmount,
+                currency = r.WebhookLog != null ? (r.WebhookLog.Currency ?? "SGD") : "SGD",
+                refundReason = r.RefundReason,
+                refundStatus = r.RefundStatus,
+                requestedBy = r.RequestedBy,
+                approvedBy = r.ApprovedBy,
+                createdAt = r.CreatedAt,
+                processedAt = r.ProcessedAt,
+                contactName = r.WebhookLog != null ? r.WebhookLog.ContactName : null,
+                contactEmail = r.WebhookLog != null ? r.WebhookLog.ContactEmail : null,
+                contactPhone = r.WebhookLog != null ? r.WebhookLog.ContactPhone : null,
+            })
+            .ToListAsync();
+
+        return Ok(rows);
+    }
+
     // ── POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund ───
     // Issues a Stripe refund for an orphan payment (Case C).
     // Reuses the same RefundService().CreateAsync() call as the normal refund flow,

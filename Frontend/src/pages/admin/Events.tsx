@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import type { TournamentEvent } from "@/types/config";
 import { apiGetEvents } from "@/lib/api";
-import { getEventStatus, formatDate } from "@/lib/eventUtils";
+import { getEventStatus, formatDate, singaporeDateKey } from "@/lib/eventUtils";
 import StatusBadge from "@/components/events/StatusBadge";
 import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
 import { Plus, Eye, Users, MoreVertical } from "lucide-react";
@@ -18,7 +18,7 @@ export default function AdminEvents() {
   const [openAction,     setOpenAction]     = useState<{ id: string; anchorEl: HTMLElement } | null>(null);
 
   useEffect(() => {
-    apiGetEvents({ includeInactive: true }).then(r => {
+    apiGetEvents({ includeInactive: false }).then(r => {
       if (r.data) setEvents(r.data);
     }).finally(() => setLoading(false));
   }, []);
@@ -26,10 +26,11 @@ export default function AdminEvents() {
   // close handled by ActionDropdownPortal
 
   const filtered = useMemo(() => events.filter(ev => {
+    const today = singaporeDateKey();
     const regStatus =
-      new Date() < new Date(ev.openDate)
+      today < ev.openDate
         ? "upcoming"
-        : new Date() > new Date(ev.closeDate)
+        : today > ev.closeDate
           ? "closed"
           : "open";
     if (filterStatus && getEventStatus(ev) !== filterStatus) return false;

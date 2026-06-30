@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TRS_API.Models;
+using TRS_API.Services;
 using TRS_Data.Models;
 
 namespace TRS_API.Controllers;
@@ -11,11 +12,12 @@ namespace TRS_API.Controllers;
 public class EventsController : ControllerBase
 {
     private readonly TRSDbContext _db;
+    private readonly AdminAuditService _audit;
     // HtmlSanitizer (Ganss.Xss NuGet) strips dangerous tags from admin-authored HTML.
     // Install: dotnet add package HtmlSanitizer
     private static readonly HtmlSanitizer _sanitizer = new();
 
-    public EventsController(TRSDbContext db) => _db = db;
+    public EventsController(TRSDbContext db, AdminAuditService audit) => (_db, _audit) = (db, audit);
 
     // ── Event CRUD ────────────────────────────────────────────────────────────
 
@@ -27,7 +29,7 @@ public class EventsController : ControllerBase
             includeInactive = false;
 
         var q = LoadEvents();
-        if (!includeInactive) q = q.Where(e => e.IsActive);
+        if (!includeInactive) q = q.Where(e => e.IsActive && e.Programs.Any(p => p.IsActive));
         var events = await q.OrderByDescending(e => e.EventStartDate).ToListAsync();
         var counts = await GetParticipantCounts(events.SelectMany(e => e.Programs.Select(p => p.ProgramId)).ToList());
         return Ok(events.Select(e => MapEvent(e, counts)));
@@ -39,7 +41,7 @@ public class EventsController : ControllerBase
     {
         var isAdmin = User.IsInRole("superadmin") || User.IsInRole("eventadmin");
         var q = LoadEvents().Where(e => e.EventId == id);
-        if (!isAdmin) q = q.Where(e => e.IsActive);
+        if (!isAdmin) q = q.Where(e => e.IsActive && e.Programs.Any(p => p.IsActive));
         var ev = await q.FirstOrDefaultAsync();
         if (ev == null) return NotFound(new { code = "NOT_FOUND", message = "Event not found." });
         var counts = await GetParticipantCounts(ev.Programs.Select(p => p.ProgramId).ToList());
@@ -53,6 +55,15 @@ public class EventsController : ControllerBase
         var ev = ApplyEventFields(new Event { CreatedAt = DateTime.UtcNow, IsActive = true }, req);
         _db.Events.Add(ev);
         await _db.SaveChangesAsync();
+        await _audit.LogAsync(
+            User,
+            GetClientIp(),
+            "EVENT_CREATE",
+            "Event",
+            ev.EventId.ToString(),
+            null,
+            AuditEventSnapshot(ev),
+            $"Created event '{ev.Name}'.");
         return await GetById(ev.EventId);
     }
 
@@ -64,10 +75,20 @@ public class EventsController : ControllerBase
             .Include(e => e.GalleryImages)
             .FirstOrDefaultAsync(e => e.EventId == id);
         if (ev == null) return NotFound(new { code = "NOT_FOUND", message = "Event not found." });
+        var oldValue = AuditEventSnapshot(ev);
         ev.GalleryImages.Clear();
         ApplyEventFields(ev, req);
         ev.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        await _audit.LogAsync(
+            User,
+            GetClientIp(),
+            "EVENT_UPDATE",
+            "Event",
+            ev.EventId.ToString(),
+            oldValue,
+            AuditEventSnapshot(ev),
+            $"Updated event '{ev.Name}'.");
         return await GetById(id);
     }
 
@@ -77,9 +98,29 @@ public class EventsController : ControllerBase
     {
         var ev = await _db.Events.FindAsync(id);
         if (ev == null) return NotFound(new { code = "NOT_FOUND", message = "Event not found." });
+        var registrationCount = await _db.EventRegistrations.CountAsync(r => r.EventId == id);
+        if (registrationCount > 0)
+        {
+            return Conflict(new
+            {
+                code = "EVENT_HAS_REGISTRATIONS",
+                message = $"This event cannot be deleted because it has {registrationCount} registration record(s)."
+            });
+        }
+
+        var oldValue = AuditEventSnapshot(ev);
         ev.IsActive = false;
         ev.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        await _audit.LogAsync(
+            User,
+            GetClientIp(),
+            "EVENT_DELETE",
+            "Event",
+            ev.EventId.ToString(),
+            oldValue,
+            AuditEventSnapshot(ev),
+            $"Deleted event '{ev.Name}'.");
         return Ok();
     }
 
@@ -175,6 +216,15 @@ public class EventsController : ControllerBase
         var prog = ApplyProgramFields(new TrsProgram { EventId = id, CreatedAt = DateTime.UtcNow, IsActive = true }, req);
         _db.Programs.Add(prog);
         await _db.SaveChangesAsync();
+        await _audit.LogAsync(
+            User,
+            GetClientIp(),
+            "PROGRAM_CREATE",
+            "Program",
+            prog.ProgramId.ToString(),
+            null,
+            AuditProgramSnapshot(prog),
+            $"Created program '{prog.Name}' for event {id}.");
         return Ok(MapProgram(prog, 0));
     }
 
@@ -184,34 +234,98 @@ public class EventsController : ControllerBase
         var prog = await _db.Programs.Include(p => p.Fields).Include(p => p.CustomFields)
             .FirstOrDefaultAsync(p => p.ProgramId == pid && p.EventId == eid);
         if (prog == null) return NotFound(new { code = "NOT_FOUND", message = "Program not found." });
-        prog.CustomFields.Clear();
-        ApplyProgramFields(prog, req);
+        var activeGroupCount = await CountActiveParticipantGroups(pid);
+        if (activeGroupCount > 0)
+        {
+            var validationMessage = ValidateProgramUpdateWithRegistrations(prog, req, activeGroupCount);
+            if (validationMessage != null)
+            {
+                return Conflict(new
+                {
+                    code = "PROGRAM_HAS_REGISTRATIONS",
+                    message = validationMessage
+                });
+            }
+        }
+
+        var oldValue = AuditProgramSnapshot(prog);
+        if (activeGroupCount > 0)
+        {
+            ApplyRegisteredProgramSafeFields(prog, req);
+        }
+        else
+        {
+            prog.CustomFields.Clear();
+            ApplyProgramFields(prog, req);
+        }
+
         prog.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        await _audit.LogAsync(
+            User,
+            GetClientIp(),
+            "PROGRAM_UPDATE",
+            "Program",
+            prog.ProgramId.ToString(),
+            oldValue,
+            AuditProgramSnapshot(prog),
+            $"Updated program '{prog.Name}' for event {eid}.");
         return Ok(MapProgram(prog, 0));
     }
 
     [HttpPatch("{eid:int}/programs/{pid:int}/status"), Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> UpdateProgramStatus(int eid, int pid, [FromBody] UpdateProgramStatusRequest req)
     {
-        var prog = await _db.Programs.FirstOrDefaultAsync(p => p.ProgramId == pid && p.EventId == eid);
+        var prog = await _db.Programs.Include(p => p.Fields).Include(p => p.CustomFields)
+            .FirstOrDefaultAsync(p => p.ProgramId == pid && p.EventId == eid);
         if (prog == null) return NotFound(new { code = "NOT_FOUND", message = "Program not found." });
         if (req.Status != "open" && req.Status != "closed")
             return BadRequest(new { code = "INVALID_STATUS", message = "Status must be 'open' or 'closed'." });
+        var oldValue = AuditProgramSnapshot(prog);
         prog.Status    = req.Status;
         prog.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        await _audit.LogAsync(
+            User,
+            GetClientIp(),
+            "PROGRAM_STATUS_UPDATE",
+            "Program",
+            prog.ProgramId.ToString(),
+            oldValue,
+            AuditProgramSnapshot(prog),
+            $"Changed program '{prog.Name}' status to {prog.Status} for event {eid}.");
         return Ok(new { programId = pid, status = prog.Status });
     }
 
     [HttpDelete("{eid:int}/programs/{pid:int}"), Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> DeleteProgram(int eid, int pid)
     {
-        var prog = await _db.Programs.FirstOrDefaultAsync(p => p.ProgramId == pid && p.EventId == eid);
+        var prog = await _db.Programs.Include(p => p.Fields).Include(p => p.CustomFields)
+            .FirstOrDefaultAsync(p => p.ProgramId == pid && p.EventId == eid);
         if (prog == null) return NotFound(new { code = "NOT_FOUND", message = "Program not found." });
+        var activeGroupCount = await CountActiveParticipantGroups(pid);
+        if (activeGroupCount > 0)
+        {
+            return Conflict(new
+            {
+                code = "PROGRAM_HAS_REGISTRATIONS",
+                message = $"This program cannot be removed because it has {activeGroupCount} non-cancelled registered participant group(s). Close the program instead to stop new registrations."
+            });
+        }
+
+        var oldValue = AuditProgramSnapshot(prog);
         prog.IsActive  = false;
         prog.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        await _audit.LogAsync(
+            User,
+            GetClientIp(),
+            "PROGRAM_DELETE",
+            "Program",
+            prog.ProgramId.ToString(),
+            oldValue,
+            AuditProgramSnapshot(prog),
+            $"Deleted program '{prog.Name}' from event {eid}.");
         return Ok();
     }
 
@@ -233,6 +347,9 @@ public class EventsController : ControllerBase
             .Select(g => new { g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Key, x => x.Count);
     }
+
+    private Task<int> CountActiveParticipantGroups(int programId) =>
+        _db.ParticipantGroups.CountAsync(g => g.ProgramId == programId && g.GroupStatus != "Cancelled");
 
     private static Event ApplyEventFields(Event ev, UpsertEventRequest r)
     {
@@ -265,7 +382,7 @@ public class EventsController : ControllerBase
         p.Name = r.Name; p.Type = r.Type; p.MinAge = r.MinAge; p.MaxAge = r.MaxAge;
         p.SbaRankingType = string.IsNullOrWhiteSpace(r.SbaRankingType) ? null : r.SbaRankingType.Trim();
         p.Gender = r.Gender; p.Fee = r.Fee; p.PaymentRequired = r.PaymentRequired;
-        p.FeeStructure = r.FeeStructure; p.SbaRequired = r.SbaRequired;
+        p.FeeStructure = r.FeeStructure;
         p.MinPlayers = r.MinPlayers; p.MaxPlayers = r.MaxPlayers;
         p.MinParticipants = r.MinParticipants; p.MaxParticipants = r.MaxParticipants;
         if (p.Fields != null)
@@ -273,6 +390,11 @@ public class EventsController : ControllerBase
             p.Fields.EnableSbaId = r.Fields.EnableSbaId; p.Fields.EnableDocumentUpload = r.Fields.EnableDocumentUpload;
             p.Fields.EnableGuardianInfo = r.Fields.EnableGuardianInfo; p.Fields.EnableRemark = r.Fields.EnableRemark;
             p.Fields.EnableTshirt = r.Fields.EnableTshirt;
+            p.Fields.RequireSbaId = r.Fields.RequireSbaId && r.Fields.EnableSbaId;
+            p.Fields.RequireDocumentUpload = r.Fields.RequireDocumentUpload && r.Fields.EnableDocumentUpload;
+            p.Fields.RequireGuardianInfo = r.Fields.RequireGuardianInfo && r.Fields.EnableGuardianInfo;
+            p.Fields.RequireRemark = r.Fields.RequireRemark && r.Fields.EnableRemark;
+            p.Fields.RequireTshirt = r.Fields.RequireTshirt && r.Fields.EnableTshirt;
         }
         else
         {
@@ -280,7 +402,12 @@ public class EventsController : ControllerBase
             {
                 EnableSbaId = r.Fields.EnableSbaId, EnableDocumentUpload = r.Fields.EnableDocumentUpload,
                 EnableGuardianInfo = r.Fields.EnableGuardianInfo, EnableRemark = r.Fields.EnableRemark,
-                EnableTshirt = r.Fields.EnableTshirt
+                EnableTshirt = r.Fields.EnableTshirt,
+                RequireSbaId = r.Fields.RequireSbaId && r.Fields.EnableSbaId,
+                RequireDocumentUpload = r.Fields.RequireDocumentUpload && r.Fields.EnableDocumentUpload,
+                RequireGuardianInfo = r.Fields.RequireGuardianInfo && r.Fields.EnableGuardianInfo,
+                RequireRemark = r.Fields.RequireRemark && r.Fields.EnableRemark,
+                RequireTshirt = r.Fields.RequireTshirt && r.Fields.EnableTshirt
             };
         }
         p.CustomFields = r.Fields.CustomFields.Select((cf, i) => new ProgramCustomField
@@ -291,19 +418,135 @@ public class EventsController : ControllerBase
         return p;
     }
 
+    private static void ApplyRegisteredProgramSafeFields(TrsProgram p, UpsertProgramRequest r)
+    {
+        p.Name = r.Name;
+        p.MinParticipants = r.MinParticipants;
+        p.MaxParticipants = r.MaxParticipants;
+    }
+
+    private static string? ValidateProgramUpdateWithRegistrations(
+        TrsProgram current,
+        UpsertProgramRequest requested,
+        int activeGroupCount)
+    {
+        if (!string.Equals(current.Type, requested.Type, StringComparison.Ordinal))
+            return RegisteredProgramChangeBlockedMessage("program format/type");
+        if (!string.Equals(NormalizeNullable(current.SbaRankingType), NormalizeNullable(requested.SbaRankingType), StringComparison.Ordinal))
+            return RegisteredProgramChangeBlockedMessage("SBA ranking type");
+        if (current.MinAge != requested.MinAge || current.MaxAge != requested.MaxAge)
+            return RegisteredProgramChangeBlockedMessage("age limits");
+        if (!string.Equals(current.Gender, requested.Gender, StringComparison.Ordinal))
+            return RegisteredProgramChangeBlockedMessage("gender rule");
+        if (current.Fee != requested.Fee || current.PaymentRequired != requested.PaymentRequired ||
+            !string.Equals(current.FeeStructure, requested.FeeStructure, StringComparison.Ordinal))
+            return RegisteredProgramChangeBlockedMessage("payment or fee settings");
+        if (current.MinPlayers != requested.MinPlayers || current.MaxPlayers != requested.MaxPlayers)
+            return RegisteredProgramChangeBlockedMessage("players-per-entry limits");
+        if (requested.MinParticipants > activeGroupCount)
+            return $"This program already has {activeGroupCount} non-cancelled registered participant group(s). Minimum entries cannot be raised above the current registration count.";
+        if (requested.MaxParticipants < activeGroupCount)
+            return $"This program already has {activeGroupCount} non-cancelled registered participant group(s). Capacity cannot be reduced below the current registration count.";
+        if (!ProgramFieldsMatch(current.Fields, requested.Fields) || !CustomFieldsMatch(current.CustomFields, requested.Fields.CustomFields))
+            return RegisteredProgramChangeBlockedMessage("participant field settings");
+
+        return null;
+    }
+
+    private static string RegisteredProgramChangeBlockedMessage(string fieldGroup) =>
+        $"This program already has registered participants. Changing {fieldGroup} could conflict with existing registrations; close the program to stop new registrations or create a new program.";
+
+    private static string? NormalizeNullable(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static bool ProgramFieldsMatch(ProgramField? current, ProgramFieldsDto requested)
+    {
+        if (current == null)
+        {
+            return !requested.EnableSbaId &&
+                   !requested.EnableDocumentUpload &&
+                   !requested.EnableGuardianInfo &&
+                   !requested.EnableRemark &&
+                   !requested.EnableTshirt &&
+                   !requested.RequireSbaId &&
+                   !requested.RequireDocumentUpload &&
+                   !requested.RequireGuardianInfo &&
+                   !requested.RequireRemark &&
+                   !requested.RequireTshirt;
+        }
+
+        return current.EnableSbaId == requested.EnableSbaId &&
+               current.EnableDocumentUpload == requested.EnableDocumentUpload &&
+               current.EnableGuardianInfo == requested.EnableGuardianInfo &&
+               current.EnableRemark == requested.EnableRemark &&
+               current.EnableTshirt == requested.EnableTshirt &&
+               current.RequireSbaId == (requested.RequireSbaId && requested.EnableSbaId) &&
+               current.RequireDocumentUpload == (requested.RequireDocumentUpload && requested.EnableDocumentUpload) &&
+               current.RequireGuardianInfo == (requested.RequireGuardianInfo && requested.EnableGuardianInfo) &&
+               current.RequireRemark == (requested.RequireRemark && requested.EnableRemark) &&
+               current.RequireTshirt == (requested.RequireTshirt && requested.EnableTshirt);
+    }
+
+    private static bool CustomFieldsMatch(ICollection<ProgramCustomField> current, List<CustomFieldDto> requested)
+    {
+        var currentFields = current
+            .OrderBy(cf => cf.SortOrder)
+            .Select(cf => new
+            {
+                Label = cf.Label.Trim(),
+                Type = cf.FieldType.Trim(),
+                cf.IsRequired,
+                Options = NormalizeNullable(cf.Options),
+                cf.SortOrder,
+            })
+            .ToList();
+
+        var requestedFields = requested
+            .OrderBy(cf => cf.SortOrder)
+            .Select(cf => new
+            {
+                Label = cf.Label.Trim(),
+                Type = cf.FieldType.Trim(),
+                cf.IsRequired,
+                Options = NormalizeNullable(cf.Options),
+                cf.SortOrder,
+            })
+            .ToList();
+
+        if (currentFields.Count != requestedFields.Count)
+            return false;
+
+        for (var i = 0; i < currentFields.Count; i++)
+        {
+            if (currentFields[i].Label != requestedFields[i].Label ||
+                currentFields[i].Type != requestedFields[i].Type ||
+                currentFields[i].IsRequired != requestedFields[i].IsRequired ||
+                currentFields[i].Options != requestedFields[i].Options ||
+                currentFields[i].SortOrder != requestedFields[i].SortOrder)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static object MapProgram(TrsProgram p, int currentParticipants) => new
     {
         id = p.ProgramId.ToString(), p.Name, p.Type, p.SbaRankingType,
         p.MinAge, p.MaxAge, p.Gender, p.Fee, p.PaymentRequired, p.FeeStructure,
-        p.SbaRequired, p.MinPlayers, p.MaxPlayers, p.MinParticipants, p.MaxParticipants,
+        p.MinPlayers, p.MaxPlayers, p.MinParticipants, p.MaxParticipants,
         currentParticipants, p.Status, participantSeeds = new List<object>(),
         fields = p.Fields == null
-            ? (object)new { enableSbaId = false, enableDocumentUpload = false, enableGuardianInfo = false, enableRemark = false, enableTshirt = false, customFields = new List<object>() }
+            ? (object)new { enableSbaId = false, enableDocumentUpload = false, enableGuardianInfo = false, enableRemark = false, enableTshirt = false, requireSbaId = false, requireDocumentUpload = false, requireGuardianInfo = false, requireRemark = false, requireTshirt = false, customFields = new List<object>() }
             : new
             {
                 enableSbaId = p.Fields.EnableSbaId, enableDocumentUpload = p.Fields.EnableDocumentUpload,
                 enableGuardianInfo = p.Fields.EnableGuardianInfo, enableRemark = p.Fields.EnableRemark,
                 enableTshirt = p.Fields.EnableTshirt,
+                requireSbaId = p.Fields.RequireSbaId, requireDocumentUpload = p.Fields.RequireDocumentUpload,
+                requireGuardianInfo = p.Fields.RequireGuardianInfo, requireRemark = p.Fields.RequireRemark,
+                requireTshirt = p.Fields.RequireTshirt,
                 customFields = p.CustomFields.OrderBy(cf => cf.SortOrder).Select(cf => (object)new
                 {
                     label = cf.Label, type = cf.FieldType, required = cf.IsRequired, options = cf.Options
@@ -340,5 +583,75 @@ public class EventsController : ControllerBase
         ev.FixtureMode,
         programs        = ev.Programs.Where(p => p.IsActive)
                             .Select(p => MapProgram(p, counts.GetValueOrDefault(p.ProgramId, 0))).ToList()
+    };
+
+    private string? GetClientIp() =>
+        HttpContext.Connection.RemoteIpAddress?.ToString();
+
+    private static object AuditEventSnapshot(Event ev) => new
+    {
+        ev.EventId,
+        ev.Name,
+        ev.Description,
+        ev.Venue,
+        ev.VenueAddress,
+        ev.BannerUrl,
+        ev.AdditionalInfo,
+        EventStartDate = ev.EventStartDate.ToString("yyyy-MM-dd"),
+        EventEndDate = ev.EventEndDate?.ToString("yyyy-MM-dd"),
+        OpenDate = ev.OpenDate.ToString("yyyy-MM-dd"),
+        CloseDate = ev.CloseDate.ToString("yyyy-MM-dd"),
+        ev.MaxParticipants,
+        ev.SponsorInfo,
+        ev.ConsentStatement,
+        ev.IsSports,
+        ev.SportType,
+        ev.FixtureMode,
+        ev.IsActive,
+        GalleryUrls = ev.GalleryImages.OrderBy(g => g.SortOrder).Select(g => g.ImageUrl).ToList(),
+    };
+
+    private static object AuditProgramSnapshot(TrsProgram p) => new
+    {
+        p.ProgramId,
+        p.EventId,
+        p.Name,
+        p.Type,
+        p.SbaRankingType,
+        p.MinAge,
+        p.MaxAge,
+        p.Gender,
+        p.Fee,
+        p.PaymentRequired,
+        p.FeeStructure,
+        p.MinPlayers,
+        p.MaxPlayers,
+        p.MinParticipants,
+        p.MaxParticipants,
+        p.Status,
+        p.IsActive,
+        Fields = p.Fields == null
+            ? null
+            : new
+            {
+                p.Fields.EnableSbaId,
+                p.Fields.EnableDocumentUpload,
+                p.Fields.EnableGuardianInfo,
+                p.Fields.EnableRemark,
+                p.Fields.EnableTshirt,
+                p.Fields.RequireSbaId,
+                p.Fields.RequireDocumentUpload,
+                p.Fields.RequireGuardianInfo,
+                p.Fields.RequireRemark,
+                p.Fields.RequireTshirt,
+            },
+        CustomFields = p.CustomFields.OrderBy(cf => cf.SortOrder).Select(cf => new
+        {
+            cf.Label,
+            cf.FieldType,
+            cf.IsRequired,
+            cf.Options,
+            cf.SortOrder,
+        }).ToList(),
     };
 }

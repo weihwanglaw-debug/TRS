@@ -85,6 +85,7 @@ builder.Services.AddAuthorization();
 
 // App services
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<AdminAuditService>();
 builder.Services.AddScoped<FixtureGenerationService>();
 builder.Services.AddScoped<RegistrationWorkflowService>();
 builder.Services.AddScoped<PaymentFinalizationService>();

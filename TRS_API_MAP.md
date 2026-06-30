@@ -22,19 +22,19 @@ This document maps the current backend API from controller attributes. JSON resp
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/api/events?includeInactive=` | Public/admin-aware | List events. Public users only receive active events. |
-| GET | `/api/events/{id}` | Public/admin-aware | Load event detail with programs, fields, gallery, documents. |
-| POST | `/api/events` | `superadmin,eventadmin` | Create event. |
-| PUT | `/api/events/{id}` | `superadmin,eventadmin` | Update event and replace gallery images. |
-| DELETE | `/api/events/{id}` | `superadmin,eventadmin` | Soft delete event. |
+| GET | `/api/events?includeInactive=` | Public/admin-aware | List events. Public users only receive active events with at least one active program. |
+| GET | `/api/events/{id}` | Public/admin-aware | Load event detail with programs, fields, gallery, documents. Public users cannot load active events that have no active programs. |
+| POST | `/api/events` | `superadmin,eventadmin` | Create event and write admin audit log. |
+| PUT | `/api/events/{id}` | `superadmin,eventadmin` | Update event, replace gallery images, and write admin audit log. |
+| DELETE | `/api/events/{id}` | `superadmin,eventadmin` | Soft delete event and write admin audit log; blocked when registrations exist. |
 | GET | `/api/events/{id}/documents` | Public | List event documents for active event. |
 | POST | `/api/events/{id}/documents` | `superadmin,eventadmin` | Add event document. |
 | PUT | `/api/events/{id}/documents/{did}` | `superadmin,eventadmin` | Update event document. |
 | DELETE | `/api/events/{id}/documents/{did}` | `superadmin,eventadmin` | Delete event document row. |
-| POST | `/api/events/{id}/programs` | `superadmin,eventadmin` | Add program. |
-| PUT | `/api/events/{eid}/programs/{pid}` | `superadmin,eventadmin` | Update program and replace custom fields. |
-| PATCH | `/api/events/{eid}/programs/{pid}/status` | `superadmin,eventadmin` | Set program status to `open` or `closed`. |
-| DELETE | `/api/events/{eid}/programs/{pid}` | `superadmin,eventadmin` | Soft delete program. |
+| POST | `/api/events/{id}/programs` | `superadmin,eventadmin` | Add program and write admin audit log. |
+| PUT | `/api/events/{eid}/programs/{pid}` | `superadmin,eventadmin` | Update program and replace custom fields when safe; write admin audit log. |
+| PATCH | `/api/events/{eid}/programs/{pid}/status` | `superadmin,eventadmin` | Set program status to `open` or `closed` and write admin audit log. |
+| DELETE | `/api/events/{eid}/programs/{pid}` | `superadmin,eventadmin` | Soft delete program and write admin audit log; blocked when active participant groups exist. |
 
 ## Badminton Clubs: `/api/clubs`
 
@@ -132,8 +132,8 @@ All endpoints require `superadmin,eventadmin`.
 
 Allowed types and limits:
 
-- `image/jpeg`, `image/png`, `image/webp`: 2 MB.
-- `application/pdf`: 8 MB.
+- `image/jpeg`, `image/png`, `image/webp`: 5 MB.
+- `application/pdf`: 10 MB.
 
 The frontend may send an auth header, but the controller does not require authorization.
 

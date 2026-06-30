@@ -17,8 +17,8 @@ public class UploadsController : ControllerBase
         { "application/pdf",  ".pdf"  },
     };
 
-    private const long MaxImageBytes = 2  * 1024 * 1024;  // 2 MB
-    private const long MaxPdfBytes   = 8  * 1024 * 1024;  // 8 MB
+    private const long MaxImageBytes = 5  * 1024 * 1024;  // 5 MB
+    private const long MaxPdfBytes   = 10 * 1024 * 1024;  // 10 MB
 
     public UploadsController(IWebHostEnvironment env, ILogger<UploadsController> logger)
     {

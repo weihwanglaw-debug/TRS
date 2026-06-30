@@ -223,13 +223,13 @@ export default function PaymentResult() {
     return () => { cancelled = true; };
   }, [phase, regId]);
 
-  // Confirmed when paid AND succeeded, OR free AND status is Confirmed
+  // Confirmed when paid, waived, pending collection, OR free and status is Confirmed.
   const isConfirmed =
     registration?.payment.paymentStatus === "S" ||
     (registration?.regStatus === "Confirmed" &&
-      registration?.payment.paymentStatus === "P");
+      ["P", "W", "PC"].includes(registration?.payment.paymentStatus ?? ""));
 
-  const receiptNo = registration?.payment.receiptNo ?? (regId ? `TRS-${regId}` : "—");
+  const receiptNo = registration?.payment.receiptNo;
 
   const handleTryAgain = () => {
     if (eventId) navigate(`/event/${eventId}`);
@@ -265,9 +265,11 @@ export default function PaymentResult() {
             <>
               <CheckCircle className="h-16 w-16 mx-auto mb-5" style={{ color: "var(--color-primary)" }} />
               <h1 className="font-heading font-bold text-2xl mb-3">Registration Confirmed!</h1>
-              <p className="text-sm opacity-70 mb-2">
-                Receipt No: <span className="font-mono font-semibold">{receiptNo}</span>
-              </p>
+              {receiptNo && (
+                <p className="text-sm opacity-70 mb-2">
+                  Receipt No: <span className="font-mono font-semibold">{receiptNo}</span>
+                </p>
+              )}
               {registration && (
                 <p className="text-xs opacity-50 mb-1">
                   {registration.groups.map(g => g.programName).join(" · ")}
@@ -277,11 +279,13 @@ export default function PaymentResult() {
                 A confirmation email has been sent to your registered contact email.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <button
-                  className="btn-primary px-6 py-2.5 text-sm font-semibold"
-                  onClick={() => window.open(`${API_BASE}/api/registrations/${regId}/receipt`, "_blank")}>
-                  Download Receipt
-                </button>
+                {receiptNo && (
+                  <button
+                    className="btn-primary px-6 py-2.5 text-sm font-semibold"
+                    onClick={() => window.open(`${API_BASE}/api/registrations/${regId}/receipt`, "_blank")}>
+                    Download Receipt
+                  </button>
+                )}
                 <button onClick={() => navigate("/")} className="btn-outline px-6 py-2.5 text-sm font-medium">
                   Back to Home
                 </button>

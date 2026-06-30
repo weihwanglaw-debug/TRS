@@ -29,6 +29,7 @@ public partial class TRSDbContext : DbContext
     public virtual DbSet<BackgroundJob>              BackgroundJobs             { get; set; }
     public virtual DbSet<PaymentAuditLog>            PaymentAuditLogs           { get; set; }
     public virtual DbSet<AdminAuditLog>              AdminAuditLogs             { get; set; }
+    public virtual DbSet<AdminAuditLogDetail>        AdminAuditLogDetails       { get; set; }
     public virtual DbSet<PendingCheckout>            PendingCheckouts           { get; set; }
     public virtual DbSet<AppLog>                     AppLogs                    { get; set; }
     public virtual DbSet<BadmintonClub>              BadmintonClubs             { get; set; }
@@ -448,6 +449,19 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
             e.HasOne(x => x.User).WithMany()
              .HasForeignKey(x => x.UserId).IsRequired(false).HasConstraintName("FK_AdminAuditLog_User");
+        });
+
+        // AdminAuditLogDetail
+        mb.Entity<AdminAuditLogDetail>(e => {
+            e.ToTable("AdminAuditLogDetail");
+            e.HasKey(x => x.AuditDetailId).HasName("PK_AdminAuditLogDetail");
+            e.Property(x => x.AuditDetailId).HasColumnName("AuditDetailID");
+            e.Property(x => x.AuditId).HasColumnName("AuditID");
+            e.Property(x => x.FieldName).HasMaxLength(200);
+            e.Property(x => x.ValueType).HasMaxLength(50).IsUnicode(false);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
+            e.HasOne(x => x.Audit).WithMany(x => x.Details)
+             .HasForeignKey(x => x.AuditId).HasConstraintName("FK_AdminAuditLogDetail_AdminAuditLog");
         });
 
         // PendingCheckouts

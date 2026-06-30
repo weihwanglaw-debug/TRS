@@ -2,10 +2,10 @@
  * Fixtures.tsx — Fixture Management
  *
  * Program-level table. Each row = one program.
- * Columns: Event | Program | Mode | Event Date | Draw | Schedule | Results | Action
+ * Columns: Event | Program | Mode | Event Date | Fixture | Action
  *
  * fixtureMode:
- *   internal     → full wizard + Draw/Schedule/Results tabs
+ *   internal     → full wizard + Bracket/Table tabs
  *   external     → seeding assignment + CSV export only
  *   not_required → read-only row, no action
  */
@@ -17,13 +17,14 @@ import { isBracketLocked, isPhaseComplete, getAllMatches, getCurrentHeatRound } 
 import {
   apiGenerateDraw, apiGetFixture, apiResetFixture,
   apiGetFixtureStatus,
-  apiSaveScore, apiUpdateSchedule,
-  apiAdvanceKnockoutRound, apiAdvanceToKnockout, apiSwapTeams,
+  apiSaveScore, apiClearScore, apiUpdateSchedule,
+  apiAdvanceKnockoutRound, apiAdvanceToKnockout, apiResetLatestKnockoutRound, apiSwapTeams,
   apiSaveHeatResult, apiAdvanceHeatsRound, apiAssignHeatPlaces,
 } from "@/lib/fixtureApi";
 import type { ApiError } from "@/lib/fixtureApi";
 import { groupsToSeedEntries } from "@/types/registration";
 import { computeProgramFixtureStatus } from "@/lib/fixtureStatus";
+import { singaporeDateKey } from "@/lib/eventUtils";
 
 import { exportParticipantsCsv } from "@/lib/exportCsv";
 import { apiGetEvents, apiGetSbaRankings, apiGetRegistrations, apiUpdateGroupSeed } from "@/lib/api";
@@ -31,7 +32,6 @@ import { apiGetEvents, apiGetSbaRankings, apiGetRegistrations, apiUpdateGroupSee
 import { FixtureWizard } from "@/components/admin/fixtures/WizardSteps";
 import type { WizardResult } from "@/components/admin/fixtures/WizardSteps";
 import { DrawTab }     from "@/components/admin/fixtures/DrawTab";
-import { ScheduleTab } from "@/components/admin/fixtures/ScheduleTab";
 import { ResultsTab }  from "@/components/admin/fixtures/ResultsTab";
 import { ScoreModal }  from "@/components/admin/fixtures/ScoreModal";
 import { HeatsTab }    from "@/components/admin/fixtures/HeatsTab";
@@ -40,7 +40,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab = "draw" | "schedule" | "results" | "heats";
+type Tab = "draw" | "results" | "heats";
 
 interface ProgramRow {
   eventId:     string;
@@ -92,28 +92,33 @@ function DrawBadge({ programId, closeDate, mode, fixtureExists }: {
 }) {
   if (mode === "not_required") return <span className="text-xs opacity-30">Not Required</span>;
   if (mode === "external")     return <span className="text-xs opacity-50 italic">External</span>;
-  const regClosed = new Date() > new Date(closeDate);
+  const regClosed = singaporeDateKey() > closeDate;
   if (!regClosed)                     return <span className="text-xs opacity-30">Reg. Open</span>;
   if (!fixtureExists[programId])      return <span className="text-xs font-bold" style={{ color: "var(--badge-closed-text)" }}>● Pending</span>;
   return <span className="text-xs font-bold" style={{ color: "var(--badge-open-text)" }}>✓ Generated</span>;
 }
 
-function ResultsBadge({ bracket }: { bracket: BracketState | null }) {
-  if (!bracket) return <span className="text-xs opacity-30">—</span>;
-  if (bracket.format === "heats") {
-    const done  = (bracket.heatRounds ?? []).filter(r => r.isComplete).length;
-    const total = (bracket.heatRounds ?? []).length;
-    if (done === total) return <span className="text-xs font-bold" style={{ color: "var(--badge-open-text)" }}>✓ Complete</span>;
-    if (done > 0)       return <span className="text-xs font-bold" style={{ color: "var(--badge-soon-text)" }}>{done}/{total} rounds</span>;
-    return <span className="text-xs opacity-40">Pending</span>;
-  }
-  const all   = getAllMatches(bracket);
-  const done  = all.filter(m => m.status === "Completed" || m.status === "Walkover").length;
-  const total = all.length;
-  if (total === 0)      return <span className="text-xs opacity-30">—</span>;
-  if (done === total)   return <span className="text-xs font-bold" style={{ color: "var(--badge-open-text)" }}>✓ {done}/{total}</span>;
-  if (done > 0)         return <span className="text-xs font-bold" style={{ color: "var(--badge-soon-text)" }}>{done}/{total}</span>;
-  return <span className="text-xs opacity-40">0/{total}</span>;
+function isByeMatch(m: MatchEntry) {
+  return m.team1.label === "BYE" || m.team2.label === "BYE"
+    || m.team1.id.startsWith("bye-") || m.team2.id.startsWith("bye-");
+}
+
+function isResolvedMatch(m: MatchEntry) {
+  return m.status === "Completed" || m.status === "Walkover" || isByeMatch(m);
+}
+
+function hasEnteredResult(m: MatchEntry) {
+  if (isByeMatch(m)) return false;
+  const status = (m.status ?? "").toLowerCase();
+  const winner = m.winner ?? "";
+  const walkoverWinner = m.walkoverWinner ?? "";
+  const games = m.games ?? [];
+  return status === "completed" ||
+    status === "walkover" ||
+    winner !== "" ||
+    m.walkover === true ||
+    walkoverWinner !== "" ||
+    games.some(g => (g.p1 ?? "") !== "" || (g.p2 ?? "") !== "");
 }
 
 // ── External seeding panel ────────────────────────────────────────────────────
@@ -146,7 +151,12 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, eventName, prog
     if (!withSba.length) { toastError("No participants have a registered SBA ID. Assign seeds manually."); return; }
     const canAssign = Math.min(numSeeds, withSba.length);
     const sorted = [...withSba].sort((a, b) => (getSba(b)?.accumulatedScore ?? 0) - (getSba(a)?.accumulatedScore ?? 0));
-    setSeeds(seeds.map(s => { const rank = sorted.findIndex(x => x.id === s.id); return { ...s, seed: rank >= 0 && rank < canAssign ? rank + 1 : null }; }));
+    setSeeds([...seeds.map(s => { const rank = sorted.findIndex(x => x.id === s.id); return { ...s, seed: rank >= 0 && rank < canAssign ? rank + 1 : null }; })].sort((a, b) => {
+      if (a.seed !== null && b.seed !== null) return a.seed - b.seed;
+      if (a.seed !== null) return -1;
+      if (b.seed !== null) return 1;
+      return a.club.localeCompare(b.club);
+    }));
     if (canAssign < numSeeds) toastError(`Only ${canAssign}/${numSeeds} seeds auto-assigned - ${numSeeds - canAssign} participants have no SBA ID.`);
   };
 
@@ -342,6 +352,8 @@ export default function AdminFixtures() {
   const [loading,      setLoading]      = useState(false);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetLatestRoundConfirmOpen, setResetLatestRoundConfirmOpen] = useState(false);
+  const [clearResultConfirmOpen, setClearResultConfirmOpen] = useState(false);
 
   // ── Score modal ───────────────────────────────────────────────────────────
   const [scoreModal, setScoreModal] = useState<MatchEntry | null>(null);
@@ -353,11 +365,13 @@ export default function AdminFixtures() {
   const koMatches    = bracketState?.matches ?? [];
   const maxKoRound   = koMatches.length ? Math.max(...koMatches.map(m => m.round)) : 0;
   const currKoRound  = koMatches.filter(m => m.round === maxKoRound);
-  const koRoundDone  = currKoRound.length > 0 && currKoRound.every(m => m.status === "Completed" || m.status === "Walkover");
+  const koRoundDone  = currKoRound.length > 0 && currKoRound.every(isResolvedMatch);
   const canNextRound = koRoundDone && currKoRound.length > 1;
   const isGroupKo    = bracketState?.format === "group_knockout";
   const groupsDone   = isGroupKo && bracketState ? isPhaseComplete(bracketState) && bracketState.phase === "group" : false;
   const showNextRound = groupsDone || canNextRound;
+  const showResetLatestRound = !!bracketState && bracketState.phase === "knockout" && maxKoRound > 1;
+  const canResetLatestRound = showResetLatestRound && currKoRound.every(m => !hasEnteredResult(m));
   const isHeats      = bracketState?.format === "heats";
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -452,6 +466,17 @@ export default function AdminFixtures() {
     toast.success(groupsDone ? "Knockout phase generated." : "Next round generated.");
   };
 
+  const handleResetLatestRound = async () => {
+    if (!selRow) return;
+    const result = await withLoading(() => apiResetLatestKnockoutRound(selRow.eventId, selRow.programId));
+    if (result.error) { apiErr(result.error); return; }
+    setResetLatestRoundConfirmOpen(false);
+    setBracketState(result.data!);
+    setActiveTab("draw");
+    refreshTable();
+    toast.success("Latest round reset.");
+  };
+
   // ── Score modal ───────────────────────────────────────────────────────────
   const openScore  = (m: MatchEntry) => {
     const isBye = m.team1.label === "BYE" || m.team2.label === "BYE"
@@ -461,14 +486,41 @@ export default function AdminFixtures() {
     setScoreModal(m);
   };
   const closeScore = () => { setScoreModal(null); setDraft(null); };
-  const saveScore  = async () => {
+  const saveScore  = async (currentDraft?: MatchEntry) => {
+    const scoreDraft = currentDraft ?? draft;
+    if (!scoreDraft || !selRow) return;
+    setLoading(true);
+    try {
+      const scheduleResult = await apiUpdateSchedule(selRow.eventId, selRow.programId, scoreDraft.id, {
+        courtNo: scoreDraft.courtNo,
+        matchDate: scoreDraft.matchDate,
+        startTime: scoreDraft.startTime,
+        endTime: scoreDraft.endTime,
+      });
+      if (scheduleResult.error) { apiErr(scheduleResult.error); return; }
+
+      const result = await apiSaveScore(selRow.eventId, selRow.programId, scoreDraft.id, {
+        games: scoreDraft.games, winner: scoreDraft.walkover ? null : scoreDraft.winner,
+        walkover: scoreDraft.walkover, walkoverWinner: scoreDraft.walkoverWinner, officials: scoreDraft.officials,
+        remark: scoreDraft.remark ?? "",
+        startTime: scoreDraft.startTime,
+        endTime: scoreDraft.endTime,
+      });
+      if (result.error) { apiErr(result.error); return; }
+      setBracketState(result.data!); refreshTable(); closeScore();
+    } finally {
+      setLoading(false);
+    }
+  };
+  const clearScore = async () => {
     if (!draft || !selRow) return;
-    const result = await withLoading(() => apiSaveScore(selRow.eventId, selRow.programId, draft.id, {
-      games: draft.games, winner: draft.walkover ? null : draft.winner,
-      walkover: draft.walkover, walkoverWinner: draft.walkoverWinner, officials: draft.officials,
-    }));
+    const result = await withLoading(() => apiClearScore(selRow.eventId, selRow.programId, draft.id));
     if (result.error) { apiErr(result.error); return; }
-    setBracketState(result.data!); refreshTable(); closeScore();
+    setClearResultConfirmOpen(false);
+    setBracketState(result.data!);
+    refreshTable();
+    closeScore();
+    toast.success("Result cleared.");
   };
 
   // ── Schedule update ───────────────────────────────────────────────────────
@@ -516,12 +568,11 @@ export default function AdminFixtures() {
   const tabs: { key: Tab; label: string }[] = bracketState?.format === "heats"
     ? [{ key: "heats", label: "Heats" }]
     : [
-        { key: "draw",     label: "Draw" },
-        { key: "schedule", label: "Schedule" },
+        { key: "draw",     label: "Bracket View" },
         { key: "results",  label: (() => {
           const all = bracketState ? getAllMatches(bracketState) : [];
-          const done = all.filter(m => m.status === "Completed" || m.status === "Walkover").length;
-          return `Results${all.length ? ` (${done}/${all.length})` : ""}`;
+          const done = all.filter(isResolvedMatch).length;
+          return `Table View${all.length ? ` (${done}/${all.length})` : ""}`;
         })() },
       ];
 
@@ -591,22 +642,18 @@ export default function AdminFixtures() {
                   <th>Program</th>
                   <th>Mode</th>
                   <th>Event Dates</th>
-                  <th>Draw</th>
-                  <th>Schedule</th>
-                  <th>Results</th>
+                  <th>Fixture</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-8 text-sm opacity-30">No programs match the current filters.</td></tr>
+                  <tr><td colSpan={6} className="text-center py-8 text-sm opacity-30">No programs match the current filters.</td></tr>
                 ) : filtered.map(row => {
-                  // bracket is null in the table view — full bracket is only loaded when row is selected.
-                  // Use fixtureExists map (from bulk API call on mount) for status badges.
                   const info    = computeProgramFixtureStatus(
                     { id: row.programId, name: row.programName },
                     row.closeDate, row.mode,
-                    null  // no bracket in table view — DrawBadge uses fixtureExists instead
+                    null
                   );
                   const urgent  = info.status === "ready" || info.status === "in_progress";
                   return (
@@ -629,13 +676,6 @@ export default function AdminFixtures() {
                       </td>
                       <td className="text-xs opacity-60 whitespace-nowrap">{row.startDate} → {row.endDate}</td>
                       <td><DrawBadge programId={row.programId} closeDate={row.closeDate} mode={row.mode} fixtureExists={fixtureExists} /></td>
-                      <td>
-                        {/* Schedule count not available in table view — only loaded when program is selected */}
-                        {fixtureExists[row.programId] && row.mode === "internal"
-                          ? <span className="text-xs opacity-40">See details →</span>
-                          : <span className="text-xs opacity-30">—</span>}
-                      </td>
-                      <td><ResultsBadge bracket={null} /></td>
                       <td>
                         {row.mode === "not_required"
                           ? <span className="text-xs opacity-30">—</span>
@@ -693,10 +733,10 @@ export default function AdminFixtures() {
                     Reset Draw
                   </button>
                 )}
-                {bracketState && showNextRound && !locked && (
+                {false && bracketState && showNextRound && (
                   <button onClick={handleNextRound} disabled={loading}
                     className="btn-primary px-5 py-2 text-sm font-semibold disabled:opacity-40">
-                    {groupsDone ? "Generate KO Phase →" : "Next Round →"}
+                    {groupsDone ? "Generate KO Phase" : "Next Round"}
                   </button>
                 )}
               </div>
@@ -755,17 +795,52 @@ export default function AdminFixtures() {
                     ))}
                   </div>
 
+                  {showResetLatestRound && (
+                    <div className="mb-5 p-4 flex flex-wrap items-center justify-between gap-3 print:hidden"
+                      style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
+                      <div>
+                        <p className="text-sm font-semibold">Latest round generated</p>
+                        <p className="text-xs opacity-50">
+                          {canResetLatestRound
+                            ? `Round ${maxKoRound} can be reset because no result has been entered in this round.`
+                            : `Round ${maxKoRound} cannot be reset after results have been entered.`}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setResetLatestRoundConfirmOpen(true)}
+                        disabled={!canResetLatestRound || loading}
+                        title={canResetLatestRound ? undefined : "Cannot reset after latest-round results have been entered."}
+                        className="btn-outline px-4 py-2 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+                        Reset Round {maxKoRound}
+                      </button>
+                    </div>
+                  )}
+
+                  {showNextRound && (
+                    <div className="mb-5 p-4 flex flex-wrap items-center justify-between gap-3 print:hidden"
+                      style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
+                      <div>
+                        <p className="text-sm font-semibold">
+                          {groupsDone ? "Group phase complete" : "Current round complete"}
+                        </p>
+                        <p className="text-xs opacity-50">
+                          {groupsDone ? "Generate the knockout bracket from group standings." : "Generate the next knockout round."}
+                        </p>
+                      </div>
+                      <button onClick={handleNextRound} disabled={loading}
+                        className="btn-primary px-5 py-2 text-sm font-semibold disabled:opacity-40">
+                        {groupsDone ? "Generate KO Phase" : "Next Round"}
+                      </button>
+                    </div>
+                  )}
+
                   {activeTab === "draw" && (
                     <DrawTab bracketState={bracketState} eventName={selRow.eventName} programName={selRow.programName}
                       onOpenScore={openScore} onSwap={handleSwap} />
                   )}
-                  {activeTab === "schedule" && (
-                    <ScheduleTab bracketState={bracketState} eventName={selRow.eventName} programName={selRow.programName}
-                      onUpdateSchedule={handleUpdateSchedule} onOpenScore={openScore} />
-                  )}
                   {activeTab === "results" && (
                     <ResultsTab bracketState={bracketState} eventName={selRow.eventName} programName={selRow.programName}
-                      onOpenScore={openScore} />
+                      onUpdateSchedule={handleUpdateSchedule} onOpenScore={openScore} />
                   )}
                   {activeTab === "heats" && (
                     <HeatsTab bracketState={bracketState} eventName={selRow.eventName} programName={selRow.programName}
@@ -780,7 +855,9 @@ export default function AdminFixtures() {
       )}
 
       <ScoreModal open={!!scoreModal} draft={draft} isLocked={locked}
-        onClose={closeScore} onSave={saveScore} onChangeDraft={setDraft} />
+        onClose={closeScore} onSave={saveScore}
+        onClear={() => setClearResultConfirmOpen(true)}
+        onChangeDraft={patch => setDraft(prev => prev ? { ...prev, ...patch } : prev)} />
       <ConfirmDialog
         open={resetConfirmOpen}
         onOpenChange={setResetConfirmOpen}
@@ -790,6 +867,26 @@ export default function AdminFixtures() {
         loading={loading}
         destructive
         onConfirm={handleReset}
+      />
+      <ConfirmDialog
+        open={resetLatestRoundConfirmOpen}
+        onOpenChange={setResetLatestRoundConfirmOpen}
+        title={`Reset Round ${maxKoRound}`}
+        description={`Reset round ${maxKoRound}? This removes only the latest generated round and keeps earlier round results.`}
+        confirmLabel={`Reset Round ${maxKoRound}`}
+        loading={loading}
+        destructive
+        onConfirm={handleResetLatestRound}
+      />
+      <ConfirmDialog
+        open={clearResultConfirmOpen}
+        onOpenChange={setClearResultConfirmOpen}
+        title="Clear Result"
+        description="Clear this match result? The match will return to Scheduled and can be entered again."
+        confirmLabel="Clear Result"
+        loading={loading}
+        destructive
+        onConfirm={clearScore}
       />
     </div>
   );

@@ -310,8 +310,6 @@ export default function EventDetail() {
   const [contactErrors, setContactErrors] = useState<Partial<ContactPerson>>({});
   const [suggestions, setSuggestions] = useState<{ idx: number; matches: Participant[] } | null>(null);
   const [sbaStatus, setSbaStatus] = useState<Record<number, "idle" | "loading" | "found" | "not_found">>({});
-  const [overrideOpen, setOverrideOpen] = useState(false);
-  const [overrideReason, setOverrideReason] = useState("");
   const [adminConfirmOpen, setAdminConfirmOpen] = useState(false);
   const [adminConfirmStatus, setAdminConfirmStatus] = useState<"S" | "W" | "PC">("S");
   const [adminConfirmMethod, setAdminConfirmMethod] = useState("Cash");
@@ -329,6 +327,8 @@ export default function EventDetail() {
     const prog = event?.programs.find(p => p.id === e.programId);
     return prog?.paymentRequired && e.fee > 0;
   });
+  const getCartEntryCount = (programId: string, excludeIndex: number | null = null) =>
+    cart.filter((entry, index) => entry.programId === programId && index !== excludeIndex).length;
   const isAdminPaymentBypass = isAuthenticated && cartRequiresPayment;
   const canSubmitCart = isAdminPaymentBypass || consentChecked;
   const registrationContact = isAdminPaymentBypass
@@ -442,7 +442,8 @@ export default function EventDetail() {
     if (!selectedProgram) return false;
 
     // Program-level checks first
-    if (selectedProgram.currentParticipants >= selectedProgram.maxParticipants) {
+    const cartEntriesForProgram = getCartEntryCount(selectedProgram.id, editingCartIndex);
+    if (selectedProgram.currentParticipants + cartEntriesForProgram >= selectedProgram.maxParticipants) {
       setErrors({}); setFormError("This program is full."); return false;
     }
 
@@ -536,12 +537,6 @@ export default function EventDetail() {
   };
 
   const handleAddToCart = () => { if (validate()) addToCart(); };
-
-  const handleOverride = () => {
-    if (overrideReason.trim().length < 10) return;
-    console.log("[AUDIT]", { timestamp: new Date().toISOString(), admin: user?.name, fieldOverridden: Object.keys(errors).join(", "), formError, overrideReason });
-    setErrors({}); setFormError(""); setOverrideOpen(false); setOverrideReason(""); addToCart();
-  };
 
   // ── Persist checkout context to sessionStorage (survives gateway redirect) ──
   const saveSession = (
@@ -869,7 +864,11 @@ export default function EventDetail() {
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
             {event.programs.map((prog) => {
-              const capStatus = getProgramCapacityStatus(prog);
+              const cartEntryCount = getCartEntryCount(prog.id);
+              const capStatus = getProgramCapacityStatus({
+                ...prog,
+                currentParticipants: prog.currentParticipants + cartEntryCount,
+              });
               const isFull = capStatus === "full";
               const progClosed = prog.status === "closed";
               const canRegister = status === "open" && !isFull && !progClosed;
@@ -903,7 +902,7 @@ export default function EventDetail() {
                       </div>
                       <button disabled={!canRegister} onClick={() => handleSelectProgram(prog)}
                         className="btn-primary px-4 py-2 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
-                        {isFull ? "Full" : progClosed ? "Closed" : "Register"}
+                        {isFull ? (cartEntryCount > 0 ? "Limit Reached" : "Full") : progClosed ? "Closed" : "Register"}
                       </button>
                     </div>
                   </div>
@@ -949,16 +948,6 @@ export default function EventDetail() {
                         <AlertCircle className="h-4 w-4 flex-shrink-0" /> {formError}
                       </div>
                     )}
-                    {isAuthenticated && (Object.keys(errors).length > 0 || formError) && (
-                      <div className="mb-5">
-                        <button onClick={() => setOverrideOpen(true)}
-                          className="btn-outline px-4 py-2 text-xs font-semibold"
-                          style={{ borderColor: "var(--badge-soon-text)", color: "var(--badge-soon-text)" }}>
-                          Override Validation (Admin)
-                        </button>
-                      </div>
-                    )}
-
                     {participants.map((p, idx) => (
                       <div key={p.id} className="p-6 mb-5" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
                         <div className="flex items-center justify-between mb-5">
@@ -1297,26 +1286,6 @@ export default function EventDetail() {
               {submitting ? "Processing…" : "Confirm Registration"}
             </button>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Admin Override Modal */}
-      <Dialog open={overrideOpen} onOpenChange={(v) => { if (!v) { setOverrideOpen(false); setOverrideReason(""); } }}>
-        <DialogContent className="max-w-md p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
-          <DialogHeader className="p-8 pb-0"><DialogTitle className="font-bold text-xl">Override Validation</DialogTitle></DialogHeader>
-          <div className="p-8 pt-4 space-y-4">
-            <p className="text-sm opacity-70">You are about to bypass validation as an admin. This action will be audit logged.</p>
-            <div>
-              <label className="block text-xs font-semibold mb-2 opacity-70">Reason for override <span className="opacity-50">(min 10 characters)</span></label>
-              <textarea className="field-input" rows={3} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} placeholder="Enter reason..." />
-              <p className="text-xs mt-1 opacity-40">{overrideReason.trim().length} / 10 min</p>
-            </div>
-          </div>
-          <DialogFooter className="p-8 pt-0">
-            <button onClick={() => { setOverrideOpen(false); setOverrideReason(""); }} className="btn-outline px-5 py-2.5 text-sm font-medium">Cancel</button>
-            <button onClick={handleOverride} disabled={overrideReason.trim().length < 10}
-              className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">Confirm Override</button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 

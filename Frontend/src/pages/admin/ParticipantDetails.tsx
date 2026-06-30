@@ -1,5 +1,5 @@
 /**
- * ParticipantDetails.tsx — Admin participant list and edit modal.
+ * ParticipantDetails.tsx - Admin participant list and edit modal.
  *
  * Uses ParticipantFieldsForm for all field rendering and validation,
  * keeping logic consistent with the public registration form.
@@ -7,11 +7,10 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { MoreVertical, Eye, Loader2, Save, Search } from "lucide-react";
+import { Loader2, Save, Search } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
 import {
   apiGetRegistration, apiGetRegistrations,
   apiUpdateParticipant, apiGetEvents, apiUploadFile,
@@ -23,7 +22,7 @@ import ParticipantFieldsForm, {
   validateParticipant, buildDobString, parseDobString,
 } from "@/components/registration/ParticipantFieldsForm";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// Types
 
 interface ParticipantRow {
   participant:    RegistrationParticipant;
@@ -34,16 +33,18 @@ interface ParticipantRow {
   registrationId: string;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmtDate(d: string | undefined) {
-  if (!d) return "—";
-  try {
-    const dt = new Date(d);
-    return isNaN(dt.getTime()) ? d
-      : dt.toLocaleDateString("en-SG", { day: "2-digit", month: "short", year: "numeric" });
-  } catch { return d; }
+interface EntryRow {
+  key:            string;
+  group:          ParticipantGroup;
+  registration:   Registration;
+  eventName:      string;
+  programName:    string;
+  registrationId: string;
+  participants:   ParticipantRow[];
 }
+
+// Helpers
+
 
 function FG({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -67,7 +68,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-// ── Convert RegistrationParticipant → ParticipantFormValues ───────────────────
+// Convert RegistrationParticipant to ParticipantFormValues
 
 function toFormValues(p: RegistrationParticipant): ParticipantFormValues {
   const { dobDay, dobMonth, dobYear } = parseDobString(p.dob);
@@ -89,7 +90,7 @@ function toFormValues(p: RegistrationParticipant): ParticipantFormValues {
   };
 }
 
-// ── Detail / Edit Modal ───────────────────────────────────────────────────────
+// Detail / Edit Modal
 
 interface DetailModalProps {
   row:           ParticipantRow;
@@ -97,6 +98,22 @@ interface DetailModalProps {
   eventType?:    string;
   onClose:       () => void;
   onSaved:       (updated: RegistrationParticipant) => void;
+}
+
+function PaymentBadge({ status }: { status?: string }) {
+  const m: Record<string, [string, string, string]> = {
+    S:  ["Paid", "var(--badge-open-bg)", "var(--badge-open-text)"],
+    W:  ["Waived", "var(--badge-soon-bg)", "var(--badge-soon-text)"],
+    PC: ["Pending Collection", "var(--badge-soon-bg)", "var(--badge-soon-text)"],
+    P:  ["Pending", "var(--badge-soon-bg)", "var(--badge-soon-text)"],
+    X:  ["Cancelled", "var(--badge-closed-bg)", "var(--badge-closed-text)"],
+    F:  ["Failed", "var(--badge-closed-bg)", "var(--badge-closed-text)"],
+  };
+  const [label, bg, color] = m[status ?? ""] ?? [status || "-", "var(--color-row-hover)", "var(--color-body-text)"];
+  return (
+    <span className="inline-flex px-2 py-0.5 text-xs font-semibold"
+      style={{ backgroundColor: bg, color }}>{label}</span>
+  );
 }
 
 function DetailModal({ row, programFields, eventType, onClose, onSaved }: DetailModalProps) {
@@ -114,19 +131,21 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
   const fields: ProgramFields = programFields ?? {
     enableSbaId: true, enableDocumentUpload: false,
     enableGuardianInfo: false, enableRemark: false,
-    enableTshirt: false, customFields: [],
+    enableTshirt: false,
+    requireSbaId: false, requireDocumentUpload: false,
+    requireGuardianInfo: false, requireRemark: false, requireTshirt: false,
+    customFields: [],
   };
 
   const handleSave = async () => {
     setSaveError("");
 
-    // Client-side validation — same rules as registration form
+    // Client-side validation - same rules as registration form
     // Admin gets no exemption: wrong data is wrong data
     const errs = validateParticipant(form, {
       program: {
         minAge: 0, maxAge: 0,        // age range not enforced on admin edit
         gender: "Open",              // gender rule only enforced at registration time
-        sbaRequired: false,          // SBA required rule enforced at registration time
         fields,
       },
     });
@@ -171,7 +190,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
         customFieldValues: fields.customFields.length ? form.customFieldValues : undefined,
       });
 
-      // Server-side duplicate check — map DUPLICATE_PARTICIPANT back to field error
+      // Server-side duplicate check - map DUPLICATE_PARTICIPANT back to field error
       if (r.error) {
         if (r.error.code === "DUPLICATE_PARTICIPANT") {
           setErrors({ fullName: r.error.message });
@@ -222,7 +241,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
             <div>
               <DialogTitle className="font-bold text-xl">{p.fullName}</DialogTitle>
               <p className="text-xs opacity-50 mt-1">
-                {row.eventName} · {row.programName} · Reg {row.registrationId}
+                {row.eventName} - {row.programName} - Reg {row.registrationId}
               </p>
             </div>
             <StatusBadge status={row.group.groupStatus} />
@@ -230,7 +249,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
         </DialogHeader>
 
         <div className="p-8 space-y-5">
-          {/* Summary error banner — shows when errors exist */}
+          {/* Summary error banner - shows when errors exist */}
           {Object.keys(errors).length > 0 && (
             <div className="p-3 text-sm font-medium"
               style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
@@ -253,7 +272,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
             onFileChange={file => { setNewDocFile(file); }}
             existingDocUrl={p.documentUrl}
             newFile={newDocFile}
-            // No SBA lookup in admin edit — plain text input only
+            // No SBA lookup in admin edit - plain text input only
             sbaEnabled={false}
           />
         </div>
@@ -266,7 +285,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
             disabled={saving || !form.fullName.trim()}
             className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 flex items-center gap-2">
             <Save className="h-4 w-4" />
-            {saving ? "Saving…" : "Save Changes"}
+            {saving ? "Saving..." : "Save Changes"}
           </button>
         </DialogFooter>
       </DialogContent>
@@ -274,9 +293,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
   );
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
 // Main page
-// ═════════════════════════════════════════════════════════════════════════════
 
 export default function ParticipantDetails() {
   const { regId }      = useParams<{ regId: string }>();
@@ -290,16 +307,11 @@ export default function ParticipantDetails() {
   const [filterEvent,   setFilterEvent]   = useState(initEventId);
   const [filterProgram, setFilterProgram] = useState(initProgramId);
   const [filterRegId,   setFilterRegId]   = useState(initRegId);
-
   const [rows,    setRows]    = useState<ParticipantRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState("");
   const [events,  setEvents]  = useState<TournamentEvent[]>([]);
 
-  const [openAction, setOpenAction] = useState<{
-    row:      ParticipantRow;
-    anchorEl: HTMLElement;
-  } | null>(null);
   const [detailRow, setDetailRow] = useState<ParticipantRow | null>(null);
 
   useEffect(() => {
@@ -374,6 +386,30 @@ export default function ParticipantDetails() {
     );
   }, [rows, filterSearch]);
 
+  const visibleEntries = useMemo(() => {
+    const byEntry = new Map<string, EntryRow>();
+
+    for (const row of visibleRows) {
+      const key = row.group.id || `${row.registrationId}-${row.programName}-${row.group.namesDisplay}`;
+      const existing = byEntry.get(key);
+      if (existing) {
+        existing.participants.push(row);
+      } else {
+        byEntry.set(key, {
+          key,
+          group: row.group,
+          registration: row.registration,
+          eventName: row.eventName,
+          programName: row.programName,
+          registrationId: row.registrationId,
+          participants: [row],
+        });
+      }
+    }
+
+    return Array.from(byEntry.values());
+  }, [visibleRows]);
+
   const handleSaved = useCallback((updated: RegistrationParticipant) => {
     setRows(prev => prev.map(r =>
       r.participant.id === updated.id ? { ...r, participant: updated } : r
@@ -386,13 +422,13 @@ export default function ParticipantDetails() {
         <div className="admin-page-title"><h1>Participant Details</h1></div>
       </div>
 
-      {/* ── Filters ── */}
+      {/* Filters */}
       <div className="p-4 mb-5"
         style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
         <div className="flex flex-wrap items-end gap-3">
           <FG label="Search">
             <div className="relative">
-              <input className="field-input w-48 pr-8" placeholder="Name, SBA ID…"
+              <input className="field-input w-48 pr-8" placeholder="Name, SBA ID..."
                 value={filterSearch} onChange={e => setFilterSearch(e.target.value)} />
               {filterSearch && (
                 <button onClick={() => setFilterSearch("")}
@@ -428,107 +464,86 @@ export default function ParticipantDetails() {
       </div>
 
       <p className="text-xs opacity-50 mb-3">
-        {loading ? "Loading…" : `${visibleRows.length} participant${visibleRows.length !== 1 ? "s" : ""}${
+        {loading ? "Loading..." : `${visibleEntries.length} entr${visibleEntries.length !== 1 ? "ies" : "y"} - ${visibleRows.length} participant${visibleRows.length !== 1 ? "s" : ""}${
           rows.length !== visibleRows.length ? ` (filtered from ${rows.length})` : ""}`}
       </p>
 
-      {/* ── Table ── */}
+      {/* Table */}
       {loading ? (
         <div className="flex items-center justify-center py-20 gap-2 opacity-40 text-sm">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading participants…
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading participants...
         </div>
       ) : error ? (
         <div className="py-16 text-center text-sm opacity-60">{error}</div>
-      ) : visibleRows.length === 0 ? (
+      ) : visibleEntries.length === 0 ? (
         <div className="py-16 text-center text-sm opacity-40">No participants found.</div>
       ) : (
         <>
           <div className="hidden md:block overflow-x-auto"
-            style={{ border: "1px solid var(--color-table-border)" }}>
-            <table className="trs-table">
-              <thead>
-                <tr>
-                  <th>Reg No.</th><th>Event</th><th>Program</th>
-                  <th>Participant Name</th><th>DOB</th><th>Gender</th>
-                  <th>Status</th><th style={{ width: 48 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRows.map(row => (
-                  <tr key={`${row.registrationId}-${row.participant.id}`}
-                    className="cursor-pointer" onClick={() => setDetailRow(row)}>
-                    <td className="font-mono text-xs">{row.registrationId}</td>
-                    <td className="text-sm">{row.eventName}</td>
-                    <td className="text-sm">{row.programName}</td>
-                    <td className="font-semibold text-sm">
-                      {row.participant.fullName}
-                      {row.participant.sbaId && (
-                        <span className="ml-2 font-mono text-xs opacity-40">{row.participant.sbaId}</span>
-                      )}
-                    </td>
-                    <td className="text-sm">{fmtDate(row.participant.dob)}</td>
-                    <td className="text-sm">{row.participant.gender || "—"}</td>
-                    <td><StatusBadge status={row.group.groupStatus} /></td>
-                    <td onClick={e => e.stopPropagation()}>
-                      <button
-                        onClick={e => setOpenAction(
-                          openAction?.row.participant.id === row.participant.id ? null
-                            : { row, anchorEl: e.currentTarget }
-                        )}
-                        className="p-2 hover:opacity-70" style={{ color: "var(--color-primary)" }}>
-                        <MoreVertical className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="md:hidden space-y-3">
-            {visibleRows.map(row => (
-              <div key={`${row.registrationId}-${row.participant.id}`}
-                className="p-4 cursor-pointer"
-                style={{ border: "1px solid var(--color-table-border)" }}
-                onClick={() => setDetailRow(row)}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <p className="font-semibold text-sm">{row.participant.fullName}</p>
-                    <p className="text-xs opacity-50">{row.programName} · {row.eventName}</p>
-                    <p className="text-xs opacity-40 font-mono mt-0.5">Reg {row.registrationId}</p>
-                  </div>
-                  <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                    <StatusBadge status={row.group.groupStatus} />
-                    <button
-                      onClick={e => setOpenAction(
-                        openAction?.row.participant.id === row.participant.id ? null
-                          : { row, anchorEl: e.currentTarget }
-                      )}
-                      className="p-1.5 opacity-50">
-                      <MoreVertical className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-                <div className="flex gap-4 text-xs opacity-60">
-                  <span>DOB: {fmtDate(row.participant.dob)}</span>
-                  <span>{row.participant.gender || "—"}</span>
-                </div>
+                style={{ border: "1px solid var(--color-table-border)" }}>
+                <table className="trs-table">
+                  <thead>
+                    <tr>
+                      <th>Reg No.</th><th>Event</th><th>Program</th>
+                      <th>Participants</th><th>Status</th><th>Payment</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleEntries.map(entry => (
+                      <tr key={entry.key}>
+                        <td className="font-mono text-xs">{entry.registrationId}</td>
+                        <td className="text-sm">{entry.eventName}</td>
+                        <td className="text-sm">{entry.programName}</td>
+                        <td>
+                          <div className="space-y-1">
+                            {entry.participants.map(row => (
+                              <button key={row.participant.id} type="button"
+                                onClick={() => setDetailRow(row)}
+                                className="flex items-center gap-2 text-left text-xs hover:opacity-70">
+                                <span className="font-semibold">{row.participant.fullName}</span>
+                                {row.participant.sbaId && <span className="font-mono opacity-40">{row.participant.sbaId}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        </td>
+                        <td><StatusBadge status={entry.group.groupStatus} /></td>
+                        <td><PaymentBadge status={entry.registration.payment?.paymentStatus} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            ))}
-          </div>
+
+              <div className="md:hidden space-y-3">
+                {visibleEntries.map(entry => (
+                  <div key={entry.key} className="p-4"
+                    style={{ border: "1px solid var(--color-table-border)" }}>
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div>
+                        <p className="text-xs opacity-50">{entry.programName} - {entry.eventName}</p>
+                        <p className="text-xs opacity-40 font-mono mt-0.5">Reg {entry.registrationId}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <StatusBadge status={entry.group.groupStatus} />
+                        <PaymentBadge status={entry.registration.payment?.paymentStatus} />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {entry.participants.map(row => (
+                        <button key={row.participant.id} type="button"
+                          onClick={() => setDetailRow(row)}
+                          className="w-full flex items-center justify-between gap-3 text-left text-xs p-2"
+                          style={{ backgroundColor: "var(--color-row-hover)" }}>
+                          <span className="font-semibold">{row.participant.fullName}</span>
+                          <span className="font-mono opacity-40">{row.participant.sbaId || "No SBA ID"}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
         </>
       )}
-
-      <ActionDropdownPortal
-        open={!!openAction}
-        anchorEl={openAction?.anchorEl ?? null}
-        onClose={() => setOpenAction(null)}>
-        {openAction && (
-          <button onClick={() => { setDetailRow(openAction.row); setOpenAction(null); }}>
-            <Eye className="h-4 w-4" /> View / Edit
-          </button>
-        )}
-      </ActionDropdownPortal>
 
       {detailRow && (
         <DetailModal

@@ -206,7 +206,7 @@ export interface Payment {
   gatewayPaymentId?:     string;          // DB: Payments.GatewayPaymentID (Stripe: pi_xxxx)
   gatewayChargeId?:      string;          // DB: Payments.GatewayChargeID  (Stripe: ch_xxxx)
   // Payment details
-  method:                PaymentMethod;   // DB: Payments.PaymentMethod
+  method:                PaymentMethod | null; // DB: Payments.PaymentMethod
   amount:                number;          // Total = SUM(items[].amount)
   currency:              string;          // DB: Payments.Currency (default: "SGD")
   paymentStatus:         PaymentStatus;   // DB: Payments.PaymentStatus
@@ -218,6 +218,20 @@ export interface Payment {
   paidAt?:               string;          // Populated when Success
   // Line items (fetched with payment; not a separate API call)
   items:                 PaymentItem[];
+}
+
+export interface PaymentAuditEntry {
+  id:          string;
+  entityType:  string;
+  entityId:    string;
+  action:      string;
+  oldStatus?:  string | null;
+  newStatus?:  string | null;
+  reason?:     string | null;
+  performedBy?: string | null;
+  ipAddress?:  string | null;
+  notes?:      string | null;
+  createdAt:   string;
 }
 
 // ── Registration (one form submission) ────────────────────────────────────────
@@ -279,6 +293,24 @@ export interface WebhookFailure {
   retryCount:       number;
   amount:           number | null;
   currency:         string;
+  contactName:      string | null;
+  contactEmail:     string | null;
+  contactPhone:     string | null;
+}
+
+export interface OrphanRefundHistory {
+  refundId:         number;
+  webhookLogId:     number | null;
+  gatewaySessionId: string | null;
+  gatewayRefundId:  string | null;
+  refundAmount:     number;
+  currency:         string;
+  refundReason:     string | null;
+  refundStatus:     RefundStatus;
+  requestedBy:      string | null;
+  approvedBy:       string | null;
+  createdAt:        string;
+  processedAt:      string | null;
   contactName:      string | null;
   contactEmail:     string | null;
   contactPhone:     string | null;

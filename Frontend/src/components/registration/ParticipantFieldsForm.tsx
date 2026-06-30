@@ -23,6 +23,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Program, CustomField, ProgramFields, BadmintonClub } from "@/types/config";
 import { CheckCircle, XCircle, Paperclip } from "lucide-react";
 import { apiGetBadmintonClubs, assetUrl } from "@/lib/api";
+import { singaporeDateKey } from "@/lib/eventUtils";
 
 // ── Constants (shared with both consumers) ────────────────────────────────────
 
@@ -34,6 +35,9 @@ export const DAYS  = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart
 export const YEARS = Array.from({ length: 100 }, (_, i) => String(new Date().getFullYear() - i));
 export const TSHIRT_SIZES = ["XS","S","M","L","XL","XXL","3XL"];
 const CLUB_OTHERS_VALUE = "__others__";
+const ALLOWED_DOCUMENT_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_PDF_BYTES = 10 * 1024 * 1024;
 
 // ── Field values shape ────────────────────────────────────────────────────────
 // Both consumers read/write this same shape.
@@ -74,7 +78,7 @@ export function blankParticipantFormValues(): ParticipantFormValues {
 // Caller passes the result into <ParticipantFieldsForm errors={...} />.
 
 export interface ValidateParticipantOptions {
-  program:    Pick<Program, "minAge" | "maxAge" | "gender" | "sbaRequired" | "fields">;
+  program:    Pick<Program, "minAge" | "maxAge" | "gender" | "fields">;
   /** All values in the same submission (for in-cart duplicate check). */
   allValues?: ParticipantFormValues[];
   /** Index of this participant within allValues — skipped in dupe check. */
@@ -108,6 +112,8 @@ export function validateParticipant(
       errs.dob = "Invalid month";
     } else {
       const dob = new Date(+v.dobYear, monthIdx, +v.dobDay);
+      const dobKey = `${v.dobYear}-${String(monthIdx + 1).padStart(2, "0")}-${v.dobDay}`;
+      const todayKey = singaporeDateKey();
 
       const isValidDate =
         dob.getFullYear() === +v.dobYear &&
@@ -116,18 +122,17 @@ export function validateParticipant(
 
       if (!isValidDate) {
         errs.dob = "Invalid date";
-      } else if (dob > new Date()) {
+      } else if (dobKey > todayKey) {
         errs.dob = "Date of birth cannot be in the future";
       } else {
-        const today = new Date();
+        const [todayYear, todayMonth, todayDay] = todayKey.split("-").map(Number);
+        let age = todayYear - +v.dobYear;
 
-        let age = today.getFullYear() - dob.getFullYear();
-
-        const mDiff = today.getMonth() - dob.getMonth();
+        const mDiff = todayMonth - (monthIdx + 1);
 
         if (
           mDiff < 0 ||
-          (mDiff === 0 && today.getDate() < dob.getDate())
+          (mDiff === 0 && todayDay < +v.dobDay)
         ) {
           age--;
         }
@@ -151,14 +156,18 @@ export function validateParticipant(
   }
 
   // Conditional standard fields
-  if (program.fields.enableTshirt && !v.tshirtSize)
+  if (program.fields.enableTshirt && program.fields.requireTshirt && !v.tshirtSize)
     errs.tshirtSize = "Required";
-  if (program.fields.enableSbaId && program.sbaRequired && !v.sbaId?.trim())
-    errs.sbaId = "SBA ID is required for this program";
-  if (program.fields.enableGuardianInfo) {
+  if (program.fields.enableGuardianInfo && program.fields.requireGuardianInfo) {
     if (!v.guardianName?.trim())    errs.guardianName    = "Required";
     if (!v.guardianContact?.trim()) errs.guardianContact = "Required";
   }
+  if (program.fields.enableSbaId && program.fields.requireSbaId && !v.sbaId?.trim())
+    errs.sbaId = "Required";
+  if (program.fields.enableDocumentUpload && program.fields.requireDocumentUpload && !v.documentFile)
+    errs.documentUpload = "Required";
+  if (program.fields.enableRemark && program.fields.requireRemark && !v.remark?.trim())
+    errs.remark = "Required";
 
   // Required custom fields
   for (const cf of program.fields.customFields) {
@@ -184,22 +193,16 @@ export function validateParticipant(
     program.fields.enableDocumentUpload &&
     v.documentFile
   ) {
-    const allowedTypes = [
-      "application/pdf",
-      "image/jpeg",
-      "image/png",
-    ];
-
-    if (!allowedTypes.includes(v.documentFile.type)) {
+    if (!ALLOWED_DOCUMENT_TYPES.includes(v.documentFile.type)) {
       errs.documentUpload =
-        "Only PDF, JPG and PNG files are allowed";
+        "Only PDF, JPG, PNG and WEBP files are allowed";
     }
 
-    const maxSizeBytes = 5 * 1024 * 1024;
+    const maxSizeBytes = v.documentFile.type === "application/pdf" ? MAX_PDF_BYTES : MAX_IMAGE_BYTES;
 
     if (v.documentFile.size > maxSizeBytes) {
       errs.documentUpload =
-        "Maximum file size is 5MB";
+        v.documentFile.type === "application/pdf" ? "Maximum PDF size is 10MB" : "Maximum image size is 5MB";
     }
   }
 
@@ -369,7 +372,7 @@ export default function ParticipantFieldsForm({
       {/* ── SBA ID (conditional) ── */}
       {programFields.enableSbaId && (
         <div className="sm:col-span-2">
-          <FieldWrapper label="SBA ID" error={errors.sbaId}>
+          <FieldWrapper label={`SBA ID${programFields.requireSbaId ? " *" : ""}`} error={errors.sbaId}>
             {sbaEnabled && onSbaRetrieve ? (
               // Registration flow: SBA lookup button
               <>
@@ -568,7 +571,7 @@ export default function ParticipantFieldsForm({
 
       {/* ── T-Shirt Size (conditional) ── */}
       {programFields.enableTshirt && (
-        <FieldWrapper label="T-Shirt Size" error={errors.tshirtSize}>
+        <FieldWrapper label={`T-Shirt Size${programFields.requireTshirt ? " *" : ""}`} error={errors.tshirtSize}>
           <select className="field-input" value={values.tshirtSize}
             disabled={disabled}
             onChange={e => set({ tshirtSize: e.target.value })}>
@@ -581,12 +584,12 @@ export default function ParticipantFieldsForm({
       {/* ── Guardian Info (conditional) ── */}
       {programFields.enableGuardianInfo && (
         <>
-          <FieldWrapper label="Guardian Name" error={errors.guardianName}>
+          <FieldWrapper label={`Guardian Name${programFields.requireGuardianInfo ? " *" : ""}`} error={errors.guardianName}>
             <input className="field-input" value={values.guardianName ?? ''}
               disabled={disabled}
               onChange={e => set({ guardianName: e.target.value })} />
           </FieldWrapper>
-          <FieldWrapper label="Guardian Contact Number" error={errors.guardianContact}>
+          <FieldWrapper label={`Guardian Contact Number${programFields.requireGuardianInfo ? " *" : ""}`} error={errors.guardianContact}>
             <input className="field-input" value={values.guardianContact ?? ''}
               disabled={disabled}
               onChange={e => set({ guardianContact: e.target.value })} />
@@ -597,10 +600,10 @@ export default function ParticipantFieldsForm({
       {/* ── Document Upload (conditional) ── */}
       {programFields.enableDocumentUpload && (
         <div className="sm:col-span-2">
-          <FieldWrapper label="Document Upload (PDF/JPG/PNG)" error={errors.documentUpload}>
+          <FieldWrapper label={`Document Upload (PDF/JPG/PNG/WEBP)${programFields.requireDocumentUpload ? " *" : ""}`} error={errors.documentUpload}>
             <input
               type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
+              accept=".pdf,.jpg,.jpeg,.png,.webp"
               className="field-input"
               disabled={disabled}
               onChange={e => {
@@ -611,22 +614,16 @@ export default function ParticipantFieldsForm({
                   return;
                 }
 
-                const allowedTypes = [
-                  "application/pdf",
-                  "image/jpeg",
-                  "image/png",
-                ];
-
-                const maxSizeBytes = 5 * 1024 * 1024;
-
-                if (!allowedTypes.includes(file.type)) {
-                  alert("Only PDF, JPG and PNG files are allowed.");
+                if (!ALLOWED_DOCUMENT_TYPES.includes(file.type)) {
+                  alert("Only PDF, JPG, PNG and WEBP files are allowed.");
                   e.target.value = "";
                   return;
                 }
 
+                const maxSizeBytes = file.type === "application/pdf" ? MAX_PDF_BYTES : MAX_IMAGE_BYTES;
+
                 if (file.size > maxSizeBytes) {
-                  alert("Maximum file size is 5MB.");
+                  alert(file.type === "application/pdf" ? "Maximum PDF size is 10MB." : "Maximum image size is 5MB.");
                   e.target.value = "";
                   return;
                 }
@@ -681,7 +678,7 @@ export default function ParticipantFieldsForm({
       {/* ── Remark (conditional) ── */}
       {programFields.enableRemark && (
         <div className="sm:col-span-2">
-          <FieldWrapper label="Remark" error={errors.remark}>
+          <FieldWrapper label={`Remark${programFields.requireRemark ? " *" : ""}`} error={errors.remark}>
             <textarea className="field-input" rows={2} value={values.remark ?? ''}
               disabled={disabled}
               onChange={e => set({ remark: e.target.value })} />

@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { AlertCircle, CheckCircle } from "lucide-react";
-import { apiGetWebhookFailures, apiRefundOrphanedPayment } from "@/lib/api";
-import type { WebhookFailure } from "@/types/registration";
+import { apiGetWebhookFailures, apiGetOrphanRefundHistory, apiRefundOrphanedPayment } from "@/lib/api";
+import type { OrphanRefundHistory, WebhookFailure } from "@/types/registration";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
@@ -29,9 +29,26 @@ function formatDateTime(value: string): string {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+function RefundStatusBadge({ status }: { status: string }) {
+  const config: Record<string, [string, string, string]> = {
+    S: ["Refunded", "var(--badge-open-bg)", "var(--badge-open-text)"],
+    P: ["Pending", "var(--badge-soon-bg)", "var(--badge-soon-text)"],
+    F: ["Failed", "var(--badge-closed-bg)", "var(--badge-closed-text)"],
+  };
+  const [label, bg, color] = config[status] ?? [status || "-", "var(--color-row-hover)", "var(--color-body-text)"];
+  return (
+    <span className="inline-flex px-2 py-0.5 text-xs font-semibold" style={{ backgroundColor: bg, color }}>
+      {label}
+    </span>
+  );
+}
+
 export default function PaymentReconciliation() {
+  const [activeTab,    setActiveTab]    = useState<"active" | "history">("active");
   const [failures,     setFailures]     = useState<WebhookFailure[]>([]);
+  const [history,      setHistory]      = useState<OrphanRefundHistory[]>([]);
   const [loadingC,     setLoadingC]     = useState(true);
+  const [loadingH,     setLoadingH]     = useState(true);
   const [apiError,     setApiError]     = useState("");
 
   // Refund modal state
@@ -47,6 +64,13 @@ export default function PaymentReconciliation() {
         else if (r.error) setApiError(r.error.message);
       })
       .finally(() => setLoadingC(false));
+
+    apiGetOrphanRefundHistory()
+      .then(r => {
+        if (r.data) setHistory(r.data);
+        else if (r.error) setApiError(r.error.message);
+      })
+      .finally(() => setLoadingH(false));
   }, []);
 
   const handleRefund = async () => {
@@ -60,6 +84,7 @@ export default function PaymentReconciliation() {
       );
       if (r.error) { setApiError(r.error.message); return; }
       setFailures(prev => prev.filter(f => f.webhookLogId !== refundTarget.webhookLogId));
+      apiGetOrphanRefundHistory().then(h => { if (h.data) setHistory(h.data); });
       setRefundTarget(null);
       setRefundReason("");
       setRefundNote("");
@@ -77,8 +102,8 @@ export default function PaymentReconciliation() {
             className="mb-4 px-4 py-3 text-sm font-medium flex items-center justify-between"
             style={{
               backgroundColor: "var(--badge-closed-bg)",
-              color: "var(--badge-closed-text)",
-              border: "1px solid var(--badge-closed-text)",
+              color: "var(--badge-open-text)",
+              border: "1px solid var(--badge-open-text)",
             }}
           >
             <span>{apiError}</span>
@@ -94,13 +119,31 @@ export default function PaymentReconciliation() {
         session was never matched to a TRS registration. Issue a refund directly from here.
       </p>
 
+      <div className="tab-bar mb-4">
+        {[
+          { key: "active" as const, label: `Active (${failures.length})` },
+          { key: "history" as const, label: `Refund History (${history.length})` },
+        ].map(tab => (
+          <button
+            key={tab.key}
+            type="button"
+            className={`tab-btn ${activeTab === tab.key ? "active" : ""}`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "active" && (
+        <>
       {failures.length > 0 && (
         <div
           className="mb-4 px-4 py-3 text-sm flex items-center gap-3"
           style={{
             backgroundColor: "var(--badge-closed-bg)",
-            color: "var(--badge-closed-text)",
-            border: "1px solid var(--badge-closed-text)",
+            color: "var(--badge-open-text)",
+            border: "1px solid var(--badge-open-text)",
           }}
         >
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
@@ -161,7 +204,6 @@ export default function PaymentReconciliation() {
                 <td>
                   <button
                     className="btn-outline px-3 py-1.5 text-xs"
-                    style={{ color: "var(--badge-closed-text)", borderColor: "var(--badge-closed-text)" }}
                     onClick={() => { setRefundTarget(f); setRefundReason(""); setRefundNote(""); }}
                   >
                     Refund
@@ -174,6 +216,69 @@ export default function PaymentReconciliation() {
       </div>
 
       {/* ══════════ REFUND MODAL ══════════ */}
+        </>
+      )}
+
+      {activeTab === "history" && (
+        <div style={{ border: "1px solid var(--color-table-border)" }}>
+          <table className="trs-table">
+            <thead>
+              <tr>
+                <th>Payer</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Refunded</th>
+                <th>Reason</th>
+                <th>Session ID</th>
+                <th>Gateway Refund</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingH && (
+                <tr>
+                  <td colSpan={7} className="text-center py-6">
+                    <LoadingSpinner size="sm" label="Loading..." />
+                  </td>
+                </tr>
+              )}
+              {!loadingH && history.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="text-center py-10 opacity-40">
+                    <CheckCircle className="h-5 w-5 inline mr-2" />
+                    No reconciliation refunds yet.
+                  </td>
+                </tr>
+              )}
+              {history.map(r => (
+                <tr key={r.refundId}>
+                  <td>
+                    <p className="font-semibold text-sm">{r.contactName ?? "-"}</p>
+                    <p className="text-xs opacity-50">{r.contactEmail ?? "-"}</p>
+                  </td>
+                  <td className="font-semibold text-sm" style={{ color: "var(--color-primary)" }}>
+                    {r.currency} {r.refundAmount.toFixed(2)}
+                  </td>
+                  <td><RefundStatusBadge status={r.refundStatus} /></td>
+                  <td className="text-xs opacity-60 whitespace-nowrap">
+                    {formatDateTime(r.processedAt ?? r.createdAt)}
+                    <p className="opacity-50">{r.requestedBy ?? "admin"}</p>
+                  </td>
+                  <td className="text-xs max-w-[220px]">
+                    <p className="truncate" title={r.refundReason ?? ""}>{r.refundReason ?? "-"}</p>
+                  </td>
+                  <td className="font-mono text-xs opacity-50 max-w-[180px] truncate" title={r.gatewaySessionId ?? ""}>
+                    {r.gatewaySessionId ?? "-"}
+                  </td>
+                  <td className="font-mono text-xs opacity-50 max-w-[160px] truncate" title={r.gatewayRefundId ?? ""}>
+                    {r.gatewayRefundId ?? "-"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <Dialog open={!!refundTarget} onOpenChange={v => { if (!v) setRefundTarget(null); }}>
         <DialogContent
           className="max-w-md p-0"
@@ -218,7 +323,7 @@ export default function PaymentReconciliation() {
 
               <div
                 className="px-3 py-2 text-xs"
-                style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}
+                style={{ backgroundColor: "var(--badge-open-bg)", color: "var(--badge-open-text)" }}
               >
                 This will issue a full refund via Payment Gateway and record it in TRS. This action cannot be undone.
               </div>
@@ -252,7 +357,7 @@ export default function PaymentReconciliation() {
               onClick={handleRefund}
               disabled={!refundReason.trim() || savingRefund}
               className="px-5 py-2.5 text-sm font-semibold disabled:opacity-40"
-              style={{ backgroundColor: "var(--badge-closed-text)", color: "white" }}
+              style={{ backgroundColor: "var(--badge-open-text)", color: "white" }}
             >
               {savingRefund ? "Processing…" : "Confirm Refund"}
             </button>

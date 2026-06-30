@@ -13,4 +13,5 @@ public partial class AdminAuditLog
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }
     public virtual AdminUser? User { get; set; }
+    public virtual ICollection<AdminAuditLogDetail> Details { get; set; } = new List<AdminAuditLogDetail>();
 }

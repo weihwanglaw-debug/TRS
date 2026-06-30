@@ -9,7 +9,7 @@
  * no changes needed here when switching to a real backend.
  */
 
-import type { SeedEntry } from "@/types/config";
+import type { MatchEntry, SeedEntry } from "@/types/config";
 import type { Registration } from "@/types/registration";
 
 function download(filename: string, content: string) {
@@ -121,7 +121,7 @@ export function exportRegistrationsCsv(
           group.seed != null ? String(group.seed) : "",
           reg.payment.paymentStatus,
           reg.payment.receiptNo ?? "",
-          reg.payment.method,
+          reg.payment.method ?? "",
           group.fee.toFixed(2),
         ]);
       }
@@ -131,6 +131,80 @@ export function exportRegistrationsCsv(
   const label = programName ? `${eventName} - ${programName}` : eventName;
   download(
     safeFilename(`${label} - Registrations.csv`),
+    csv([headers, ...rows]),
+  );
+}
+
+export function exportFixtureRoundCsv(
+  eventName: string,
+  programName: string,
+  roundLabel: string,
+  matches: MatchEntry[],
+) {
+  const headers = [
+    "Round",
+    "Team 1",
+    "Team 1 Club / Team",
+    "Team 1 Seed",
+    "Team 2",
+    "Team 2 Club / Team",
+    "Team 2 Seed",
+    "Result Score",
+    "Winner",
+    "Walkover",
+    "Walkover Winner",
+    "Court / Venue",
+    "Date",
+    "Actual Start Time",
+    "Actual End Time",
+    "Status",
+    "Officials",
+    "Remark",
+  ];
+
+  const teamPlayers = (team: MatchEntry["team1"]) => team.participants.join(" / ");
+  const teamName = (team: MatchEntry["team1"]) => teamPlayers(team) || team.label;
+  const score = (match: MatchEntry) => match.walkover
+    ? "W/O"
+    : match.games
+      .filter(g => g.p1 !== "" || g.p2 !== "")
+      .map(g => `${g.p1}-${g.p2}`)
+      .join(", ");
+  const winner = (match: MatchEntry) => {
+    if (match.winner === "team1") return teamName(match.team1);
+    if (match.winner === "team2") return teamName(match.team2);
+    if (match.walkoverWinner === "team1") return teamName(match.team1);
+    if (match.walkoverWinner === "team2") return teamName(match.team2);
+    return "";
+  };
+  const officials = (match: MatchEntry) =>
+    match.officials.map(o => [o.role, o.name].filter(Boolean).join(": ")).filter(Boolean).join("; ");
+
+  const rows = matches.map(match => [
+    roundLabel,
+    teamName(match.team1),
+    match.team1.label,
+    match.team1.seed != null ? String(match.team1.seed) : "",
+    teamName(match.team2),
+    match.team2.label,
+    match.team2.seed != null ? String(match.team2.seed) : "",
+    score(match),
+    winner(match),
+    match.walkover ? "Yes" : "No",
+    match.walkoverWinner === "team1" ? teamName(match.team1)
+      : match.walkoverWinner === "team2" ? teamName(match.team2)
+      : "",
+    match.courtNo,
+    match.matchDate,
+    match.startTime,
+    match.endTime,
+    match.status,
+    officials(match),
+    match.remark ?? "",
+  ]);
+
+  download(
+    safeFilename(`${eventName} - ${programName} - ${roundLabel} - Fixture Table.csv`),
     csv([headers, ...rows]),
   );
 }

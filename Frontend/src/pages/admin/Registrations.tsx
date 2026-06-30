@@ -23,12 +23,12 @@ import {
   Clock, AlertCircle, Download,
 } from "lucide-react";
 import type { TournamentEvent } from "@/types/config";
-import type { Registration, ParticipantGroup, Payment, PaymentItem, Refund, PaymentMethod, PaymentStatus } from "@/types/registration";
+import type { Registration, ParticipantGroup, Payment, PaymentItem, Refund, PaymentMethod, PaymentStatus, PaymentAuditEntry } from "@/types/registration";
 import { totalFee, PAYMENT_STATUS_LABEL, PAYMENT_METHOD_LABEL } from "@/types/registration";
 import {
   apiGetEvents, apiGetRegistration, apiGetRegistrations,
   apiUpdateRegistrationStatus, apiUpdatePayment,
-  apiGetRefunds, apiInitiateRefund, apiCancelRegistrationWithRefunds, apiConfirmRegistration, assetUrl,
+  apiGetRefunds, apiGetPaymentAudit, apiInitiateRefund, apiCancelRegistrationWithRefunds, apiConfirmRegistration, assetUrl,
 } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Pagination } from "@/components/ui/TableControls";
@@ -115,6 +115,25 @@ function FG({ label, children }: { label: string; children: React.ReactNode }) {
 function getPayment(reg: Registration | null | undefined): Payment | null {
   if (!reg) return null;
   return ((reg as Registration & { payment?: Payment | null }).payment) ?? null;
+}
+
+function programEntrySummary(groups: ParticipantGroup[]) {
+  const byProgram = new Map<string, { programName: string; count: number }>();
+
+  for (const group of groups) {
+    const key = group.programId || group.programName;
+    const current = byProgram.get(key);
+    if (current) current.count += 1;
+    else byProgram.set(key, { programName: group.programName, count: 1 });
+  }
+
+  const programs = Array.from(byProgram.values());
+  return {
+    programCount: programs.length,
+    text: programs
+      .map(p => `${p.programName} x ${p.count} ${p.count === 1 ? "entry" : "entries"}`)
+      .join(", "),
+  };
 }
 
 function formatDate(value?: string): string {
@@ -268,6 +287,7 @@ interface PaymentLogModalProps {
 
 function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
   const payment = getPayment(reg);
+  const [auditRows, setAuditRows] = useState<PaymentAuditEntry[]>([]);
   const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
   const receiptUrl = `${API_BASE}/api/registrations/${reg.id}/receipt`;
   const hasReceipt = !!payment?.receiptNo;
@@ -281,6 +301,14 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
     .filter(r => r.refundStatus === "S")
     .reduce((s, r) => s + r.refundAmount, 0);
   const netAmount = totalPaid - totalRefunded;
+
+  useEffect(() => {
+    let active = true;
+    apiGetPaymentAudit(reg.id).then(r => {
+      if (active) setAuditRows(r.data ?? []);
+    });
+    return () => { active = false; };
+  }, [reg.id]);
 
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose(); }}>
@@ -334,7 +362,7 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
               {/* Col 2: Payment */}
               <div className="space-y-3">
                 <MetaField label="Receipt No." value={payment?.receiptNo || "—"} mono bold />
-                <MetaField label="Method" value={payment ? (PAYMENT_METHOD_LABEL[payment.method] ?? payment.method) : "—"} />
+                <MetaField label="Method" value={payment?.method ? (PAYMENT_METHOD_LABEL[payment.method] ?? payment.method) : "—"} />
                 <MetaField label="Date Paid" value={formatDate(payment?.paidAt)} />
                 <div>
                   <p className="text-xs opacity-50 mb-1">Status</p>
@@ -551,6 +579,44 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
             )}
 
             {/* ── SECTION 3: Transaction Timeline ── */}
+            {auditRows.length > 0 && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">
+                  Audit Trail
+                </p>
+                <table className="trs-table w-full" style={{ border: "1px solid var(--color-table-border)" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 160 }}>Date / Time</th>
+                      <th style={{ width: 190 }}>Action</th>
+                      <th style={{ width: 120 }}>Status</th>
+                      <th style={{ width: 120 }}>Admin</th>
+                      <th>Reason</th>
+                      <th style={{ width: 130 }}>IP Address</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditRows.map(row => (
+                      <tr key={row.id}>
+                        <td className="font-mono text-xs opacity-60 whitespace-nowrap">
+                          {formatDateTime(row.createdAt)}
+                        </td>
+                        <td className="text-sm font-medium">{row.action}</td>
+                        <td className="text-xs">
+                          <span className="font-mono">{row.oldStatus ?? "—"}</span>
+                          <span className="opacity-40 mx-1">→</span>
+                          <span className="font-mono">{row.newStatus ?? "—"}</span>
+                        </td>
+                        <td className="text-xs opacity-70">{row.performedBy ?? "—"}</td>
+                        <td className="text-xs opacity-70">{row.reason ?? row.notes ?? "—"}</td>
+                        <td className="font-mono text-xs opacity-50">{row.ipAddress ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             {timeline.length > 0 && (
               <div>
                 <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">
@@ -990,7 +1056,7 @@ export default function AdminRegistrations() {
               )}
               {paged.map(reg => {
                 const payment      = getPayment(reg);
-                const programCount = reg.groups.length;
+                const programInfo  = programEntrySummary(reg.groups);
                 const regRefunds   = refundsByReg[reg.id] ?? [];
                 const refunded     = calcRefunded(regRefunds, payment?.items ?? []);
 
@@ -1009,10 +1075,10 @@ export default function AdminRegistrations() {
                       <td>
                         <div className="flex items-center gap-1.5">
                           <Users className="h-3.5 w-3.5 opacity-30" />
-                          <span className="text-sm">{programCount} program{programCount !== 1 ? "s" : ""}</span>
+                          <span className="text-sm">{programInfo.programCount} program{programInfo.programCount !== 1 ? "s" : ""}</span>
                         </div>
                         <p className="text-xs opacity-50 mt-0.5">
-                          {reg.groups.map(g => g.programName).join(", ")}
+                          {programInfo.text}
                         </p>
                       </td>
                       <td><RegBadge status={reg.regStatus} /></td>

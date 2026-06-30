@@ -12,18 +12,25 @@
  *       • If neither feeder has a winner, draw nothing
  */
 
-import React, { useRef, useEffect, useState } from "react";
+import React from "react";
 import type { BracketState, MatchEntry, FixtureFormat } from "@/types/config";
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 const CARD_W    = 260;   // card width
-const CARD_H    = 96;    // card height  (slot×2 + divider)
-const SLOT_H    = 42;    // each team slot
-const DIV_H     = 12;    // schedule divider between slots
-const COL_GAP   = 80;    // horizontal gap between columns
+const CARD_H    = 88;    // card height  (slot×2 + divider)
+const SLOT_H    = 40;    // each team slot
+const DIV_H     = 8;    // divider between match slots
+const COL_GAP   = 72;    // horizontal gap between columns
 const ROW_PAD   = 28;    // vertical padding above first card and below last
 const INTER_GAP = 20;    // min vertical gap between cards in first round
-const HDR_H     = 50;    // round header height above the body
+const HDR_H     = 48;    // round header height above the body
+const SVG_PAD   = 24;    // breathing room around the bracket canvas
+const CANVAS_BG = "var(--color-page-bg)";
+const CARD_BG   = "var(--color-row-stripe)";
+const CARD_LINE = "var(--color-table-border)";
+const TEXT_MAIN = "var(--color-body-text)";
+const TEXT_MUTED = "var(--color-disabled-text)";
+const LINK_LINE = "var(--color-table-border)";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -51,9 +58,7 @@ function buildRounds(koMatches: MatchEntry[]): RoundData[] {
   if (!koMatches.length) return [];
 
   const byRound = new Map<number, MatchEntry[]>();
-  for (const m of [...koMatches].sort((a, b) =>
-    a.round !== b.round ? a.round - b.round : a.id.localeCompare(b.id)
-  )) {
+  for (const m of koMatches) {
     if (!byRound.has(m.round)) byRound.set(m.round, []);
     byRound.get(m.round)!.push(m);
   }
@@ -66,9 +71,9 @@ function buildRounds(koMatches: MatchEntry[]): RoundData[] {
     matches: byRound.get(r)!,
   }));
 
-  // Project placeholder rounds
+  // Project placeholder rounds only until the real final exists.
   let projCount = Math.ceil(lastCount / 2);
-  while (projCount >= 1) {
+  while (lastCount > 1 && projCount >= 1) {
     rounds.push({
       title:   getRoundTitle(projCount),
       matches: Array(projCount).fill(null),
@@ -116,11 +121,13 @@ function MatchCard({
   const games   = match?.games ?? [];
   const t1w     = games.filter(g => g.p1 !== "" && g.p2 !== "" && +g.p1 > +g.p2).length;
   const t2w     = games.filter(g => g.p1 !== "" && g.p2 !== "" && +g.p2 > +g.p1).length;
+  const scoreDetail = games
+    .filter(g => g.p1 !== "" && g.p2 !== "")
+    .map(g => `${g.p1}-${g.p2}`)
+    .join(", ");
 
   const score1  = !match ? null : match.walkover ? (match.walkoverWinner === "team1" ? "W/O" : "—") : isDone ? t1w : null;
   const score2  = !match ? null : match.walkover ? (match.walkoverWinner === "team2" ? "W/O" : "—") : isDone ? t2w : null;
-
-  const showNames = !!match && match.team1.participants.length + match.team2.participants.length <= 4;
 
   const sched = match ? [
     match.courtNo,
@@ -135,13 +142,19 @@ function MatchCard({
     match.team1.id.startsWith("bye-") ||
     match.team2.id.startsWith("bye-")
   );
+  const team1Bye = !!match && (match.team1.label === "BYE" || match.team1.id.startsWith("bye-"));
+  const team2Bye = !!match && (match.team2.label === "BYE" || match.team2.id.startsWith("bye-"));
+  const inferredWinner = match?.winner ?? (team1Bye && !team2Bye ? "team2" : team2Bye && !team1Bye ? "team1" : null);
+  const displayScore1 = score1 ?? (team2Bye && !team1Bye ? "BYE" : null);
+  const displayScore2 = score2 ?? (team1Bye && !team2Bye ? "BYE" : null);
 
-  const Slot = ({ team, isWinner, score }: {
-    team?: MatchEntry["team1"]; isWinner: boolean; score: number | string | null;
+  const Slot = ({ team, isWinner, score, detail }: {
+    team?: MatchEntry["team1"]; isWinner: boolean; score: number | string | null; detail?: string;
   }) => {
     const seed  = team?.seed != null ? `#${team.seed} ` : "";
-    const label = team ? `${seed}${team.label}` : "";
-    const sub   = showNames && team?.participants.length ? team.participants.join(" / ") : null;
+    const showPlayers = !!team && team.participants.length > 0 && team.participants.length <= 2;
+    const label = team ? `${seed}${showPlayers ? team.participants.join(" / ") : team.label}` : "";
+    const sub   = showPlayers ? team.label : null;
 
     return (
       <div style={{
@@ -162,7 +175,7 @@ function MatchCard({
             overflow:      "hidden",
             textOverflow:  "ellipsis",
             fontStyle:     !label ? "italic" : "normal",
-            color:         !label ? "#94a3b8" : isWinner ? "#fff" : "#1e293b",
+            color:         !label ? TEXT_MUTED : isWinner ? "var(--color-hero-text)" : TEXT_MAIN,
           }}>
             {label || "TBD"}
           </div>
@@ -173,7 +186,7 @@ function MatchCard({
               whiteSpace:   "nowrap",
               overflow:     "hidden",
               textOverflow: "ellipsis",
-              color:        isWinner ? "rgba(255,255,255,.8)" : "#64748b",
+              color:        isWinner ? "var(--color-hero-text)" : TEXT_MUTED,
             }}>
               {sub}
             </div>
@@ -181,17 +194,33 @@ function MatchCard({
         </div>
         {score != null && (
           <span style={{
+            display:    "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
             fontSize:    13,
             fontWeight:  800,
             flexShrink:  0,
-            minWidth:    26,
+            minWidth:    detail ? 58 : 26,
             textAlign:   "center",
             padding:     "2px 6px",
             borderRadius: 4,
-            background:  isWinner ? "rgba(0,0,0,.22)" : "#e2e8f0",
-            color:       isWinner ? "#fff" : "#1e293b",
+            background:  isWinner ? "rgba(0,0,0,.22)" : "var(--color-row-hover)",
+            color:       isWinner ? "var(--color-hero-text)" : TEXT_MAIN,
           }}>
-            {score}
+            <span style={{ lineHeight: 1 }}>{score}</span>
+            {detail && (
+              <span style={{
+                marginTop: 2,
+                fontSize: 8,
+                fontWeight: 600,
+                lineHeight: 1,
+                opacity: 0.85,
+                whiteSpace: "nowrap",
+              }}>
+                {detail}
+              </span>
+            )}
           </span>
         )}
       </div>
@@ -211,35 +240,45 @@ function MatchCard({
           height:       CARD_H,
           display:      "flex",
           flexDirection: "column",
-          border:       isNull ? "1.5px dashed #cbd5e1" : "1.5px solid #cbd5e1",
+          border:       isNull ? `1px dashed ${CARD_LINE}` : `1px solid ${CARD_LINE}`,
           borderRadius: 6,
-          background:   isNull ? "#f8fafc" : "#fff",
-          boxShadow:    isNull ? "none" : "0 1px 5px rgba(0,0,0,.07)",
+          background:   isNull ? "var(--color-row-hover)" : CARD_BG,
+          boxShadow:    "none",
           opacity:      isNull ? 0.4 : 1,
           cursor:       match && !isBye ? "pointer" : "default",
           overflow:     "hidden",
           fontFamily:   "inherit",
         }}
       >
-        <Slot team={match?.team1} isWinner={match?.winner === "team1"} score={score1} />
+        <Slot
+          team={match?.team1}
+          isWinner={inferredWinner === "team1"}
+          score={displayScore1}
+          detail={inferredWinner === "team1" && !match?.walkover ? scoreDetail : undefined}
+        />
         <div style={{
-          height:       DIV_H,
+          height:       sched ? DIV_H : 1,
           flexShrink:   0,
-          background:   "#f1f5f9",
-          borderTop:    "1px solid #e2e8f0",
-          borderBottom: "1px solid #e2e8f0",
+          background:   CARD_LINE,
+          borderTop:    "none",
+          borderBottom: "none",
           display:      "flex",
           alignItems:   "center",
-          padding:      "0 10px",
+          padding:      sched ? "0 10px" : 0,
           fontSize:     9,
           fontWeight:   600,
-          color:        "#94a3b8",
+          color:        TEXT_MUTED,
           whiteSpace:   "nowrap",
           overflow:     "hidden",
         }}>
           {sched}
         </div>
-        <Slot team={match?.team2} isWinner={match?.winner === "team2"} score={score2} />
+        <Slot
+          team={match?.team2}
+          isWinner={inferredWinner === "team2"}
+          score={displayScore2}
+          detail={inferredWinner === "team2" && !match?.walkover ? scoreDetail : undefined}
+        />
       </div>
     </foreignObject>
   );
@@ -265,8 +304,16 @@ function Connector({
   const spineX = fromX + 24;   // stub length
   const armX   = toX;
 
-  const topWinner = topMatch?.winner;   // "team1" | "team2" | null
-  const botWinner = botMatch?.winner;
+  const inferredWinner = (match: MatchEntry | null) => {
+    if (!match) return null;
+    if (match.winner) return match.winner;
+    const team1Bye = match.team1.label === "BYE" || match.team1.id.startsWith("bye-");
+    const team2Bye = match.team2.label === "BYE" || match.team2.id.startsWith("bye-");
+    return team1Bye && !team2Bye ? "team2" : team2Bye && !team1Bye ? "team1" : null;
+  };
+
+  const topWinner = inferredWinner(topMatch);   // "team1" | "team2" | null
+  const botWinner = inferredWinner(botMatch);
   const bothWon   = !!topWinner && !!botWinner;
 
   // Y where stub leaves the TOP card (at winner slot centre)
@@ -284,42 +331,35 @@ function Connector({
   const spineBotY = botStubY;
   const armY      = nextCardY + SLOT_H + DIV_H / 2;  // aim at divider centre of next card
 
-  const color = (won: boolean) => won ? primary : "#cbd5e1";
-  const width = (won: boolean) => won ? 2.5 : 1.5;
-
   return (
     <g fill="none" strokeLinecap="round" strokeLinejoin="round">
       {/* Top stub — only if top match has a winner */}
-      {topWinner && (
-        <path
-          d={`M ${fromX} ${topStubY} H ${spineX}`}
-          stroke={primary}
-          strokeWidth={2.5}
-        />
-      )}
+      <path
+        d={`M ${fromX} ${topStubY} H ${spineX}`}
+        stroke={topWinner ? primary : LINK_LINE}
+        strokeWidth={topWinner ? 2 : 1.5}
+      />
       {/* Bottom stub — only if bottom match has a winner */}
-      {botWinner && (
+      {botMatch && (
         <path
           d={`M ${fromX} ${botStubY} H ${spineX}`}
-          stroke={primary}
-          strokeWidth={2.5}
+          stroke={botWinner ? primary : LINK_LINE}
+          strokeWidth={botWinner ? 2 : 1.5}
         />
       )}
       {/* Vertical spine + arm — only when both have winners */}
-      {bothWon && (
-        <>
-          <path
-            d={`M ${spineX} ${spineTopY} V ${spineBotY}`}
-            stroke={primary}
-            strokeWidth={2.5}
-          />
-          <path
-            d={`M ${spineX} ${armY} H ${armX}`}
-            stroke={primary}
-            strokeWidth={2.5}
-          />
-        </>
+      {botMatch && (
+        <path
+          d={`M ${spineX} ${spineTopY} V ${spineBotY}`}
+          stroke={bothWon ? primary : LINK_LINE}
+          strokeWidth={bothWon ? 2 : 1.5}
+        />
       )}
+      <path
+        d={`M ${spineX} ${armY} H ${armX}`}
+        stroke={bothWon ? primary : LINK_LINE}
+        strokeWidth={bothWon ? 2 : 1.5}
+      />
     </g>
   );
 }
@@ -336,8 +376,8 @@ export const BracketView = React.forwardRef<HTMLDivElement, {
   if (koMatches.length === 0) {
     return (
       <div ref={ref} style={{
-        background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8,
-        padding: "60px 0", textAlign: "center", color: "#94a3b8", fontSize: 14,
+        background: CANVAS_BG, border: `1px solid ${CARD_LINE}`, borderRadius: 8,
+        padding: "60px 0", textAlign: "center", color: TEXT_MUTED, fontSize: 14,
       }}>
         {bracketState.phase === "group"
           ? "Complete the group phase to generate the knockout bracket."
@@ -354,22 +394,26 @@ export const BracketView = React.forwardRef<HTMLDivElement, {
   const firstCount = rounds[0].matches.length;
   const h = bodyH(firstCount);
   // Natural dimensions — used as viewBox so SVG scales to fill container
-  const naturalW = rounds.length * (CARD_W + COL_GAP);
-  const naturalH = HDR_H + h;
+  const contentW = rounds.length * CARD_W + Math.max(0, rounds.length - 1) * COL_GAP;
+  const naturalW = contentW + SVG_PAD * 2;
+  const naturalH = HDR_H + h + SVG_PAD * 2;
 
   return (
     <div ref={ref} style={{
-      background:   "#fff",
-      border:       "1px solid #e2e8f0",
+      background:   CANVAS_BG,
+      border:       `1px solid ${CARD_LINE}`,
       borderRadius: 8,
-      overflowX:    "auto",
-      padding:      "4px 0 16px",
+      overflow:     "auto",
+      padding:      "8px 0 16px",
+      maxHeight:    "min(72vh, 760px)",
     }}>
       <svg
         viewBox={`0 0 ${naturalW} ${naturalH}`}
-        width="100%"
-        style={{ display: "block", overflow: "visible", fontFamily: "inherit", minWidth: naturalW }}
+        width={naturalW}
+        height={naturalH}
+        style={{ display: "block", overflow: "visible", fontFamily: "inherit" }}
       >
+        <g transform={`translate(${SVG_PAD}, ${SVG_PAD})`}>
         {/* ── Round headers ── */}
         {rounds.map((round, ci) => {
           const x = colX(ci);
@@ -382,7 +426,7 @@ export const BracketView = React.forwardRef<HTMLDivElement, {
                 style={{
                   fontSize: 11, fontWeight: 700,
                   textTransform: "uppercase", letterSpacing: "0.07em",
-                  fill: primary, fontFamily: "inherit",
+                  fill: "var(--color-primary)", fontFamily: "inherit",
                 }}
               >
                 {round.title}
@@ -390,7 +434,7 @@ export const BracketView = React.forwardRef<HTMLDivElement, {
               <line
                 x1={x} y1={HDR_H - 6}
                 x2={x + CARD_W} y2={HDR_H - 6}
-                stroke={primary} strokeWidth={2}
+                stroke={LINK_LINE} strokeWidth={1}
               />
             </g>
           );
@@ -410,11 +454,6 @@ export const BracketView = React.forwardRef<HTMLDivElement, {
 
               const topMatch  = round.matches[topIdx];
               const botMatch  = botIdx < leftCount ? round.matches[botIdx] : null;
-              const nextMatch = nextRound.matches[rj];
-
-              // Skip connector entirely if neither feeder has a winner
-              if (!topMatch?.winner && !botMatch?.winner) return null;
-
               const topCardTopY  = cardTopY(topIdx, leftCount, h);
               const botCardTopY  = botMatch ? cardTopY(botIdx, leftCount, h) : topCardTopY;
               const nextCardTopY = cardTopY(rj, rightCount, h);
@@ -450,11 +489,13 @@ export const BracketView = React.forwardRef<HTMLDivElement, {
             ))
           )}
         </g>
+        </g>
       </svg>
 
-      <div style={{ padding: "6px 16px 0", fontSize: 11, color: "#94a3b8" }}>
+      <div data-print-exclude="true" style={{ padding: "6px 16px 0", fontSize: 11, color: TEXT_MUTED }}>
         Click any match card to enter or edit the score.
       </div>
     </div>
   );
 });
+

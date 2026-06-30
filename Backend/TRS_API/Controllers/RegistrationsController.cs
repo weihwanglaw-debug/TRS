@@ -187,6 +187,35 @@ public class RegistrationsController : ControllerBase
         return Ok(MapPayment(payment));
     }
 
+    // -- GET /api/registrations/:id/payment/audit  -- admin -----------------
+    [HttpGet("{id:int}/payment/audit"), Authorize(Roles = "superadmin,eventadmin")]
+    public async Task<IActionResult> GetPaymentAudit(int id)
+    {
+        var payment = await _db.Payments.FirstOrDefaultAsync(p => p.RegistrationId == id);
+        if (payment == null) return NotFound(new { code = "NOT_FOUND", message = "Payment not found." });
+
+        var logs = await _db.PaymentAuditLogs
+            .Where(a => a.EntityType == "Payment" && a.EntityId == payment.PaymentId)
+            .OrderBy(a => a.CreatedAt)
+            .Select(a => new
+            {
+                id = a.AuditId.ToString(),
+                entityType = a.EntityType,
+                entityId = a.EntityId.ToString(),
+                action = a.Action,
+                oldStatus = a.OldStatus,
+                newStatus = a.NewStatus,
+                reason = a.Reason,
+                performedBy = a.PerformedBy,
+                ipAddress = a.IpAddress,
+                notes = a.Notes,
+                createdAt = a.CreatedAt,
+            })
+            .ToListAsync();
+
+        return Ok(logs);
+    }
+
     // -- PATCH /api/registrations/:id/payment  -- admin (manual confirm) ----
     [HttpPatch("{id:int}/payment"), Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> UpdatePayment(int id, [FromBody] UpdatePaymentManualRequest req)
@@ -196,6 +225,8 @@ public class RegistrationsController : ControllerBase
             .Include(p => p.Refunds)
             .FirstOrDefaultAsync(p => p.RegistrationId == id);
         if (payment == null) return NotFound(new { code = "NOT_FOUND", message = "Payment not found." });
+
+        var oldStatus = payment.PaymentStatus;
 
         if (req.Method != null) payment.PaymentMethod = req.Method;
 
@@ -239,6 +270,7 @@ public class RegistrationsController : ControllerBase
             EntityType = "Payment",
             EntityId = payment.PaymentId,
             Action = "ManualPaymentConfirmed",
+            OldStatus = oldStatus,
             NewStatus = payment.PaymentStatus,   // store short code in audit log
             Reason = req.AdminNote,
             PerformedBy = User.Identity?.Name ?? "admin",
@@ -535,10 +567,28 @@ public class RegistrationsController : ControllerBase
         if (!allowedStatuses.Contains(status))
             return BadRequest(new { code = "INVALID_STATUS", message = "PaymentStatus must be S (Paid), W (Waived), or PC (Pending Collection)." });
 
+        var allowedMethods = new[] { "Cash", "BankTransfer", "PayNow", "Others" };
+        var method = string.IsNullOrWhiteSpace(req.Method) ? null : req.Method.Trim();
+        var paymentReference = string.IsNullOrWhiteSpace(req.PaymentReference) ? null : req.PaymentReference.Trim();
+
+        if (status == "S")
+        {
+            if (method == null)
+                return BadRequest(new { code = "INVALID_METHOD", message = "Payment method is required when payment status is Paid." });
+            if (!allowedMethods.Contains(method))
+                return BadRequest(new { code = "INVALID_METHOD", message = "Payment method must be Cash, BankTransfer, PayNow, or Others." });
+        }
+        else
+        {
+            method = null;
+            paymentReference = null;
+        }
+
         var reg = await LoadReg(id);
         if (reg == null) return NotFound(new { code = "NOT_FOUND", message = "Registration not found." });
 
         var payment = reg.Payments.FirstOrDefault();
+        var oldStatus = payment?.PaymentStatus;
 
         if (payment == null)
         {
@@ -548,7 +598,7 @@ public class RegistrationsController : ControllerBase
                 RegistrationId = id,
                 EventId        = reg.EventId,
                 PaymentGateway = "Manual",
-                PaymentMethod  = req.Method ?? (status == "W" ? "Others" : "Cash"),
+                PaymentMethod  = method,
                 Amount         = reg.ParticipantGroups.Sum(g => g.Fee),
                 Currency       = "SGD",
                 PaymentStatus  = status,
@@ -566,15 +616,16 @@ public class RegistrationsController : ControllerBase
                     code = "INVALID_TRANSITION",
                     message = $"Cannot change payment status from {payment.PaymentStatus} to {status}."
                 });
-            if (req.Method != null) payment.PaymentMethod = req.Method;
+            payment.PaymentMethod = method;
             payment.PaymentStatus = status;
             payment.AdminNote     = req.AdminNote;
-            if (req.PaymentReference != null) payment.ReceiptNumber = req.PaymentReference;
+            payment.ReceiptNumber = paymentReference;
             payment.UpdatedAt = DateTime.UtcNow;
         }
 
-        // For Paid or Waived: stamp paidAt, generate receipt, flip items to S
-        if (status == "S" || status == "W")
+        // For Paid: stamp paidAt, generate receipt, flip items to S.
+        // Waived and Pending Collection intentionally keep method/reference blank.
+        if (status == "S")
         {
             payment.PaidAt = DateTime.UtcNow;
             if (string.IsNullOrEmpty(payment.ReceiptNumber))
@@ -583,6 +634,10 @@ public class RegistrationsController : ControllerBase
                 payment.ReceiptNumber = $"TRS-{d:yyyyMMdd}-{Random.Shared.Next(10000, 99999)}";
             }
             foreach (var item in payment.Items) { item.ItemStatus = "S"; item.UpdatedAt = DateTime.UtcNow; }
+        }
+        else
+        {
+            payment.PaidAt = null;
         }
 
         // Confirm the registration regardless of payment status
@@ -603,6 +658,7 @@ public class RegistrationsController : ControllerBase
             EntityType  = "Payment",
             EntityId    = payment.PaymentId,
             Action      = $"AdminConfirm_{status}",
+            OldStatus   = oldStatus,
             NewStatus   = status,
             Reason      = req.AdminNote,
             PerformedBy = User.Identity?.Name ?? "admin",

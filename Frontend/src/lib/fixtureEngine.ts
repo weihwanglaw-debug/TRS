@@ -90,6 +90,17 @@ function nextPow2(n: number): number {
   let p = 1; while (p < n) p *= 2; return p;
 }
 
+function buildSeedLine(size: number): number[] {
+  if (size <= 1) return [1];
+  if (size === 2) return [1, 2];
+  if (size === 4) return [1, 4, 3, 2];
+  return buildSeedLine(size / 2).flatMap(seed => [seed, size + 1 - seed]);
+}
+
+function pairedSlot(index: number): number {
+  return index % 2 === 0 ? index + 1 : index - 1;
+}
+
 function generateKnockoutMatches(
   nextId: ReturnType<typeof makeIdGen>,
   teams: TeamEntry[]
@@ -99,16 +110,33 @@ function generateKnockoutMatches(
   const byes = pow - n;
   const byeTeam = (): TeamEntry => ({ id: `bye-${Math.random().toString(36).slice(2)}`, label: "BYE", participants: [] });
 
-  // Snake seeding: seed 1 top-left, seed 2 bottom-right, seed 3 bottom-left, seed 4 top-right...
+  // Snake seeding with BYEs reserved for the highest seeds first.
   const slots: (TeamEntry | null)[] = Array(pow).fill(null);
-  const seedOrder = [0, pow - 1, pow / 2 - 1, pow / 2];
-  teams.forEach((t, i) => {
-    const pos = i < seedOrder.length ? seedOrder[i] : -1;
-    if (pos !== -1 && slots[pos] === null) slots[pos] = t;
-    else {
-      const empty = slots.findIndex((s, idx) => s === null && !seedOrder.slice(0, i).includes(idx));
-      slots[empty === -1 ? slots.findIndex(s => s === null) : empty] = t;
+  const seedLine = buildSeedLine(pow);
+  const placed = new Set<string>();
+
+  const seededTeams = teams
+    .filter(t => t.seed != null)
+    .sort((a, b) => (a.seed as number) - (b.seed as number));
+
+  seededTeams.forEach(t => {
+    const pos = seedLine.indexOf(t.seed as number);
+    if (pos !== -1 && slots[pos] === null) {
+      slots[pos] = t;
+      placed.add(t.id);
     }
+  });
+
+  const protectedByeSlots = new Set<number>();
+  seededTeams.slice(0, Math.min(byes, seededTeams.length)).forEach(t => {
+    const pos = slots.findIndex(s => s?.id === t.id);
+    if (pos !== -1) protectedByeSlots.add(pairedSlot(pos));
+  });
+
+  teams.filter(t => !placed.has(t.id)).forEach(t => {
+    let empty = slots.findIndex((s, idx) => s === null && !protectedByeSlots.has(idx));
+    if (empty === -1) empty = slots.findIndex(s => s === null);
+    if (empty !== -1) slots[empty] = t;
   });
 
   // Pair slots for round 1
@@ -241,7 +269,7 @@ export function computeGroupStandings(
   const standings = Object.values(map);
   const h2h: Record<string, Record<string, "A" | "B" | "draw">> = {};
   for (const m of group.matches) {
-    if (m.status !== "Completed") continue;
+    if (m.status !== "Completed" && m.status !== "Walkover") continue;
     const a = m.team1.id, b = m.team2.id;
     if (!h2h[a]) h2h[a] = {}; if (!h2h[b]) h2h[b] = {};
     if (m.winner === "team1")      { h2h[a][b] = "A"; h2h[b][a] = "B"; }
@@ -412,23 +440,30 @@ export function generateDraw(seeds: SeedEntry[], config: FixtureFormatConfig): B
 // ── Swap teams ────────────────────────────────────────────────────────────────
 
 export function swapTeams(state: BracketState, idA: string, idB: string): BracketState {
+  const allTeams = [
+    ...state.matches.flatMap(m => [m.team1, m.team2]),
+    ...state.groups.flatMap(g => g.teams),
+    ...state.groups.flatMap(g => g.matches).flatMap(m => [m.team1, m.team2]),
+    ...state.seeds.map(seedToTeam),
+  ];
+  const teamA = allTeams.find(t => t.id === idA);
+  const teamB = allTeams.find(t => t.id === idB);
+  if (!teamA || !teamB) return state;
+
+  const swapTeam = (team: TeamEntry): TeamEntry =>
+    team.id === idA ? teamB : team.id === idB ? teamA : team;
+
   function swapInList(matches: MatchEntry[]): MatchEntry[] {
     return matches.map(m => {
-      const t1A = m.team1.id === idA, t1B = m.team1.id === idB;
-      const t2A = m.team2.id === idA, t2B = m.team2.id === idB;
-      if (!t1A && !t1B && !t2A && !t2B) return m;
+      const hasSwap = m.team1.id === idA || m.team1.id === idB || m.team2.id === idA || m.team2.id === idB;
+      if (!hasSwap) return m;
       return {
         ...m,
-        team1: t1A ? m.team2 : t1B ? m.team1 : m.team1,
-        team2: t2B ? m.team1 : t2A ? m.team2 : m.team2,
+        team1: swapTeam(m.team1),
+        team2: swapTeam(m.team2),
       };
     });
   }
-  const newSeeds = state.seeds.map(s => {
-    if (s.id === idA) { const o = state.seeds.find(x => x.id === idB); return { ...s, seed: o?.seed ?? null }; }
-    if (s.id === idB) { const o = state.seeds.find(x => x.id === idA); return { ...s, seed: o?.seed ?? null }; }
-    return s;
-  });
   // Swap in heats too
   const heatRounds = (state.heatRounds ?? []).map(r => ({
     ...r,
@@ -439,9 +474,13 @@ export function swapTeams(state: BracketState, idA: string, idB: string): Bracke
     ),
   }));
   return {
-    ...state, seeds: newSeeds,
+    ...state,
     matches: swapInList(state.matches),
-    groups: state.groups.map(g => ({ ...g, matches: swapInList(g.matches) })),
+    groups: state.groups.map(g => ({
+      ...g,
+      teams: g.teams.map(swapTeam),
+      matches: swapInList(g.matches),
+    })),
     heatRounds,
   };
 }

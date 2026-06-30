@@ -14,25 +14,6 @@ export type ApiResult<T> = { data: T; error: null } | { data: null; error: ApiEr
 function ok<T>(data: T): ApiResult<T>                     { return { data, error: null }; }
 function err(code: string, msg: string): ApiResult<never>  { return { data: null, error: { code, message: msg } }; }
 
-// ── Shared save helper — persists any BracketState to the backend ─────────────
-async function persist(
-  eventId: string, programId: string,
-  state: BracketState,
-): Promise<ApiResult<BracketState>> {
-  const res = await apiFetch(`${API_BASE}/api/fixtures/${eventId}/${programId}`, {
-    method:  "POST",
-    headers: adminHeaders(),
-    body:    JSON.stringify({
-      bracketStateJson: JSON.stringify(state),
-      fixtureFormat:    state.format,
-      phase:            state.phase,
-      isLocked:         state.locked,
-    }),
-  });
-  if (!res.ok) return err("SAVE_FAILED", (await parseError(res)).message);
-  return ok(state);
-}
-
 // ── GET /api/fixtures/status  ─────────────────────────────────────────────────
 // Returns { [programId]: boolean } — true means a fixture row exists in the DB.
 // Used by the Fixtures table and Dashboard to show Draw status without fetching full brackets.
@@ -110,7 +91,7 @@ export async function apiResetFixture(
 // ── PATCH score ───────────────────────────────────────────────────────────────
 export async function apiSaveScore(
   eventId: string, programId: string, matchId: string,
-  updates: Partial<Pick<MatchEntry, "games" | "winner" | "walkover" | "walkoverWinner" | "officials">>,
+  updates: Partial<Pick<MatchEntry, "games" | "winner" | "walkover" | "walkoverWinner" | "officials" | "remark" | "startTime" | "endTime">>,
 ): Promise<ApiResult<BracketState>> {
   const res = await apiFetch(`${API_BASE}/api/fixtures/${eventId}/${programId}/score/${matchId}`, {
     method: "PATCH",
@@ -121,6 +102,9 @@ export async function apiSaveScore(
       walkover: updates.walkover ?? false,
       walkoverWinner: updates.walkoverWinner ?? "",
       officials: updates.officials ?? [],
+      remark: updates.remark ?? "",
+      startTime: updates.startTime ?? "",
+      endTime: updates.endTime ?? "",
     }),
   });
   if (!res.ok) return err("SAVE_FAILED", (await parseError(res)).message);
@@ -128,6 +112,19 @@ export async function apiSaveScore(
 }
 
 // ── PATCH schedule ────────────────────────────────────────────────────────────
+export async function apiClearScore(
+  eventId: string,
+  programId: string,
+  matchId: string,
+): Promise<ApiResult<BracketState>> {
+  const res = await apiFetch(`${API_BASE}/api/fixtures/${eventId}/${programId}/score/${matchId}/clear`, {
+    method: "POST",
+    headers: adminHeaders(),
+  });
+  if (!res.ok) return err("CLEAR_FAILED", (await parseError(res)).message);
+  return ok(await res.json());
+}
+
 export async function apiUpdateSchedule(
   eventId: string, programId: string, matchId: string,
   s: { courtNo: string; matchDate: string; startTime: string; endTime: string },
@@ -168,6 +165,18 @@ export async function apiAdvanceKnockoutRound(
 }
 
 // ── POST swap teams ───────────────────────────────────────────────────────────
+export async function apiResetLatestKnockoutRound(
+  eventId: string,
+  programId: string,
+): Promise<ApiResult<BracketState>> {
+  const res = await apiFetch(`${API_BASE}/api/fixtures/${eventId}/${programId}/reset-latest-round`, {
+    method: "POST",
+    headers: adminHeaders(),
+  });
+  if (!res.ok) return err("RESET_FAILED", (await parseError(res)).message);
+  return ok(await res.json());
+}
+
 export async function apiSwapTeams(
   eventId: string, programId: string,
   idA: string, idB: string,

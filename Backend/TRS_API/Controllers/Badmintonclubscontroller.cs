@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TRS_API.Models;
+using TRS_API.Services;
 using TRS_Data.Models;
 
 namespace TRS_API.Controllers;
@@ -11,11 +12,13 @@ namespace TRS_API.Controllers;
 public class BadmintonClubsController : ControllerBase
 {
     private readonly TRSDbContext _db;
+    private readonly AdminAuditService _audit;
     private readonly ILogger<BadmintonClubsController> _logger;
 
-    public BadmintonClubsController(TRSDbContext db, ILogger<BadmintonClubsController> logger)
+    public BadmintonClubsController(TRSDbContext db, AdminAuditService audit, ILogger<BadmintonClubsController> logger)
     {
         _db     = db;
+        _audit  = audit;
         _logger = logger;
     }
 
@@ -92,6 +95,16 @@ public class BadmintonClubsController : ControllerBase
         _db.BadmintonClubs.Add(club);
         await _db.SaveChangesAsync();
 
+        await _audit.LogAsync(
+            User,
+            GetClientIp(),
+            "BADMINTON_CLUB_CREATE",
+            "BadmintonClub",
+            club.ClubId.ToString(),
+            null,
+            AuditClubSnapshot(club),
+            $"Created badminton club '{club.Name}'.");
+
         _logger.LogInformation("Club {ClubId} '{Name}' created by {User}",
             club.ClubId, club.Name, User.Identity?.Name);
 
@@ -117,6 +130,8 @@ public class BadmintonClubsController : ControllerBase
         if (club == null || !club.IsActive)
             return NotFound(new { code = "NOT_FOUND", message = "Club not found." });
 
+        var oldValue = AuditClubSnapshot(club);
+
         var duplicate = await _db.BadmintonClubs
             .AnyAsync(c => c.Name.ToLower() == req.Name.Trim().ToLower()
                         && c.IsActive
@@ -132,6 +147,16 @@ public class BadmintonClubsController : ControllerBase
         club.UpdatedAt     = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
+
+        await _audit.LogAsync(
+            User,
+            GetClientIp(),
+            "BADMINTON_CLUB_UPDATE",
+            "BadmintonClub",
+            club.ClubId.ToString(),
+            oldValue,
+            AuditClubSnapshot(club),
+            $"Updated badminton club '{club.Name}'.");
 
         _logger.LogInformation("Club {ClubId} '{Name}' updated by {User}",
             club.ClubId, club.Name, User.Identity?.Name);
@@ -150,21 +175,48 @@ public class BadmintonClubsController : ControllerBase
     // ── DELETE /api/clubs/:id ──────────────────────────────────────────────────
     // Soft delete only — existing participant records that reference the club
     // name as a string are unaffected.
-    [HttpDelete("{id:int}"), Authorize(Roles = "superadmin")]
+    [HttpDelete("{id:int}"), Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> Delete(int id)
     {
         var club = await _db.BadmintonClubs.FindAsync(id);
         if (club == null || !club.IsActive)
             return NotFound(new { code = "NOT_FOUND", message = "Club not found." });
 
+        var oldValue = AuditClubSnapshot(club);
+
         club.IsActive  = false;
         club.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+
+        await _audit.LogAsync(
+            User,
+            GetClientIp(),
+            "BADMINTON_CLUB_DELETE",
+            "BadmintonClub",
+            club.ClubId.ToString(),
+            oldValue,
+            AuditClubSnapshot(club),
+            $"Soft-deleted badminton club '{club.Name}'.");
 
         _logger.LogInformation("Club {ClubId} '{Name}' soft-deleted by {User}",
             club.ClubId, club.Name, User.Identity?.Name);
 
         return Ok();
     }
+
+    private string? GetClientIp() => HttpContext.Connection.RemoteIpAddress?.ToString();
+
+    private static object AuditClubSnapshot(BadmintonClub club) => new
+    {
+        club.ClubId,
+        club.Name,
+        club.ContactNumber,
+        club.Email,
+        club.Address,
+        club.Country,
+        club.IsActive,
+        club.CreatedAt,
+        club.UpdatedAt,
+    };
 }
 

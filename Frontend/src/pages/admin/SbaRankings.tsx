@@ -20,6 +20,8 @@ type SortDir = "asc" | "desc";
 interface ImportSummary {
   importedRows: number;
   categories: Array<{ rankingType: string; rows: number }>;
+  addedClubs: number;
+  addedClubNames: string[];
   skippedSheets: string[];
 }
 
@@ -27,6 +29,19 @@ interface ImportSummary {
 
 function fmt(n: number) {
   return n.toLocaleString();
+}
+
+function fmtDateTime(value?: string) {
+  if (!value) return "Not imported yet";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return "Not imported yet";
+  return dt.toLocaleString("en-SG", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 
@@ -98,7 +113,7 @@ export default function SbaRankings() {
     if (fileRef.current) fileRef.current.value = "";
     if (r.error) { toast.err(r.error.message); return; }
     setSummary(r.data);
-    toast.ok(`Imported ${r.data.importedRows} rows across ${r.data.categories.length} categories.`);
+    toast.ok(`Replaced list with ${r.data.importedRows} rows and added ${r.data.addedClubs} clubs.`);
     loadRankings(filterType || undefined);
   };
 
@@ -134,6 +149,13 @@ export default function SbaRankings() {
     return rows;
   }, [rankings, search, sortKey, sortDir]);
 
+  const latestUpdatedAt = useMemo(() => {
+    return rankings
+      .map(r => r.updatedAt)
+      .filter((value): value is string => !!value)
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+  }, [rankings]);
+
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
     else { setSortKey(key); setSortDir("asc"); }
@@ -167,6 +189,7 @@ export default function SbaRankings() {
         <div>
           <h1 className="font-heading font-bold text-2xl">SBA Rankings</h1>
           <p className="text-sm opacity-50 mt-1">Import workbooks and browse ranking data by type or player.</p>
+          <p className="text-xs opacity-50 mt-1">List updated: {fmtDateTime(latestUpdatedAt)}</p>
         </div>
 
         {/* Import button */}
@@ -184,7 +207,12 @@ export default function SbaRankings() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold" style={{ color: "var(--color-primary)" }}>
-                Import successful — {fmt(summary.importedRows)} rows imported
+                Import successful - {fmt(summary.importedRows)} rows imported as a fresh list
+              </p>
+              <p className="text-xs mt-1 opacity-60">
+                {summary.addedClubs > 0
+                  ? `${summary.addedClubs} new club${summary.addedClubs === 1 ? "" : "s"} added to the master list.`
+                  : "No new clubs were added to the master list."}
               </p>
               <div className="flex flex-wrap gap-2 mt-2">
                 {summary.categories.map(c => (
@@ -197,6 +225,11 @@ export default function SbaRankings() {
               {summary.skippedSheets.length > 0 && (
                 <p className="text-xs mt-2 opacity-50">
                   Skipped sheets: {summary.skippedSheets.join(", ")}
+                </p>
+              )}
+              {summary.addedClubNames.length > 0 && (
+                <p className="text-xs mt-2 opacity-50">
+                  Added clubs: {summary.addedClubNames.join(", ")}
                 </p>
               )}
             </div>

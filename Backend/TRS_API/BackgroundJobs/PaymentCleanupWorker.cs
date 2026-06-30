@@ -11,7 +11,9 @@ public class PaymentCleanupWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested)
+        try
+        {
+            while (!stoppingToken.IsCancellationRequested)
         {
             await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
 
@@ -23,6 +25,11 @@ public class PaymentCleanupWorker : BackgroundService
             // Stripe payments are asynchronous — a pending payment is NEVER failed
             // due to timeout. Only an explicit Stripe failure event marks a payment failed.
             // See: CORE PRINCIPLE — TIMEOUT ≠ FAILURE.
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            _logger.LogInformation("Payment cleanup worker stopped.");
         }
     }
 
@@ -58,6 +65,10 @@ public class PaymentCleanupWorker : BackgroundService
                 _logger.LogInformation(
                     "Pruned {Count} expired PendingCheckout rows", toDelete.Count);
             }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Normal shutdown.
         }
         catch (Exception ex)
         {

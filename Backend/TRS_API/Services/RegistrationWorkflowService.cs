@@ -445,17 +445,23 @@ public class RegistrationWorkflowService
                 && !string.Equals(participant.Gender, "Female", StringComparison.OrdinalIgnoreCase))
                 return RegistrationWorkflowResult<object>.Fail("INVALID_GENDER", $"'{program.Name}' is for female participants only.");
 
-            if (program.Fields?.EnableTshirt == true && string.IsNullOrWhiteSpace(participant.TshirtSize))
+            if (program.Fields?.EnableTshirt == true && program.Fields.RequireTshirt && string.IsNullOrWhiteSpace(participant.TshirtSize))
                 return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"T-shirt size is required for '{participant.FullName}'.");
 
-            if (program.Fields?.EnableGuardianInfo == true)
+            if (program.Fields?.EnableGuardianInfo == true && program.Fields.RequireGuardianInfo)
             {
                 if (string.IsNullOrWhiteSpace(participant.GuardianName) || string.IsNullOrWhiteSpace(participant.GuardianContact))
                     return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"Guardian details are required for '{participant.FullName}'.");
             }
 
-            if (program.Fields?.EnableSbaId == true && program.SbaRequired && string.IsNullOrWhiteSpace(participant.SbaId))
+            if (program.Fields?.EnableSbaId == true && program.Fields.RequireSbaId && string.IsNullOrWhiteSpace(participant.SbaId))
                 return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"SBA ID is required for '{participant.FullName}'.");
+
+            if (program.Fields?.EnableDocumentUpload == true && program.Fields.RequireDocumentUpload && string.IsNullOrWhiteSpace(participant.DocumentUrl))
+                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"Document upload is required for '{participant.FullName}'.");
+
+            if (program.Fields?.EnableRemark == true && program.Fields.RequireRemark && string.IsNullOrWhiteSpace(participant.Remark))
+                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"Remark is required for '{participant.FullName}'.");
 
             foreach (var customField in program.CustomFields.Where(cf => cf.IsRequired))
             {
@@ -485,7 +491,7 @@ public class RegistrationWorkflowService
 
     private static bool IsEventOpen(Event eventEntity)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = TodayInSingapore();
         return eventEntity.IsActive
             && eventEntity.OpenDate <= today
             && eventEntity.CloseDate >= today;
@@ -501,11 +507,34 @@ public class RegistrationWorkflowService
 
     private static int CalculateAge(DateOnly dob)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = TodayInSingapore();
         var age = today.Year - dob.Year;
         if (dob > today.AddYears(-age))
             age--;
         return age;
+    }
+
+    private static DateOnly TodayInSingapore()
+    {
+        var utcNow = DateTimeOffset.UtcNow;
+        var timeZone = ResolveSingaporeTimeZone();
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(utcNow, timeZone).DateTime);
+    }
+
+    private static TimeZoneInfo ResolveSingaporeTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Singapore Standard Time");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Singapore");
+        }
+        catch (InvalidTimeZoneException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Singapore");
+        }
     }
 
     private static decimal ResolveSnapshotPerPlayerAmount(CreateGroupDto group)

@@ -10,7 +10,7 @@ public partial class Payment
     public string? GatewaySessionId { get; set; }
     public string? GatewayPaymentId { get; set; }
     public string? GatewayChargeId { get; set; }
-    public string PaymentMethod { get; set; } = null!;
+    public string? PaymentMethod { get; set; }
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "SGD";
     public string PaymentStatus { get; set; } = "P";   // P|S|PR|FR|F|X|W|PC

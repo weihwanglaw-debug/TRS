@@ -21,6 +21,7 @@ import AdminFixtures from "@/pages/admin/Fixtures";
 import MasterConfig from "@/pages/admin/Masterconfig";
 import UserManagement from "@/pages/admin/Usermanagement";
 import SbaRankingsPage from "@/pages/admin/SbaRankings";
+import BadmintonClubsPage from "@/pages/admin/BadmintonClubs";
 import ParticipantDetails from "@/pages/admin/ParticipantDetails";
 import ChangePassword from "@/pages/admin/ChangePassword";
 import NotFound from "@/pages/NotFound";
@@ -52,6 +53,7 @@ const App = () => (
                   <Route path="payment-reconciliation" element={<PaymentReconciliation />} />
                   <Route path="fixtures" element={<AdminFixtures />} />
                   <Route path="sba-rankings" element={<SbaRankingsPage />} />
+                  <Route path="badminton-clubs" element={<BadmintonClubsPage />} />
                   <Route path="config" element={<MasterConfig />} />
                   <Route path="users" element={<UserManagement />} />
                   <Route path="change-password" element={<ChangePassword />} />

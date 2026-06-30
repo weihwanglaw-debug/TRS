@@ -22,18 +22,29 @@ namespace TRS_API.BackgroundJobs
         {
             _logger.LogInformation("Background job worker started");
 
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                var job = await _jobQueue.DequeueAsync(stoppingToken);
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    var job = await _jobQueue.DequeueAsync(stoppingToken);
 
-                try
-                {
-                    await job(stoppingToken);
+                    try
+                    {
+                        await job(stoppingToken);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        // Normal shutdown.
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Background job failed");
+                    }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Background job failed");
-                }
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("Background job worker stopped.");
             }
         }
     }

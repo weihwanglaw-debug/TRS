@@ -47,6 +47,15 @@ function matchSbaRanking(seed: SeedEntry, rankings: SbaRanking[]) {
   return rankings.find(r => r.player2 && set.has(r.player1.sbaId.toUpperCase()) && set.has(r.player2.sbaId.toUpperCase())) ?? null;
 }
 
+function orderSeedsForReview(seeds: SeedEntry[]) {
+  return [...seeds].sort((a, b) => {
+    if (a.seed !== null && b.seed !== null) return a.seed - b.seed;
+    if (a.seed !== null) return -1;
+    if (b.seed !== null) return 1;
+    return a.club.localeCompare(b.club);
+  });
+}
+
 // ── Screen 1: Configure ───────────────────────────────────────────────────────
 
 function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCancel }: {
@@ -70,6 +79,13 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
   const count    = participants.length;
 
   const getSba = (s: SeedEntry) => matchSbaRanking(s, sbaRankings);
+  const entryDisplay = (s: SeedEntry) => {
+    const showPlayersAsMain = s.participants.length > 0 && s.participants.length <= 2;
+    return {
+      main: showPlayersAsMain ? s.participants.join(" / ") : s.club,
+      sub: showPlayersAsMain ? s.club : "",
+    };
+  };
 
   useEffect(() => {
     setSeeds(participants.map(p => ({ ...p })));
@@ -89,10 +105,10 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
     }
     const canAssign = Math.min(numSeeds, withSba.length);
     const sorted = [...withSba].sort((a, b) => (getSba(b)?.accumulatedScore ?? 0) - (getSba(a)?.accumulatedScore ?? 0));
-    setSeeds(seeds.map(s => {
+    setSeeds(orderSeedsForReview(seeds.map(s => {
       const rank = sorted.findIndex(x => x.id === s.id);
       return { ...s, seed: rank >= 0 && rank < canAssign ? rank + 1 : null };
-    }));
+    })));
     if (canAssign < numSeeds) {
       setNotice({
         title: "Partial Auto Seed",
@@ -104,7 +120,8 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
   const setSeedValue = (id: string, val: string) =>
     setSeeds(seeds.map(s => s.id === id ? { ...s, seed: val === "" ? null : +val } : s));
 
-  const seedNums = seeds.filter(s => s.seed !== null).map(s => s.seed as number);
+  const effectiveSeeds = numSeeds > 0 ? seeds : seeds.map(s => ({ ...s, seed: null }));
+  const seedNums = effectiveSeeds.filter(s => s.seed !== null).map(s => s.seed as number);
   const hasDups  = seedNums.length !== new Set(seedNums).size;
   const outRange = seedNums.some(n => n < 1 || n > numSeeds);
   const canNext  = !hasDups && !outRange && count >= 2;
@@ -273,8 +290,7 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
             <thead style={{ position: "sticky", top: 0, zIndex: 1 }}>
               <tr>
                 <th>#</th>
-                <th>Club / School / Org</th>
-                <th>Player(s)</th>
+                <th>Entry</th>
                 {isBadminton && <th>SBA ID</th>}
                 {isBadminton && <th>SBA Score</th>}
                 {showSeeds && <th style={{ width: 120 }}>Seed</th>}
@@ -284,11 +300,14 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
               {seeds.map((s, i) => {
                 const sba    = getSba(s);
                 const isDup  = showSeeds && s.seed !== null && seeds.filter(x => x.seed === s.seed).length > 1;
+                const entry = entryDisplay(s);
                 return (
                   <tr key={s.id} style={isDup ? { backgroundColor: "var(--badge-closed-bg)" } : undefined}>
                     <td className="font-mono text-xs opacity-30">{i + 1}</td>
-                    <td className="font-medium text-sm">{s.club}</td>
-                    <td className="text-xs opacity-70">{s.participants.join(" / ")}</td>
+                    <td>
+                      <div className="font-medium text-sm">{entry.main}</div>
+                      {entry.sub && <div className="text-xs opacity-50">{entry.sub}</div>}
+                    </td>
                     {isBadminton && (
                       <td className="font-mono text-xs">
                         {s.sbaId
@@ -338,7 +357,7 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
         <button onClick={onCancel} className="btn-outline px-4 py-2 text-xs opacity-60 hover:opacity-100">
           Cancel
         </button>
-        <button onClick={() => canNext && onNext(buildConfig(), seeds)}
+        <button onClick={() => canNext && onNext(buildConfig(), effectiveSeeds)}
           disabled={!canNext}
           className="btn-primary flex items-center gap-2 px-6 py-2.5 text-sm font-semibold disabled:opacity-40">
           Preview Draw <ChevronRight className="h-4 w-4" />
@@ -366,6 +385,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
 }) {
   const [selA, setSelA]       = useState("");
   const [selB, setSelB]       = useState("");
+  const [selectedTeamId, setSelectedTeamId] = useState("");
   const [swapMsg, setSwapMsg] = useState<string | null>(null);
 
   const allTeams = useMemo<TeamEntry[]>(() => {
@@ -389,6 +409,61 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
     setTimeout(() => setSwapMsg(null), 3000);
   };
 
+  const handleTeamPick = (team: TeamEntry) => {
+    if (team.id.startsWith("bye-") || team.label === "BYE") return;
+    if (!selectedTeamId) {
+      setSelectedTeamId(team.id);
+      setSwapMsg(null);
+      return;
+    }
+    if (selectedTeamId === team.id) {
+      setSelectedTeamId("");
+      return;
+    }
+
+    const selected = allTeams.find(t => t.id === selectedTeamId);
+    onSwap(selectedTeamId, team.id);
+    setSwapMsg(`Swapped: ${selected?.label ?? selectedTeamId} with ${team.label}`);
+    setSelectedTeamId("");
+    setTimeout(() => setSwapMsg(null), 3000);
+  };
+
+  const seedToPreviewTeam = (s: SeedEntry): TeamEntry => ({
+    id: s.id,
+    label: s.club,
+    participants: s.participants,
+    seed: s.seed ?? undefined,
+  });
+
+  const previewEntryDisplay = (team: TeamEntry) => {
+    const showPlayersAsMain = team.participants.length > 0 && team.participants.length <= 2;
+    return {
+      main: showPlayersAsMain ? team.participants.join(" / ") : team.label,
+      sub: showPlayersAsMain ? team.label : "",
+    };
+  };
+
+  const SwapPickButton = ({ team }: { team: TeamEntry }) => {
+    const isBye = team.id.startsWith("bye-") || team.label === "BYE";
+    if (isBye) return null;
+    const selected = selectedTeamId === team.id;
+    return (
+      <button
+        type="button"
+        className="p-1.5 flex-shrink-0 hover:opacity-80"
+        title={selected ? "Cancel swap selection" : "Select for swap"}
+        onClick={() => handleTeamPick(team)}
+        style={{
+          color: selected ? "var(--color-hero-text)" : "var(--color-primary)",
+          backgroundColor: selected ? "var(--color-primary)" : "transparent",
+          border: "1px solid var(--color-table-border)",
+        }}
+      >
+        <ArrowLeftRight className="h-3.5 w-3.5" />
+      </button>
+    );
+  };
+
   // Heats preview
   const HeatsPreview = () => (
     <div style={{ border: "1px solid var(--color-table-border)" }}>
@@ -400,7 +475,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
         <thead><tr><th>#</th><th>Club / School</th><th>Players</th><th>Seed</th></tr></thead>
         <tbody>
           {seeds.map((s, i) => (
-            <tr key={s.id}>
+            <tr key={s.id} style={selectedTeamId === s.id ? { backgroundColor: "var(--badge-open-bg)" } : undefined}>
               <td className="opacity-30 font-mono text-xs">{i + 1}</td>
               <td className="font-medium text-sm">{s.club}</td>
               <td className="text-xs opacity-60">{s.participants.join(" / ")}</td>
@@ -417,39 +492,75 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
 
   // Group preview
   const GroupPreview = () => (
-    <>
+    <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-4">
       {bracket.groups.map(grp => {
         const points = bracket.config.standingPoints;
         const standings = computeGroupStandings(grp, undefined, points
           ? { win: points.win, draw: points.draw, loss: points.loss }
           : undefined);
         return (
-          <div key={grp.id} style={{ border: "1px solid var(--color-table-border)" }}>
+          <div key={grp.id} className="min-w-0" style={{ border: "1px solid var(--color-table-border)" }}>
             <div className="px-4 py-2 font-bold text-xs uppercase tracking-wide"
               style={{ backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" }}>
               {grp.name}
             </div>
             <table className="trs-table">
-              <thead><tr><th>#</th><th>Club / School</th><th>Players</th><th>Seed</th></tr></thead>
+              <thead><tr><th style={{ width: 44 }}>#</th><th>Entry</th><th style={{ width: 64 }}>Seed</th></tr></thead>
               <tbody>
-                {standings.map(s => (
-                  <tr key={s.team.id}>
+                {standings.map(s => {
+                  const entry = previewEntryDisplay(s.team);
+                  return (
+                  <tr key={s.team.id} style={selectedTeamId === s.team.id ? { backgroundColor: "var(--badge-open-bg)" } : undefined}>
                     <td className="font-bold text-sm">{s.rank}</td>
-                    <td className="font-medium text-sm">{s.team.label}</td>
-                    <td className="text-xs opacity-60">{s.team.participants.join(" / ")}</td>
+                    <td>
+                      <div className="font-medium text-sm leading-tight">{entry.main}</div>
+                      {entry.sub && <div className="text-xs opacity-50 mt-0.5">{entry.sub}</div>}
+                    </td>
                     <td>{s.team.seed != null
                       ? <span className="text-xs font-bold px-1.5 py-0.5" style={{ backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" }}>#{s.team.seed}</span>
                       : <span className="opacity-25 text-xs">—</span>}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
         );
       })}
-    </>
+    </div>
   );
+
+  const TeamPreviewCell = ({ team }: { team: TeamEntry }) => {
+    const entry = previewEntryDisplay(team);
+    const selected = selectedTeamId === team.id;
+    return (
+      <div
+        className="min-w-0 flex items-center gap-2 p-1"
+        style={selected ? { backgroundColor: "var(--badge-open-bg)" } : undefined}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            {team.seed != null && (
+              <span
+                className="text-xs font-bold px-1.5 py-0.5 flex-shrink-0"
+                style={{ backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" }}
+              >
+                #{team.seed}
+              </span>
+            )}
+            <span className="font-medium text-sm truncate">
+              {entry.main}
+            </span>
+          </div>
+          {entry.sub && (
+            <p className="text-xs opacity-50 truncate mt-0.5">{entry.sub}</p>
+          )}
+        </div>
+        <SwapPickButton team={team} />
+      </div>
+    );
+  };
 
   // KO round 1 preview
   const KoPreview = () => {
@@ -461,21 +572,22 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
           style={{ backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" }}>
           Round 1 Matchups
         </div>
-        <table className="trs-table">
-          <thead><tr><th>Match</th><th>Team 1</th><th className="text-center">vs</th><th>Team 2</th></tr></thead>
+        <table className="trs-table" style={{ tableLayout: "fixed", width: "100%" }}>
+          <thead>
+            <tr>
+              <th style={{ width: 72 }}>Match</th>
+              <th style={{ width: "calc((100% - 120px) / 2)" }}>Team 1</th>
+              <th className="text-center" style={{ width: 48 }}>vs</th>
+              <th style={{ width: "calc((100% - 120px) / 2)" }}>Team 2</th>
+            </tr>
+          </thead>
           <tbody>
             {r1.map((m, i) => (
               <tr key={m.id}>
-                <td className="opacity-30 font-mono text-xs">{i + 1}</td>
-                <td>
-                  {m.team1.seed != null && <span className="text-xs font-bold px-1.5 py-0.5 mr-1" style={{ backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" }}>#{m.team1.seed}</span>}
-                  <span className="font-medium text-sm">{m.team1.label}</span>
-                </td>
+                <td className="opacity-30 font-mono text-xs text-center">{i + 1}</td>
+                <td><TeamPreviewCell team={m.team1} /></td>
                 <td className="text-center opacity-25 font-bold text-xs">vs</td>
-                <td>
-                  {m.team2.seed != null && <span className="text-xs font-bold px-1.5 py-0.5 mr-1" style={{ backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" }}>#{m.team2.seed}</span>}
-                  <span className="font-medium text-sm">{m.team2.label}</span>
-                </td>
+                <td><TeamPreviewCell team={m.team2} /></td>
               </tr>
             ))}
           </tbody>
@@ -493,8 +605,15 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
         </div>
       </div>
 
+      {swapMsg && (
+        <div className="text-xs font-semibold px-3 py-2"
+          style={{ backgroundColor: "var(--badge-open-bg)", color: "var(--badge-open-text)" }}>
+          {swapMsg}
+        </div>
+      )}
+
       {/* Swap panel */}
-      <div className="p-4" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
+      <div className="hidden">
         <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">Swap Positions</p>
         {swapMsg && (
           <div className="text-xs font-semibold mb-3 px-3 py-2"

@@ -20,6 +20,9 @@ npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
 
+# Local browser test profiles
+.chrome-trs-test*/
+
 # Environment
 .env
 .env.local

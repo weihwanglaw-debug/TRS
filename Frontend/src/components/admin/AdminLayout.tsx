@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import {
   LayoutDashboard, CalendarDays, Users, GitBranch, ListOrdered,
   LogOut, Trophy, Shield, Settings, ChevronLeft, Menu, Sun, Moon,
-  Home, UserSquare, CreditCard,
+  Home, UserSquare, CreditCard, Building2,
 } from "lucide-react";
 
 export default function AdminLayout() {
@@ -30,6 +30,7 @@ export default function AdminLayout() {
     { to: "/admin/payment-reconciliation",  label: "Payment Reconciliation",icon: CreditCard,      end: false },
     { to: "/admin/fixtures",                label: "Fixtures",              icon: GitBranch,       end: false },
     { to: "/admin/sba-rankings",            label: "SBA Rankings",          icon: ListOrdered,     end: false },
+    { to: "/admin/badminton-clubs",          label: "Badminton Clubs",       icon: Building2,       end: false },
     { to: "/admin/participants",            label: "Participant Details",   icon: UserSquare,      end: false },
     ...(isSuperAdmin ? [
       { to: "/admin/users",  label: "User Management", icon: Shield,    end: false },

@@ -17,8 +17,8 @@ The repository is a monorepo:
 
 ### Public User
 
-1. Views the landing page at `/`.
-2. Opens an event at `/event/:id`.
+1. Views the landing page at `/`, which shows active events only after at least one active program exists.
+2. Opens an event at `/event/:id`; public detail access uses the same active-event-with-active-program rule.
 3. Selects programs and fills participant forms.
 4. Uploads participant documents when enabled by program settings.
 5. Accepts consent.
@@ -84,7 +84,7 @@ API modules live in `Frontend/src/lib/api/`.
 
 - `AuthController`: admin login, logout, current user, password change.
 - `ConfigController`: public config read, superadmin config update.
-- `EventsController`: event CRUD, documents, programs.
+- `EventsController`: event CRUD, documents, programs, registration-safe event/program mutation checks, and admin audit logging.
 - `BadmintonClubsController`: public club lookup and admin club maintenance.
 - `RegistrationsController`: public registration creation/lookup/receipt and admin registration/payment/refund operations.
 - `PaymentController`: Stripe checkout creation, session confirmation, legacy payment info/verify endpoints.
@@ -153,6 +153,8 @@ Primary paid flow is session-first:
 
 Free registrations are created directly through `POST /api/registrations`.
 
+Registration open/close checks, frontend date-only status calculations, and age eligibility checks use Singapore date. Program capacity is enforced per program entry/group; event-level `MaxParticipants` is deprecated and not part of registration validation. Built-in participant fields have separate enabled and required flags in `ProgramFields`.
+
 ## File Uploads
 
 `POST /api/uploads` writes files to `Backend/TRS_API/wwwroot/uploads/<folder>/<yyyy>/<MM>/<guid>.<ext>` and returns a relative `/uploads/...` path.
@@ -188,5 +190,6 @@ Frontend configuration:
 - SQL scripts exist, but EF migration files are not present.
 - Stripe SDK services are instantiated directly in controllers.
 - Some legacy models/tables remain: `EventParticipant`, `BackgroundJob`.
+- Event-level `MaxParticipants` remains in the model but registration capacity is enforced through `Program.MaxParticipants`.
 - `RegistrationStatus` and `RegStatus` both exist on registrations.
 - Local disk upload storage requires persistent storage in production.

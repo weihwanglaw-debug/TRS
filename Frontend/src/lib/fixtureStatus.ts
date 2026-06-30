@@ -14,6 +14,7 @@
 
 import type { TournamentEvent, BracketState } from "@/types/config";
 import { getAllMatches } from "@/lib/fixtureEngine";
+import { singaporeDateKey } from "@/lib/eventUtils";
 
 // ── Per-program status ────────────────────────────────────────────────────────
 
@@ -36,7 +37,7 @@ export interface ProgramFixtureInfo {
 }
 
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  return singaporeDateKey();
 }
 
 /**
@@ -56,7 +57,7 @@ export function computeProgramFixtureStatus(
     };
   }
 
-  const regClosed = new Date() > new Date(closeDate);
+  const regClosed = todayStr() > closeDate;
 
   if (!regClosed) {
     return {

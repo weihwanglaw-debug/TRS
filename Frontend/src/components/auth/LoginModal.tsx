@@ -49,7 +49,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
       navigate("/admin");
     }
     // If isPublicPage: stay — page re-renders with isAuthenticated=true,
-    // enabling admin tools (override buttons, admin registration flow, etc.)
+    // enabling the admin registration flow.
   };
 
   const handleCancel = () => {

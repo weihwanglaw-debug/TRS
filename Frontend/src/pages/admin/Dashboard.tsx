@@ -12,6 +12,7 @@ import {
 import { exportRegistrationsCsv } from "@/lib/exportCsv";
 import { apiGetFixtureStatus } from "@/lib/fixtureApi";
 import { computeFixtureDashboardStats, FixtureDashboardStats } from "@/lib/fixtureStatus";
+import { singaporeDateKey } from "@/lib/eventUtils";
 import { CalendarCheck, CalendarDays, CreditCard, Zap, ClipboardList, FileDown } from "lucide-react";
 import { PageLoader } from "@/components/ui/LoadingSpinner";
 
@@ -50,7 +51,7 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  const today        = new Date().toISOString().slice(0, 10);
+  const today        = singaporeDateKey();
   const openCount    = events.filter(e => e.openDate <= today && today <= e.closeDate).length;
   const upcomingCount = events.filter(e => e.openDate > today).length;
 
@@ -82,9 +83,9 @@ export default function Dashboard() {
       label:  "Payment Reconciliation",
       value:  reconcTotal,
       icon:   CreditCard,
-      color:  "var(--badge-closed-text)",
-      bg:     reconcTotal > 0 ? "var(--badge-closed-bg)" : "var(--color-row-hover)",
-      border: reconcTotal > 0 ? "var(--badge-closed-text)" : "var(--color-table-border)",
+      color:  reconcTotal > 0 ? "var(--badge-open-text)" : "var(--badge-closed-text)",
+      bg:     reconcTotal > 0 ? "var(--badge-open-bg)" : "var(--color-row-hover)",
+      border: reconcTotal > 0 ? "var(--badge-open-text)" : "var(--color-table-border)",
       sub:    "Payments needing attention",
       action: "/admin/payment-reconciliation",
     },

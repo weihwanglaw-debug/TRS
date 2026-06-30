@@ -71,7 +71,6 @@ public class UpsertProgramRequest
     public decimal Fee { get; set; }
     public bool PaymentRequired { get; set; } = true;
     public string FeeStructure { get; set; } = "per_entry";
-    public bool SbaRequired { get; set; }
     public int MinPlayers { get; set; } = 1;
     public int MaxPlayers { get; set; } = 1;
     public int MinParticipants { get; set; } = 1;
@@ -85,6 +84,11 @@ public class ProgramFieldsDto
     public bool EnableGuardianInfo { get; set; }
     public bool EnableRemark { get; set; }
     public bool EnableTshirt { get; set; }
+    public bool RequireSbaId { get; set; }
+    public bool RequireDocumentUpload { get; set; }
+    public bool RequireGuardianInfo { get; set; }
+    public bool RequireRemark { get; set; }
+    public bool RequireTshirt { get; set; }
     public List<CustomFieldDto> CustomFields { get; set; } = new();
 }
 public class CustomFieldDto
@@ -259,6 +263,9 @@ public class SaveFixtureScoreRequest
     public bool Walkover { get; set; }
     public string WalkoverWinner { get; set; } = "";
     public List<FixtureOfficialRequest> Officials { get; set; } = new();
+    public string? Remark { get; set; }
+    public string? StartTime { get; set; }
+    public string? EndTime { get; set; }
 }
 
 public class FixtureGameScoreRequest
@@ -333,10 +340,10 @@ public class ConfirmRegistrationRequest
     [Required]
     public string PaymentStatus { get; set; } = null!;
 
-    /// <summary>Method used / expected: Cash, BankTransfer, PayNow, Others, Waived</summary>
+    /// <summary>Method used / expected for Paid confirmations: Cash, BankTransfer, PayNow, Others</summary>
     public string? Method { get; set; }
 
-    /// <summary>Optional reference e.g. PayNow txn ref, cash receipt number</summary>
+    /// <summary>Optional reference for Paid confirmations e.g. PayNow txn ref, cash receipt number</summary>
     public string? PaymentReference { get; set; }
 
     /// <summary>Mandatory admin remark explaining the confirmation</summary>

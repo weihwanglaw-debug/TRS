@@ -13,7 +13,6 @@ public partial class TrsProgram
     public decimal Fee { get; set; }
     public bool PaymentRequired { get; set; }
     public string FeeStructure { get; set; } = "per_entry";   // per_entry | per_player
-    public bool SbaRequired { get; set; }
     public int MinPlayers { get; set; }
     public int MaxPlayers { get; set; }
     public int MinParticipants { get; set; }

@@ -473,7 +473,6 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             Fee = fee,
             PaymentRequired = true,
             FeeStructure = "per_entry",
-            SbaRequired = false,
             MinPlayers = 1,
             MaxPlayers = 1,
             MinParticipants = 1,

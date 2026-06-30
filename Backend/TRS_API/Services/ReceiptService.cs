@@ -89,6 +89,7 @@ public class ReceiptService
             "PayNow" => "PayNow",
             "Cash" => "Cash",
             "BankTransfer" => "Bank Transfer",
+            null or "" => "N/A",
             _ => payment.PaymentMethod,
         };
 

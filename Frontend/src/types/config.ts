@@ -13,6 +13,11 @@ export interface ProgramFields {
   enableGuardianInfo: boolean;
   enableRemark?: boolean;
   enableTshirt?: boolean;
+  requireSbaId?: boolean;
+  requireDocumentUpload?: boolean;
+  requireGuardianInfo?: boolean;
+  requireRemark?: boolean;
+  requireTshirt?: boolean;
   customFields: CustomField[];
 }
 
@@ -97,6 +102,8 @@ export interface BadmintonClub {
   address:       string | null;
   country:       string | null;
 }
+
+export type BadmintonClubInput = Omit<BadmintonClub, "clubId">;
  
 
 // ── Program ───────────────────────────────────────────────────────────────────
@@ -112,7 +119,6 @@ export interface Program {
   fee: number;
   paymentRequired: boolean;
   feeStructure: "per_entry" | "per_player"; // per_entry = flat fee for whole group; per_player = fee × each player
-  sbaRequired?: boolean;
   minPlayers: number;
   maxPlayers: number;
   minParticipants: number;

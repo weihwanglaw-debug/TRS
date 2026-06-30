@@ -7,8 +7,8 @@
  * Walkover toggle → winner selection.
  */
 
-import React, { useState } from "react";
-import { Plus, Trash2, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import React, { useRef } from "react";
+import { Plus, Trash2, AlertTriangle } from "lucide-react";
 import type { MatchEntry, Official } from "@/types/config";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
@@ -21,8 +21,9 @@ interface Props {
   draft:         MatchEntry | null;
   isLocked:      boolean;
   onClose:       () => void;
-  onSave:        () => void;
-  onChangeDraft: (d: MatchEntry) => void;
+  onSave:        (draft: MatchEntry) => void;
+  onClear?:      () => void;
+  onChangeDraft: (patch: Partial<MatchEntry>) => void;
 }
 
 // ── Team panel — clickable to select as winner ────────────────────────────────
@@ -37,9 +38,10 @@ function TeamPanel({
   walkoverWinner: string;
   onClick: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const isWinner = walkover ? walkoverWinner === side : winner === side;
-  const hasManyPlayers = team.participants.length > 2;
+  const showPlayersAsMain = team.participants.length > 0 && team.participants.length <= 2;
+  const mainLabel = showPlayersAsMain ? team.participants.join(" / ") : team.label;
+  const subLabel = showPlayersAsMain ? team.label : "";
 
   return (
     <button
@@ -68,26 +70,12 @@ function TeamPanel({
         </div>
       </div>
 
-      {/* Club/org name */}
+      {/* Team display */}
       <p className="font-bold text-base mb-1 leading-tight" style={{ color: isWinner ? "var(--color-primary)" : undefined }}>
-        {team.label}
+        {mainLabel}
       </p>
-
-      {/* Players */}
       <div className="flex-1">
-        {(expanded ? team.participants : team.participants.slice(0, 2)).map((p, i) => (
-          <p key={i} className="text-xs opacity-60 leading-relaxed">{p}</p>
-        ))}
-        {hasManyPlayers && (
-          <button
-            onClick={e => { e.stopPropagation(); setExpanded(!expanded); }}
-            className="flex items-center gap-1 text-xs mt-1 font-medium"
-            style={{ color: "var(--color-primary)" }}>
-            {expanded
-              ? <><ChevronUp className="h-3 w-3" /> Show less</>
-              : <><ChevronDown className="h-3 w-3" /> +{team.participants.length - 2} more</>}
-          </button>
-        )}
+        {subLabel && <p className="text-xs opacity-60 leading-relaxed">{subLabel}</p>}
       </div>
 
       {/* Click hint when no winner selected */}
@@ -100,10 +88,19 @@ function TeamPanel({
 
 // ── Main modal ────────────────────────────────────────────────────────────────
 
-export function ScoreModal({ open, draft, isLocked, onClose, onSave, onChangeDraft }: Props) {
+export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, onChangeDraft }: Props) {
   if (!draft) return null;
 
-  const set = (patch: Partial<MatchEntry>) => onChangeDraft({ ...draft, ...patch });
+  const set = (patch: Partial<MatchEntry>) => onChangeDraft(patch);
+  const startTimeRef = useRef<HTMLInputElement>(null);
+  const endTimeRef = useRef<HTMLInputElement>(null);
+  const updateStartTime = (value: string) => set({ startTime: value });
+  const updateEndTime = (value: string) => set({ endTime: value });
+  const saveWithCurrentTime = () => onSave({
+    ...draft,
+    startTime: startTimeRef.current?.value ?? draft.startTime,
+    endTime: endTimeRef.current?.value ?? draft.endTime,
+  });
 
   const updateGame = (idx: number, side: "p1" | "p2", val: string) =>
     set({ games: draft.games.map((g, i) => i === idx ? { ...g, [side]: val } : g) });
@@ -119,13 +116,30 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onChangeDra
   const removeOfficial = (idx: number) =>
     set({ officials: draft.officials.filter((_, i) => i !== idx) });
 
-  const completedScores = draft.games
-    .filter(g => g.p1 !== "" && g.p2 !== "")
-    .map(g => ({ p1: Number(g.p1), p2: Number(g.p2) }))
-    .filter(g => Number.isFinite(g.p1) && Number.isFinite(g.p2));
+  const scoreRows = draft.games.map(g => ({ p1: Number(g.p1), p2: Number(g.p2), raw: g }));
+  const hasValidGameScores = draft.games.length > 0 && scoreRows.every(g =>
+    g.raw.p1 !== "" &&
+    g.raw.p2 !== "" &&
+    Number.isFinite(g.p1) &&
+    Number.isFinite(g.p2) &&
+    g.p1 >= 0 &&
+    g.p2 >= 0
+  );
+  const completedScores = hasValidGameScores ? scoreRows.map(g => ({ p1: g.p1, p2: g.p2 })) : [];
   const team1Games = completedScores.filter(g => g.p1 > g.p2).length;
   const team2Games = completedScores.filter(g => g.p2 > g.p1).length;
-  const hasDrawScore = completedScores.length > 0 && completedScores.length === draft.games.length && team1Games === team2Games;
+  const tiedGames = completedScores.filter(g => g.p1 === g.p2).length;
+  const hasDrawScore = hasValidGameScores && team1Games === team2Games;
+  const winnerMatchesScores =
+    draft.winner === "team1" ? team1Games > team2Games :
+    draft.winner === "team2" ? team2Games > team1Games :
+    false;
+  const hasWinnerScore = hasValidGameScores && tiedGames === 0 && winnerMatchesScores;
+  const isKnockout = draft.phase === "knockout";
+  const teamDisplayLabel = (team: MatchEntry["team1"]) =>
+    team.participants.length > 0 && team.participants.length <= 2
+      ? team.participants.join(" / ")
+      : team.label;
 
   const selectWinner = (side: "team1" | "team2") => {
     if (draft.walkover) return;
@@ -133,7 +147,13 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onChangeDra
     set({ winner: draft.winner === side ? null : side });
   };
 
-  const canSave = draft.walkover ? !!draft.walkoverWinner : draft.winner !== null || hasDrawScore;
+  const canSave = draft.walkover ? !!draft.walkoverWinner : hasWinnerScore || (!isKnockout && draft.winner === null && hasDrawScore);
+  const hasSavedResult = draft.status === "Completed" ||
+    draft.status === "Walkover" ||
+    draft.winner !== null ||
+    draft.walkover ||
+    draft.walkoverWinner !== "" ||
+    draft.games.some(g => g.p1 !== "" || g.p2 !== "");
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
@@ -147,10 +167,9 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onChangeDra
           </DialogTitle>
           {(draft.courtNo || draft.matchDate) && (
             <p className="text-xs opacity-50 mt-1">
-              {draft.courtNo && `📍 ${draft.courtNo}  `}
-              {draft.matchDate && `📅 ${new Date(draft.matchDate).toLocaleDateString("en-SG", { weekday:"short", day:"2-digit", month:"short" })}  `}
-              {draft.startTime && `🕐 ${draft.startTime}${draft.endTime ? `–${draft.endTime}` : ""}`}
-              <span className="ml-2 italic opacity-60">(edit in Schedule tab)</span>
+              {draft.courtNo && `${draft.courtNo}  `}
+              {draft.matchDate && `${new Date(draft.matchDate).toLocaleDateString("en-SG", { weekday:"short", day:"2-digit", month:"short" })}  `}
+              {draft.startTime && `${draft.startTime}${draft.endTime ? `-${draft.endTime}` : ""}`}
             </p>
           )}
         </DialogHeader>
@@ -182,12 +201,14 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onChangeDra
                 style={{ border: "1px solid var(--color-table-border)", backgroundColor: hasDrawScore && draft.winner === null ? "var(--color-row-hover)" : "transparent" }}>
                 <div>
                   <p className="text-sm font-semibold">Draw</p>
-                  <p className="text-xs opacity-50">Tied result</p>
+                  <p className="text-xs opacity-50">
+                    {isKnockout ? "Knockout matches require a winner." : "For sports or formats where tied results are allowed."}
+                  </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => set({ winner: null })}
-                  disabled={!hasDrawScore}
+                  disabled={!hasDrawScore || isKnockout}
                   className="btn-outline px-3 py-2 text-xs font-semibold disabled:opacity-40">
                   {hasDrawScore && draft.winner === null ? "Draw Selected" : "Use Draw"}
                 </button>
@@ -207,12 +228,41 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onChangeDra
               onCheckedChange={v => set({ walkover: v, walkoverWinner: "", winner: null })} />
           </div>
 
+          {/* ── Actual time ── */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">Actual Time</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold mb-1.5 opacity-60">Start Time</label>
+                <input
+                  ref={startTimeRef}
+                  type="time"
+                  className="field-input w-full"
+                  value={draft.startTime}
+                  onInput={e => updateStartTime(e.currentTarget.value)}
+                  onChange={e => updateStartTime(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1.5 opacity-60">End Time</label>
+                <input
+                  ref={endTimeRef}
+                  type="time"
+                  className="field-input w-full"
+                  value={draft.endTime}
+                  onInput={e => updateEndTime(e.currentTarget.value)}
+                  onChange={e => updateEndTime(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
           {/* ── Game scores ── */}
           {!draft.walkover && (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-bold uppercase tracking-wide opacity-50">
-                  Game Scores <span className="font-normal opacity-60 normal-case">(optional — record keeping)</span>
+                  Game Scores <span className="font-normal opacity-60 normal-case">(required)</span>
                 </p>
                 <button onClick={addGame} className="flex items-center gap-1 text-xs font-medium"
                   style={{ color: "var(--color-primary)" }}>
@@ -222,9 +272,9 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onChangeDra
 
               <div className="grid grid-cols-[64px_1fr_28px_1fr_32px] gap-2 mb-1.5 px-0.5">
                 <span></span>
-                <span className="text-xs font-semibold opacity-60 truncate">{draft.team1.label}</span>
+                <span className="text-xs font-semibold opacity-60 truncate">{teamDisplayLabel(draft.team1)}</span>
                 <span></span>
-                <span className="text-xs font-semibold opacity-60 truncate">{draft.team2.label}</span>
+                <span className="text-xs font-semibold opacity-60 truncate">{teamDisplayLabel(draft.team2)}</span>
                 <span></span>
               </div>
               {draft.games.map((g, idx) => (
@@ -243,8 +293,31 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onChangeDra
                   </button>
                 </div>
               ))}
+              {!hasValidGameScores && (
+                <p className="text-xs mt-2" style={{ color: "var(--badge-soon-text)" }}>
+                  Enter numeric, non-negative scores for every game before saving.
+                </p>
+              )}
+              {hasValidGameScores && draft.winner !== null && !hasWinnerScore && (
+                <p className="text-xs mt-2" style={{ color: "var(--badge-soon-text)" }}>
+                  Selected winner must match the game scores, and winner-based results cannot include tied games.
+                </p>
+              )}
             </div>
           )}
+
+          {/* ── Remark ── */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wide opacity-50 mb-2">
+              Remark
+            </label>
+            <textarea
+              className="field-input w-full min-h-20 resize-y"
+              value={draft.remark ?? ""}
+              onChange={e => set({ remark: e.target.value })}
+              placeholder="Optional match note"
+            />
+          </div>
           {/* ── Officials ── */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -275,12 +348,22 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onChangeDra
 
         </div>
 
-        <DialogFooter className="px-7 pb-7 pt-0">
-          <button onClick={onClose} className="btn-outline px-5 py-2.5 text-sm">Cancel</button>
-          <button onClick={onSave} disabled={!canSave}
-            className="btn-primary px-6 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
-            Save Result
-          </button>
+        <DialogFooter className="px-7 pb-7 pt-0 flex items-center justify-between">
+          <div>
+            {onClear && hasSavedResult && (
+              <button onClick={onClear}
+                className="btn-outline px-5 py-2.5 text-sm">
+                Clear Result
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="btn-outline px-5 py-2.5 text-sm">Cancel</button>
+            <button onClick={saveWithCurrentTime} disabled={!canSave}
+              className="btn-primary px-6 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+              Save Result
+            </button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

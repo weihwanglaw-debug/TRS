@@ -19,6 +19,8 @@ export interface SbaMember {
 export interface SbaImportResult {
   importedRows: number;
   categories: Array<{ rankingType: string; rows: number }>;
+  addedClubs: number;
+  addedClubNames: string[];
   skippedSheets: string[];
 }
 

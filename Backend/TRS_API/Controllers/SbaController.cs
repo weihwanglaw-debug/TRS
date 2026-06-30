@@ -4,6 +4,7 @@ using System.Xml.Linq;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TRS_API.Services;
 using TRS_Data.Models;
 
 namespace TRS_API.Controllers;
@@ -31,7 +32,10 @@ public class SbaController : ControllerBase
         RankingTypes.ToDictionary(NormalizeType, t => t);
 
     private readonly TRSDbContext _db;
-    public SbaController(TRSDbContext db) => _db = db;
+    private readonly AdminAuditService _audit;
+
+    public SbaController(TRSDbContext db, AdminAuditService audit)
+        => (_db, _audit) = (db, audit);
 
     [HttpGet("types")]
     public IActionResult GetTypes() => Ok(RankingTypes.Select(t => new
@@ -133,20 +137,83 @@ public class SbaController : ControllerBase
         if (includedTypes.Count == 0)
             return BadRequest(new { code = "NO_MATCHING_SHEETS", message = "No recognized SBA ranking sheets were found." });
 
-        var existing = await _db.SbaRankings.Where(r => includedTypes.Contains(r.RankingType)).ToListAsync();
+        var importedClubNames = parsed.Rows
+            .SelectMany(r => new[] { r.Player1Club, r.Player2Club })
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Select(c => c!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var existingClubNames = await _db.BadmintonClubs
+            .Select(c => c.Name)
+            .ToListAsync();
+        var existingClubSet = existingClubNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var newClubNames = importedClubNames
+            .Where(name => !existingClubSet.Contains(name))
+            .OrderBy(name => name)
+            .ToList();
+
+        var now = DateTime.UtcNow;
+        var newClubs = newClubNames.Select(name => new BadmintonClub
+        {
+            Name = name,
+            IsActive = true,
+            CreatedAt = now,
+        }).ToList();
+
+        if (newClubs.Count > 0)
+        {
+            _db.BadmintonClubs.AddRange(newClubs);
+        }
+
+        var existing = await _db.SbaRankings.ToListAsync();
         _db.SbaRankings.RemoveRange(existing);
         _db.SbaRankings.AddRange(parsed.Rows);
         await _db.SaveChangesAsync();
 
-        return Ok(new
+        var importSummary = new
         {
             importedRows = parsed.Rows.Count,
             categories = includedTypes.OrderBy(t => Array.IndexOf(RankingTypes, t)).Select(t => new
             {
                 rankingType = t,
                 rows = parsed.Rows.Count(r => r.RankingType == t),
-            }),
+            }).ToList(),
+            addedClubs = newClubs.Count,
+            addedClubNames = newClubs.Select(c => c.Name).OrderBy(name => name).ToList(),
             skippedSheets = parsed.SkippedSheets,
+        };
+
+        await _audit.LogAsync(
+            User,
+            GetClientIp(),
+            "SBA_RANKING_IMPORT",
+            "SbaRanking",
+            "import",
+            null,
+            importSummary,
+            $"Imported SBA ranking workbook with {parsed.Rows.Count} row(s) and {newClubs.Count} new club(s).");
+
+        foreach (var club in newClubs)
+        {
+            await _audit.LogAsync(
+                User,
+                GetClientIp(),
+                "BADMINTON_CLUB_IMPORT_CREATE",
+                "BadmintonClub",
+                club.ClubId.ToString(),
+                null,
+                AuditClubSnapshot(club),
+                $"Created badminton club '{club.Name}' from SBA ranking import.");
+        }
+
+        return Ok(new
+        {
+            importSummary.importedRows,
+            importSummary.categories,
+            importSummary.addedClubs,
+            importSummary.addedClubNames,
+            importSummary.skippedSheets,
         });
     }
 
@@ -158,6 +225,7 @@ public class SbaController : ControllerBase
         accumulatedScore = r.AccumulatedScore,
         tournaments = r.Tournaments,
         yearOfBirth = r.YearOfBirth,
+        updatedAt = r.UpdatedAt,
         player1 = new { sbaId = r.Player1SbaId, name = r.Player1Name, club = r.Player1Club, dob = r.Player1DateOfBirth?.ToString("yyyy-MM-dd") ?? "" },
         player2 = string.IsNullOrWhiteSpace(r.Player2SbaId)
             ? (object?)null
@@ -185,6 +253,21 @@ public class SbaController : ControllerBase
             if (type.StartsWith($"U{age} ", StringComparison.OrdinalIgnoreCase)) return age - 1;
         return 99;
     }
+
+    private string? GetClientIp() => HttpContext.Connection.RemoteIpAddress?.ToString();
+
+    private static object AuditClubSnapshot(BadmintonClub club) => new
+    {
+        club.ClubId,
+        club.Name,
+        club.ContactNumber,
+        club.Email,
+        club.Address,
+        club.Country,
+        club.IsActive,
+        club.CreatedAt,
+        club.UpdatedAt,
+    };
 
     private sealed record ParsedWorkbook(List<SbaRanking> Rows, List<string> SkippedSheets, List<string> Errors);
 

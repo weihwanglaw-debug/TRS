@@ -1,16 +1,15 @@
 /**
- * DrawTab.tsx — Bracket/groups display + player swap
+ * DrawTab.tsx — Bracket/groups display
  *
- * readOnly=true  → preview mode (wizard step 4): swap works, no score entry, no print
- * readOnly=false → live mode: swap locked once scores entered, print available
+ * readOnly=true  → preview mode (wizard step 4): bracket preview, no score entry, no print
+ * readOnly=false → live mode: live bracket/results display, print available
  */
 
 import React, { useState, useRef } from "react";
-import { ArrowLeftRight, Lock, Printer, FileDown } from "lucide-react";
-import type { BracketState, MatchEntry, TeamEntry } from "@/types/config";
-import { isBracketLocked, computeGroupStandings } from "@/lib/fixtureEngine";
+import { Printer } from "lucide-react";
+import type { BracketState, MatchEntry } from "@/types/config";
+import { computeGroupStandings } from "@/lib/fixtureEngine";
 import { BracketView } from "./BracketView";
-import { buildBracketPrintSvg } from "./bracketPrintSvg";
 import { NoticeDialog } from "@/components/ui/NoticeDialog";
 
 interface Props {
@@ -68,6 +67,8 @@ type CapturedBracket = {
   svgInnerHtml: string | null; // content inside <svg> (for split print)
 };
 
+type PrintPaperSize = "A4 portrait" | "A4 landscape" | "A3 landscape";
+
 function captureBracket(bracketRef: React.RefObject<HTMLDivElement | null>): CapturedBracket {
   if (!bracketRef.current) return {
     outerHtml: "<p style=\"color:#999;font-style:italic\">No bracket generated.</p>",
@@ -77,7 +78,7 @@ function captureBracket(bracketRef: React.RefObject<HTMLDivElement | null>): Cap
 
   const clone = bracketRef.current.cloneNode(true) as HTMLElement;
   resolveCssVars(clone);
-  clone.querySelectorAll(".minimap, button").forEach(n => n.remove());
+  clone.querySelectorAll(".minimap, button, [data-print-exclude='true']").forEach(n => n.remove());
   clone.querySelectorAll<HTMLElement>("[style]").forEach(n => {
     n.style.cursor = "default";
     n.style.boxShadow = "none";
@@ -86,6 +87,7 @@ function captureBracket(bracketRef: React.RefObject<HTMLDivElement | null>): Cap
   clone.querySelectorAll("svg").forEach(svg => {
     svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
     svg.style.overflow = "visible";
+    svg.style.maxWidth = "none";
   });
   clone.style.border = "none";
   clone.style.padding = "0";
@@ -113,6 +115,7 @@ function openPrintWindow(
   svgHtml:     string,       // pure SVG string(s) — already safe to embed
   autoPrint:   boolean,
   isSplit?:    boolean,
+  paperSize:   PrintPaperSize = "A4 landscape",
 ): void {
   const now = new Date().toLocaleString("en-SG", {
     day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
@@ -146,8 +149,36 @@ function openPrintWindow(
     padding: 1px 4px; margin-right: 3px; display: inline-block; }
 
   /* Bracket section */
-  .bracket-wrap { margin-top: 24px; }
-  .bracket-inner { overflow: visible; }
+  .bracket-wrap { margin-top: 24px; filter: grayscale(1); }
+  .bracket-inner { overflow: visible; background: white !important; }
+  .bracket-inner > div { background: white !important; color: #111 !important; }
+  .bracket-inner svg { background: white !important; }
+  .bracket-inner svg * {
+    color: #111 !important;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+  .bracket-inner foreignObject > div {
+    background: white !important;
+    border: 1.5px solid #111 !important;
+  }
+  .bracket-inner foreignObject div {
+    color: #111 !important;
+    border-color: #111 !important;
+  }
+  .bracket-inner foreignObject > div > div {
+    background: white !important;
+  }
+  .bracket-inner foreignObject > div > div + div {
+    border-top: 1px solid #111 !important;
+  }
+  .bracket-inner path,
+  .bracket-inner line {
+    stroke: #111 !important;
+  }
+  .bracket-inner text {
+    fill: #111 !important;
+  }
 
   /* Footer */
   .pf { margin-top: 24px; padding-top: 10px; border-top: 1px solid #ddd;
@@ -167,12 +198,12 @@ function openPrintWindow(
   @media print {
     .no-print { display: none; }
     body { padding: 10px; }
-    @page { margin: 8mm; size: A4 landscape; }
+    @page { margin: 8mm; size: ${paperSize}; }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
 
     /* Scale bracket SVG to fit page */
     .bracket-inner { width: 100%; overflow: visible; }
-    .bracket-inner > div { border: none !important; padding: 0 !important; border-radius: 0 !important; }
+    .bracket-inner > div { border: none !important; padding: 0 !important; border-radius: 0 !important; max-height: none !important; overflow: visible !important; }
     .bracket-inner svg { width: 100% !important; height: auto !important; max-width: 100% !important; }
 
     /* Split mode: each half fills its page */
@@ -238,118 +269,6 @@ window.addEventListener("load", function() {
 // ── Player swap panel ─────────────────────────────────────────────────────────
 
 // ── Player swap panel ─────────────────────────────────────────────────────────
-
-function SwapPanel({ state, onSwap, onSwapInMemory, readOnly }: {
-  state:            BracketState;
-  onSwap?:          (a: string, b: string) => Promise<void>;
-  onSwapInMemory?:  (a: string, b: string) => void;
-  readOnly:         boolean;
-}) {
-  const locked = !readOnly && isBracketLocked(state);
-  const [selA, setSelA] = useState("");
-  const [selB, setSelB] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [lastSwap, setLastSwap] = useState("");
-
-  const allTeams = React.useMemo<TeamEntry[]>(() => {
-    const seen = new Map<string, TeamEntry>();
-    const add = (t: TeamEntry) => { if (!seen.has(t.id)) seen.set(t.id, t); };
-    state.groups.flatMap(g => g.matches).forEach(m => { add(m.team1); add(m.team2); });
-    state.matches.forEach(m => { add(m.team1); add(m.team2); });
-    return [...seen.values()]
-      .filter(t => !t.label.startsWith("BYE"))
-      .sort((a, b) => {
-        if (a.seed != null && b.seed != null) return a.seed - b.seed;
-        if (a.seed != null) return -1;
-        if (b.seed != null) return 1;
-        return a.label.localeCompare(b.label);
-      });
-  }, [state]);
-
-  const teamLabel = (t: TeamEntry) =>
-    `${t.seed != null ? `[#${t.seed}] ` : ""}${t.label}`;
-
-  const handleSwap = async () => {
-    if (!selA || !selB || selA === selB) return;
-    const ta = allTeams.find(t => t.id === selA);
-    const tb = allTeams.find(t => t.id === selB);
-    setBusy(true);
-    if (readOnly && onSwapInMemory) {
-      onSwapInMemory(selA, selB);
-      setLastSwap(`Swapped ${ta?.label} ↔ ${tb?.label}`);
-    } else if (onSwap) {
-      await onSwap(selA, selB);
-      setLastSwap(`Swapped ${ta?.label} ↔ ${tb?.label}`);
-    }
-    setSelA(""); setSelB("");
-    setBusy(false);
-    setTimeout(() => setLastSwap(""), 3000);
-  };
-
-  if (locked) return (
-    <div className="flex items-center gap-2 px-4 py-3 text-sm"
-      style={{ backgroundColor: "var(--badge-soon-bg)", border: "1px solid var(--color-table-border)" }}>
-      <Lock className="h-4 w-4 flex-shrink-0" style={{ color: "var(--badge-soon-text)" }} />
-      <span style={{ color: "var(--badge-soon-text)" }}>
-        Bracket locked — scores have been entered. Player positions cannot be changed.
-      </span>
-    </div>
-  );
-
-  return (
-    <div className="p-4" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
-      <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">
-        Swap Player Positions
-        {readOnly && <span className="ml-2 normal-case font-normal opacity-80">— preview mode, changes will be saved when you confirm</span>}
-      </p>
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-36">
-          <label className="block text-xs font-semibold mb-1.5 opacity-60">Player A</label>
-          <select className="field-input w-full" value={selA} onChange={e => setSelA(e.target.value)}>
-            <option value="">Select…</option>
-            {allTeams.map(t => (
-              <option key={t.id} value={t.id} disabled={t.id === selB}>{teamLabel(t)}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex-shrink-0 pb-1">
-          <ArrowLeftRight className="h-5 w-5 opacity-40" />
-        </div>
-        <div className="flex-1 min-w-36">
-          <label className="block text-xs font-semibold mb-1.5 opacity-60">Player B</label>
-          <select className="field-input w-full" value={selB} onChange={e => setSelB(e.target.value)}>
-            <option value="">Select…</option>
-            {allTeams.map(t => (
-              <option key={t.id} value={t.id} disabled={t.id === selA}>{teamLabel(t)}</option>
-            ))}
-          </select>
-        </div>
-        <button onClick={handleSwap}
-          disabled={!selA || !selB || selA === selB || busy}
-          className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0">
-          {busy
-            ? <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            : <ArrowLeftRight className="h-4 w-4" />}
-          Swap
-        </button>
-      </div>
-      {lastSwap && (
-        <p className="text-xs font-semibold mt-2" style={{ color: "var(--badge-open-text)" }}>✓ {lastSwap}</p>
-      )}
-      {selA && selB && selA !== selB && !lastSwap && (() => {
-        const ta = allTeams.find(t => t.id === selA);
-        const tb = allTeams.find(t => t.id === selB);
-        return (
-          <p className="text-xs opacity-50 mt-2">
-            Swapping <strong>{ta?.label}</strong> and <strong>{tb?.label}</strong> across all their matches.
-          </p>
-        );
-      })()}
-    </div>
-  );
-}
-
-// ── Group standings ───────────────────────────────────────────────────────────
 
 function GroupStandings({ state }: { state: BracketState }) {
   if (!state.groups.length) return null;
@@ -417,24 +336,14 @@ function GroupStandings({ state }: { state: BracketState }) {
 
 export function DrawTab({
   bracketState, eventName, programName,
-  readOnly = false, onOpenScore, onSwap, onSwapInMemory,
+  readOnly = false, onOpenScore,
 }: Props) {
   const hasGroups  = bracketState.groups.length > 0;
   const hasKo      = bracketState.matches.length > 0;
-  const showSwap   = readOnly || !isBracketLocked(bracketState);
   const bracketRef = useRef<HTMLDivElement | null>(null);
   const groupsRef  = useRef<HTMLDivElement | null>(null);
   const [notice, setNotice] = useState("");
-
-  // Determine if bracket is large enough to warrant split printing (16+ players = 8+ QF matches)
-  const firstRoundCount = bracketState.matches.length > 0
-    ? bracketState.matches.filter(m => m.round === Math.min(...bracketState.matches.map(x => x.round))).length
-    : 0;
-  const useSplitPrint = firstRoundCount >= 8;
-
-  const primary = typeof window !== "undefined"
-    ? (getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim() || "#e05a2b")
-    : "#e05a2b";
+  const [paperSize, setPaperSize] = useState<PrintPaperSize>("A4 landscape");
 
   const buildGroupHtml = () => {
     if (!groupsRef.current) return "";
@@ -455,64 +364,43 @@ export function DrawTab({
     return clone.outerHTML;
   };
 
-  const doPrint = (autoPrint: boolean, split = false) => {
+  const doPrint = (autoPrint: boolean) => {
     const groupHtml = buildGroupHtml();
     const ko = bracketState.matches;
 
     let svgHtml = "";
     if (ko.length > 0) {
-      if (split) {
-        // Two pure SVGs stacked with a page-break between them
-        const topSvg = buildBracketPrintSvg(ko, { primary, split: "top" });
-        const botSvg = buildBracketPrintSvg(ko, { primary, split: "bottom" });
-        svgHtml = topSvg +
-          '<div class="page-break"></div>' +
-          '<div class="pg2-header">' +
-            `<h1>${eventName}</h1>` +
-            `<h2>${programName} — Knockout Bracket (Bottom Half)</h2>` +
-          '</div>' +
-          '<div class="sec-title" style="margin-bottom:14px">Knockout Bracket — Bottom Half</div>' +
-          botSvg;
-      } else {
-        svgHtml = buildBracketPrintSvg(ko, { primary });
-      }
+      svgHtml = captureSvgHtml(bracketRef);
     }
 
-    const message = openPrintWindow(eventName, programName, groupHtml, svgHtml, autoPrint, split);
+    const message = openPrintWindow(eventName, programName, groupHtml, svgHtml, autoPrint, false, paperSize);
     if (message) setNotice(message);
   };
-
   return (
     <div className="space-y-5">
       {/* Action buttons — live mode only */}
       {!readOnly && (
-        <div className="flex justify-end gap-2 flex-wrap">
-          {useSplitPrint && (
-            <button onClick={() => doPrint(false, true)}
-              className="btn-outline flex items-center gap-1.5 px-4 py-2 text-sm font-medium">
-              <Printer className="h-4 w-4" /> Split Print (½ per page)
-            </button>
-          )}
+        <div className="flex justify-end gap-2 flex-wrap items-center">
+          <label className="flex items-center gap-2 text-xs font-semibold opacity-70">
+            Choose paper size
+            <select
+              className="field-input w-36 text-sm py-2"
+              value={paperSize}
+              onChange={e => setPaperSize(e.target.value as PrintPaperSize)}
+              aria-label="Print paper size"
+            >
+              <option value="A4 landscape">A4 Landscape</option>
+              <option value="A4 portrait">A4 Portrait</option>
+              <option value="A3 landscape">A3 Landscape</option>
+            </select>
+          </label>
           <button onClick={() => doPrint(false)}
             className="btn-outline flex items-center gap-1.5 px-4 py-2 text-sm font-medium">
             <Printer className="h-4 w-4" /> Preview &amp; Print
           </button>
-          <button onClick={() => doPrint(true)}
-            className="btn-primary flex items-center gap-1.5 px-4 py-2 text-sm font-medium">
-            <FileDown className="h-4 w-4" /> Download PDF
-          </button>
         </div>
       )}
 
-      {/* Swap panel */}
-      {showSwap && (
-        <SwapPanel
-          state={bracketState}
-          onSwap={onSwap}
-          onSwapInMemory={onSwapInMemory}
-          readOnly={readOnly}
-        />
-      )}
       <NoticeDialog
         open={!!notice}
         onOpenChange={(open) => !open && setNotice("")}
@@ -523,10 +411,23 @@ export function DrawTab({
       {/* Groups */}
       {hasGroups && (
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">Group Draw</p>
-          <div ref={groupsRef}>
-            <GroupStandings state={bracketState} />
-          </div>
+          {!hasKo && (
+            <div className="mb-5 p-4"
+              style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
+              <p className="text-sm font-semibold">Knockout bracket not generated yet</p>
+              <p className="text-xs opacity-60 mt-1">
+                Complete the group matches, then generate the knockout phase to display the bracket.
+              </p>
+            </div>
+          )}
+          {hasKo && (
+            <>
+              <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">Group Draw</p>
+              <div ref={groupsRef}>
+                <GroupStandings state={bracketState} />
+              </div>
+            </>
+          )}
         </div>
       )}
 

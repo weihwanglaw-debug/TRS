@@ -4,13 +4,13 @@ Business rules below are extracted from current controller/service/frontend code
 
 ## Event Rules
 
-- Public event listing and detail only expose active events.
+- Public event listing and detail only expose active events that have at least one active program.
 - Admins with `superadmin` or `eventadmin` can request inactive events through `includeInactive=true`.
 - Event deletion is soft delete: `IsActive=false`, `UpdatedAt=DateTime.UtcNow`.
 - Event create/update sanitizes `AdditionalInfo` HTML with `HtmlSanitizer`.
 - Event gallery images are replaced on event update.
 - Event documents are managed through a separate documents sub-resource.
-- Event open window for registration is based on UTC date: event is open when `OpenDate <= today <= CloseDate` and `IsActive=true`.
+- Event open window for registration is based on Singapore date: event is open when `OpenDate <= today <= CloseDate` and `IsActive=true`.
 
 ## Program Rules
 
@@ -18,6 +18,7 @@ Business rules below are extracted from current controller/service/frontend code
 - A program is registrable when `IsActive=true` and `Status` is not `closed`.
 - Program deletion is soft delete: `IsActive=false`, `UpdatedAt=DateTime.UtcNow`.
 - Program custom fields are replaced on full program update.
+- Program create, update, delete, and status changes are written to `AdminAuditLog`/`AdminAuditLogDetail`.
 - `FeeStructure` controls payment items:
   - `per_entry`: one fee/payment item for the group.
   - `per_player`: fee multiplied by participant count, one payment item per participant.
@@ -46,9 +47,12 @@ Participant fields always required:
 
 Conditional fields:
 
-- T-shirt size is required when `ProgramField.EnableTshirt=true`.
-- Guardian name/contact are required when `ProgramField.EnableGuardianInfo=true`.
-- SBA ID is required when `ProgramField.EnableSbaId=true` and `TrsProgram.SbaRequired=true`.
+- T-shirt size is displayed when `ProgramField.EnableTshirt=true` and required only when `RequireTshirt=true`.
+- Guardian name/contact are displayed when `ProgramField.EnableGuardianInfo=true` and required only when `RequireGuardianInfo=true`.
+- SBA ID is optional when `ProgramField.EnableSbaId=true`; this setting only displays the SBA ID field/lookup.
+- SBA ID is required only when `ProgramField.EnableSbaId=true` and `RequireSbaId=true`.
+- Document upload is displayed when `ProgramField.EnableDocumentUpload=true` and required only when `RequireDocumentUpload=true`.
+- Remark is displayed when `ProgramField.EnableRemark=true` and required only when `RequireRemark=true`.
 - Required custom fields must have non-blank values.
 
 Participant count:
@@ -57,7 +61,7 @@ Participant count:
 
 Age:
 
-- Age is calculated against UTC today.
+- Age is calculated against Singapore today.
 - Participant age must be between `Program.MinAge` and `Program.MaxAge`.
 
 Gender:
@@ -79,7 +83,7 @@ Capacity:
 
 - Capacity counts non-cancelled `ParticipantGroup` rows per program.
 - `Program.MaxParticipants` is treated as max entries/groups, not max individual players.
-- Event-level `MaxParticipants` exists but is not enforced by `RegistrationWorkflowService`.
+- Event-level `MaxParticipants` is deprecated and is not enforced by `RegistrationWorkflowService`; program-level capacity is authoritative.
 
 Pricing:
 
@@ -226,19 +230,21 @@ Manual confirmation:
 - Frontend fixture code should only preview/display state, collect admin input, call backend fixture actions, and show backend validation errors.
 - Score, schedule, swaps, advancement, heats results, and final places mutate the stored fixture state through backend fixture endpoints.
 - Structural fixture changes such as regenerate, reset/delete, raw state save, and team swaps are blocked after results have been entered.
+- Raw fixture state save accepts only clean unscored fixture state and rejects corrupt JSON, match results, heat results, advancement flags, and final placements.
 - Knockout BYE entries are backend-generated and auto-completed so non-power-of-two draws can advance without manual BYE scoring.
 - Backend score validation rejects BYE scoring, invalid winners, invalid walkover winners, missing game scores, tied game scores, negative scores, and winners that do not match the submitted game results.
 - Draw results are supported for group/round-robin style matches by saving tied numeric scores without a winner; knockout matches still require a winner.
 - Group standings use configured win/draw/loss points, then BWF-style ordering: wins, head-to-head only for exactly two tied teams, game difference, point difference, points scored, seed, then team id.
 - Backend fixture config validation rejects negative standing points, invalid group knockout group/advance counts, and invalid heats round/advance/place counts.
 - Backend heats validation requires results before advancing, enforces the configured advance count, prevents editing completed heat rounds, and rejects duplicate or out-of-range final places.
+- Heats fixtures lock swaps after any round is completed because advancement depends on prior-round results.
 - Fixture regression checks live in the separate `Backend/TRS_FixtureTests` console project so they can be run or removed independently from the API project.
 
 ## Upload Rules
 
 - Uploads accept image/jpeg, image/png, image/webp, and application/pdf.
-- Image max size is 2 MB.
-- PDF max size is 8 MB.
+- Image max size is 5 MB.
+- PDF max size is 10 MB.
 - Folder input is sanitized by stripping `..` and trimming slashes.
 - Files are stored under API `wwwroot/uploads`.
 - Backend controller currently does not require authorization.

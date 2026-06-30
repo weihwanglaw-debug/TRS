@@ -96,7 +96,7 @@ export async function apiDeleteEvent(eventId: string): Promise<ApiResult<null>> 
     method: "DELETE",
     headers: adminHeaders(),
   });
-  if (!res.ok) return err("DELETE_FAILED", "Failed to delete event.");
+  if (!res.ok) return err("DELETE_FAILED", (await parseError(res)).message);
   return ok(null);
 }
 
@@ -127,7 +127,7 @@ export async function apiUpdateProgram(
     headers: adminHeaders(),
     body: JSON.stringify(remapProgram(patch as any)),
   });
-  if (!res.ok) return err("UPDATE_FAILED", "Failed to update program.");
+  if (!res.ok) return err("UPDATE_FAILED", (await parseError(res)).message);
   return ok(await res.json());
 }
 
@@ -155,7 +155,7 @@ export async function apiDeleteProgram(
     method: "DELETE",
     headers: adminHeaders(),
   });
-  if (!res.ok) return err("DELETE_FAILED", "Failed to delete program.");
+  if (!res.ok) return err("DELETE_FAILED", (await parseError(res)).message);
   return ok(null);
 }
 

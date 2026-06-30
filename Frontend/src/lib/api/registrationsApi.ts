@@ -36,7 +36,7 @@ import type { ApiResult, PageParams, PagedResult } from "./_base";
 import type {
   Registration, ParticipantGroup, Payment, PaymentItem,
   Refund, CheckoutSession, PaymentStatus, RegistrationStats,
-  WebhookFailure,
+  WebhookFailure, PaymentAuditEntry, OrphanRefundHistory,
 } from "@/types/registration";
 
 // ── Filter params ─────────────────────────────────────────────────────────────
@@ -296,6 +296,20 @@ export async function apiGetPayment(registrationId: string): Promise<ApiResult<P
 }
 
 /**
+ * GET /api/registrations/:id/payment/audit
+ * Admin: returns audit entries for the registration payment.
+ */
+export async function apiGetPaymentAudit(registrationId: string): Promise<ApiResult<PaymentAuditEntry[]>> {
+  await delay();
+
+  const res = await apiFetch(`${API_BASE}/api/registrations/${registrationId}/payment/audit`, {
+    headers: adminHeaders(),
+  });
+  if (!res.ok) return err("NOT_FOUND", (await parseError(res)).message);
+  return ok(await res.json());
+}
+
+/**
  * PATCH /api/registrations/:id/payment
  * Admin: manually record or update payment (Cash, Bank Transfer, PayNow receipt).
  * When status = "Success": backend stamps paidAt, generates receiptNo, flips items → S,
@@ -431,8 +445,8 @@ export async function apiUpdateParticipant(
  *   "W"  = Waived — fee waived (VIP, staff, error correction)
  *   "PC" = Pending Collection — registered now, pays later
  *
- * method: "Cash" | "BankTransfer" | "PayNow" | "Others" (ignored for Waived)
- * paymentReference: optional manual receipt/txn ref number
+ * method: required only when paymentStatus is "S"
+ * paymentReference: optional manual receipt/txn ref number for "S"
  * adminNote: required remark explaining the confirmation
  */
 export async function apiConfirmRegistration(
@@ -516,6 +530,15 @@ export async function apiGetWebhookFailures(): Promise<ApiResult<WebhookFailure[
  
 // ── POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund ────────
 // Issues a Stripe refund for an unmatched payment (Case C).
+export async function apiGetOrphanRefundHistory(): Promise<ApiResult<OrphanRefundHistory[]>> {
+  const res = await apiFetch(
+    `${API_BASE}/api/admin/payment-reconciliation/refund-history`,
+    { headers: adminHeaders() },
+  );
+  if (!res.ok) return err("FETCH_FAILED", (await parseError(res)).message);
+  return ok(await res.json());
+}
+
 export async function apiRefundOrphanedPayment(
   webhookLogId: number,
   reason: string,

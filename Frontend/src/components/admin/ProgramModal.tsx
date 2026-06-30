@@ -115,6 +115,11 @@ export default function ProgramModal({
     enableGuardianInfo:   false,
     enableRemark:         false,
     enableTshirt:         true,
+    requireSbaId:          false,
+    requireDocumentUpload: false,
+    requireGuardianInfo:   false,
+    requireRemark:         false,
+    requireTshirt:         false,
     customFields:         [] as CF[],
   });
 
@@ -151,6 +156,11 @@ export default function ProgramModal({
         enableGuardianInfo:   program.fields.enableGuardianInfo,
         enableRemark:         program.fields.enableRemark ?? false,
         enableTshirt:         program.fields.enableTshirt ?? true,
+        requireSbaId:          program.fields.requireSbaId ?? false,
+        requireDocumentUpload: program.fields.requireDocumentUpload ?? false,
+        requireGuardianInfo:   program.fields.requireGuardianInfo ?? false,
+        requireRemark:         program.fields.requireRemark ?? false,
+        requireTshirt:         program.fields.requireTshirt ?? false,
         customFields: program.fields.customFields.map(cf => ({
           label:     cf.label,
           type:      (cf as any).fieldType ?? cf.type,     // backend may return fieldType
@@ -168,6 +178,8 @@ export default function ProgramModal({
         minParticipants: 4, maxParticipants: isTeamSport ? 16 : 32,
         enableSbaId: false, enableDocumentUpload: false,
         enableGuardianInfo: false, enableRemark: false, enableTshirt: true,
+        requireSbaId: false, requireDocumentUpload: false,
+        requireGuardianInfo: false, requireRemark: false, requireTshirt: false,
         customFields: [],
       });
     }
@@ -210,6 +222,8 @@ export default function ProgramModal({
   const upCF  = (i: number, k: string, v: unknown) =>
     s("customFields", form.customFields.map((cf, idx) => idx === i ? { ...cf, [k]: v } : cf));
   const delCF = (i: number) => s("customFields", form.customFields.filter((_, idx) => idx !== i));
+  const setEnabledField = (enabledKey: keyof typeof form, requiredKey: keyof typeof form, enabled: boolean) =>
+    setForm(p => ({ ...p, [enabledKey]: enabled, [requiredKey]: enabled ? p[requiredKey] : false }));
 
   const handleSave = () => {
     const errs: Record<string, string> = {};
@@ -242,13 +256,17 @@ export default function ProgramModal({
       maxParticipants:    form.maxParticipants,
       currentParticipants: program?.currentParticipants ?? 0,
       status:         program?.status ?? "open",
-      sbaRequired:    false,
       fields: {
         enableSbaId:          form.enableSbaId,
         enableDocumentUpload: form.enableDocumentUpload,
         enableGuardianInfo:   form.enableGuardianInfo,
         enableRemark:         form.enableRemark,
         enableTshirt:         form.enableTshirt,
+        requireSbaId:          form.enableSbaId && form.requireSbaId,
+        requireDocumentUpload: form.enableDocumentUpload && form.requireDocumentUpload,
+        requireGuardianInfo:   form.enableGuardianInfo && form.requireGuardianInfo,
+        requireRemark:         form.enableRemark && form.requireRemark,
+        requireTshirt:         form.enableTshirt && form.requireTshirt,
         customFields: form.customFields.map(cf => ({
           label:    cf.label,
           type:     cf.type,
@@ -445,22 +463,35 @@ export default function ProgramModal({
 
           {/* Optional fields */}
           <Sec title="Optional Fields">
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className="space-y-3">
               {[
-                { key: "enableTshirt",        label: "T-Shirt Size" },
-                { key: "enableDocumentUpload", label: "Document Upload" },
-                { key: "enableGuardianInfo",   label: "Guardian Info" },
-                { key: "enableRemark",         label: "Remark Field" },
+                { key: "enableTshirt",         requiredKey: "requireTshirt",         label: "T-Shirt Size" },
+                { key: "enableDocumentUpload", requiredKey: "requireDocumentUpload", label: "Document Upload" },
+                { key: "enableGuardianInfo",   requiredKey: "requireGuardianInfo",   label: "Guardian Info" },
+                { key: "enableRemark",         requiredKey: "requireRemark",         label: "Remark Field" },
                 // SBA ID lookup — only for badminton events
-                ...(isBadminton ? [{ key: "enableSbaId", label: "SBA ID Lookup" }] : []),
+                ...(isBadminton ? [{ key: "enableSbaId", requiredKey: "requireSbaId", label: "SBA ID Lookup" }] : []),
               ].map(opt => (
-                <label key={opt.key}
-                  className="flex items-center justify-between gap-3 text-sm cursor-pointer p-3"
+                <div key={opt.key}
+                  className="grid sm:grid-cols-[1fr_auto_auto] gap-3 items-center p-3"
                   style={{ border: "1px solid var(--color-table-border)" }}>
-                  <span>{opt.label}</span>
-                  <Switch checked={form[opt.key as keyof typeof form] as boolean}
-                    onCheckedChange={v => s(opt.key, v)} />
-                </label>
+                  <span className="text-sm">{opt.label}</span>
+                  <label className="flex items-center justify-between sm:justify-start gap-3 text-sm cursor-pointer">
+                    <span className="text-xs opacity-60">Enabled</span>
+                    <Switch
+                      checked={form[opt.key as keyof typeof form] as boolean}
+                      onCheckedChange={v => setEnabledField(opt.key as keyof typeof form, opt.requiredKey as keyof typeof form, v)}
+                    />
+                  </label>
+                  <label className={`flex items-center justify-between sm:justify-start gap-3 text-sm ${form[opt.key as keyof typeof form] ? "cursor-pointer" : "opacity-40 cursor-not-allowed"}`}>
+                    <span className="text-xs opacity-60">Mandatory</span>
+                    <Switch
+                      checked={form[opt.requiredKey as keyof typeof form] as boolean}
+                      disabled={!(form[opt.key as keyof typeof form] as boolean)}
+                      onCheckedChange={v => s(opt.requiredKey, v)}
+                    />
+                  </label>
+                </div>
               ))}
             </div>
           </Sec>
