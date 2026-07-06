@@ -13,21 +13,9 @@ public class PaymentCleanupWorker : BackgroundService
     {
         try
         {
-            while (!stoppingToken.IsCancellationRequested)
-        {
-            await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
-
-            using var scope = _services.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<TRSDbContext>();
-            var paymentAttempts = scope.ServiceProvider.GetRequiredService<TRS_API.Services.PaymentAttemptService>();
-
-            await PruneExpiredPendingCheckouts(db, stoppingToken);
-            await paymentAttempts.SweepAsync(stoppingToken);
-            // NOTE: CancelStalePayments intentionally removed.
-            // Stripe payments are asynchronous — a pending payment is NEVER failed
-            // due to timeout. Only an explicit Stripe failure event marks a payment failed.
-            // See: CORE PRINCIPLE — TIMEOUT ≠ FAILURE.
-            }
+            await Task.WhenAll(
+                RunPaymentAttemptSweepLoop(stoppingToken),
+                RunPendingCheckoutPruneLoop(stoppingToken));
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -35,17 +23,53 @@ public class PaymentCleanupWorker : BackgroundService
         }
     }
 
-    // ── Prune expired PendingCheckout rows ────────────────────────────────────
+    private async Task RunPaymentAttemptSweepLoop(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                using var scope = _services.CreateScope();
+                var paymentAttempts = scope.ServiceProvider.GetRequiredService<TRS_API.Services.PaymentAttemptService>();
+                await paymentAttempts.SweepAsync(stoppingToken);
+                // Timeout is not failure. The sweep checks Stripe directly before
+                // finalising or surfacing attempts that missed normal webhook flow.
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sweeping embedded payment attempts");
+            }
+
+            await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken);
+        }
+    }
+
+    private async Task RunPendingCheckoutPruneLoop(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            using (var scope = _services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<TRSDbContext>();
+                await PruneExpiredPendingCheckouts(db, stoppingToken);
+            }
+
+            await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
+        }
+    }
+
     // A PendingCheckout row is safe to delete when its Stripe session has expired
-    // AND no successful Payment exists for that session (i.e. the user never paid,
-    // or confirm-session / the webhook already processed it and forgot to purge).
+    // and no successful Payment exists for that session.
     private async Task PruneExpiredPendingCheckouts(TRSDbContext db, CancellationToken ct)
     {
         try
         {
             var now = DateTime.UtcNow;
 
-            // Find rows whose Stripe session has expired.
             var expiredSessionIds = await db.PendingCheckouts
                 .Where(p => p.ExpiresAt < now)
                 .Select(p => p.GatewaySessionId)
@@ -53,9 +77,6 @@ public class PaymentCleanupWorker : BackgroundService
 
             if (!expiredSessionIds.Any()) return;
 
-            // Of those, exclude any that already have a confirmed Payment —
-            // those rows should have been purged by confirm-session/webhook but weren't.
-            // We still remove them here since the registration is safe in DB.
             var toDelete = await db.PendingCheckouts
                 .Where(p => expiredSessionIds.Contains(p.GatewaySessionId))
                 .ToListAsync(ct);

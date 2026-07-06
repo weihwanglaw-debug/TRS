@@ -874,7 +874,7 @@ export default function AdminFixtures() {
 
               {/* Wizard */}
               {showWizard && !bracketState && (
-                <div className="p-6" style={{ border: "2px solid var(--color-primary)" }}>
+                <div className="p-6">
                   <FixtureWizard
                     participants={selRowParticipants}
                     sbaRankings={sbaRankings}

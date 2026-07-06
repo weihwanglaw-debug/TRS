@@ -5,6 +5,13 @@ import { useNavigate } from "react-router-dom";
 import type { TournamentEvent } from "@/types/config";
 import { apiGetEvents, assetUrl } from "@/lib/api";
 import { formatDate, getEventStatus } from "@/lib/eventUtils";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "@/components/ui/carousel";
 import eventBanner1 from "@/assets/event-banner-1.jpg";
 import eventBanner2 from "@/assets/event-banner-2.jpg";
 import eventBanner3 from "@/assets/event-banner-3.jpg";
@@ -78,58 +85,73 @@ export default function EventCarousel() {
         )}
 
         {visibleEvents.length > 0 && (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {visibleEvents.map((event, index) => {
-              const status = getEventStatus(event);
-              const bannerImage = event.bannerUrl ? assetUrl(event.bannerUrl) : FALLBACK_BANNERS[index % FALLBACK_BANNERS.length];
-              const dateLabel = `${formatDate(event.eventStartDate)} - ${formatDate(event.eventEndDate)}`;
-              const statusLabel = status === "open" ? "Open" : "Upcoming";
+          <Carousel
+            opts={{
+              align: "start",
+              loop: false,
+            }}
+            className="trs-event-carousel"
+          >
+            <CarouselContent className="-ml-6">
+              {visibleEvents.map((event, index) => {
+                const status = getEventStatus(event);
+                const bannerImage = event.bannerUrl ? assetUrl(event.bannerUrl) : FALLBACK_BANNERS[index % FALLBACK_BANNERS.length];
+                const dateLabel = `${formatDate(event.eventStartDate)} - ${formatDate(event.eventEndDate)}`;
+                const statusLabel = status === "open" ? "Open" : "Upcoming";
 
-              return (
-                <motion.article
-                  key={event.id}
-                  className="trs-event-card"
-                  initial={{ opacity: 0, y: 22 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, amount: 0.2 }}
-                  transition={{ delay: index * 0.08 }}
-                  onClick={() => navigate(`/event/${event.id}`)}
-                >
-                  <div className="trs-event-image-wrap">
-                    <div
-                      className="trs-event-image"
-                      style={{
-                        backgroundImage: `linear-gradient(rgb(196 43 43 / 20%), rgb(47 46 46 / 14%)), url(${bannerImage})`,
-                      }}
-                    />
-                    <span className="trs-event-status">{statusLabel}</span>
-                    <span className="trs-event-date-badge">{dateLabel}</span>
-                  </div>
-                  <div className="trs-ticket-tear">
-                    <span className="trs-tear-hole left" />
-                    <span className="trs-tear-hole right" />
-                  </div>
-                  <div className="trs-event-card-body">
-                    <h3>{event.name}</h3>
-                    <p className="line-clamp-2 text-sm opacity-75">{event.description}</p>
-                    <div className="grid gap-2 text-sm opacity-75">
-                      <div className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4" />
-                        <span>{dateLabel}</span>
+                return (
+                  <CarouselItem key={event.id} className="pl-6 basis-full md:basis-1/2 lg:basis-1/3">
+                    <motion.article
+                      className="trs-event-card h-full"
+                      initial={{ opacity: 0, y: 22 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: true, amount: 0.2 }}
+                      transition={{ delay: Math.min(index, 3) * 0.08 }}
+                      onClick={() => navigate(`/event/${event.id}`)}
+                    >
+                      <div className="trs-event-image-wrap">
+                        <div
+                          className="trs-event-image"
+                          style={{
+                            backgroundImage: `linear-gradient(rgb(196 43 43 / 20%), rgb(47 46 46 / 14%)), url(${bannerImage})`,
+                          }}
+                        />
+                        <span className="trs-event-status">{statusLabel}</span>
+                        <span className="trs-event-date-badge">{dateLabel}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <MapPin className="h-4 w-4" />
-                        <span className="line-clamp-1">{event.venue}</span>
+                      <div className="trs-ticket-tear">
+                        <span className="trs-tear-hole left" />
+                        <span className="trs-tear-hole right" />
                       </div>
-                    </div>
-                    <button type="button" className="landing-button secondary justify-self-start">
-                      View Event <span aria-hidden="true">-&gt;</span>
-                    </button>
-                  </div>
-                </motion.article>
-              );
-            })}
-          </div>
+                      <div className="trs-event-card-body">
+                        <h3>{event.name}</h3>
+                        <p className="line-clamp-2 text-sm opacity-75">{event.description}</p>
+                        <div className="grid gap-2 text-sm opacity-75">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            <span>{dateLabel}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <MapPin className="h-4 w-4" />
+                            <span className="line-clamp-1">{event.venue}</span>
+                          </div>
+                        </div>
+                        <button type="button" className="landing-button secondary justify-self-start">
+                          View Event <span aria-hidden="true">-&gt;</span>
+                        </button>
+                      </div>
+                    </motion.article>
+                  </CarouselItem>
+                );
+              })}
+            </CarouselContent>
+            {visibleEvents.length > 1 && (
+              <>
+                <CarouselPrevious className="trs-event-carousel-control left-2 md:-left-4 lg:-left-6" />
+                <CarouselNext className="trs-event-carousel-control right-2 md:-right-4 lg:-right-6" />
+              </>
+            )}
+          </Carousel>
         )}
       </div>
     </section>

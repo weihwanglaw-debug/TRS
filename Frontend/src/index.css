@@ -234,7 +234,7 @@
     display: block;
     margin-bottom: 0.375rem;
     color: var(--color-body-text);
-    font-size: 0.8rem;
+    font-size: 0.95rem;
     font-weight: 700;
     line-height: 1.2rem;
     opacity: 0.85;
@@ -708,6 +708,24 @@
 
 .trs-event-card p {
   margin: 0;
+}
+
+.trs-event-carousel {
+  padding: 0 34px;
+}
+
+.trs-event-carousel-control {
+  background: var(--landing-card) !important;
+  border: 1px solid var(--landing-line) !important;
+  box-shadow: 0 14px 34px rgb(47 46 46 / 14%);
+  color: var(--landing-deep) !important;
+  top: 50%;
+}
+
+.trs-event-carousel-control:hover {
+  background: var(--landing-red) !important;
+  border-color: var(--landing-red) !important;
+  color: var(--landing-white) !important;
 }
 
 .trs-ad-section {

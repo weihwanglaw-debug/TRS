@@ -17,21 +17,22 @@ public sealed class PaymentAttemptService
     public const string Canceled = "Canceled";
     public const string NeedsReconciliation = "NeedsReconciliation";
 
-    private static readonly string[] ActiveStatuses = { Created, Submitted, NeedsReconciliation };
-
     private readonly TRSDbContext _db;
     private readonly RegistrationWorkflowService _registrationWorkflow;
+    private readonly EmailService _emailService;
     private readonly IConfiguration _config;
     private readonly ILogger<PaymentAttemptService> _log;
 
     public PaymentAttemptService(
         TRSDbContext db,
         RegistrationWorkflowService registrationWorkflow,
+        EmailService emailService,
         IConfiguration config,
         ILogger<PaymentAttemptService> log)
     {
         _db = db;
         _registrationWorkflow = registrationWorkflow;
+        _emailService = emailService;
         _config = config;
         _log = log;
         StripeConfiguration.ApiKey = _config["Stripe:SecretKey"];
@@ -92,13 +93,15 @@ public sealed class PaymentAttemptService
         var activeAttempts = await _db.PaymentAttempts
             .Where(a => a.EventId == payload.EventId
                 && a.ContactEmail == (payload.ContactEmail ?? "")
-                && ActiveStatuses.Contains(a.Status))
+                && (a.Status == Created
+                    || a.Status == Submitted
+                    || (a.Status == NeedsReconciliation && a.ResolvedAt == null)))
             .OrderByDescending(a => a.CreatedAt)
             .ToListAsync(ct);
 
         foreach (var active in activeAttempts)
         {
-            if (active.Status == NeedsReconciliation)
+            if (active.Status == NeedsReconciliation && active.ResolvedAt == null)
                 return PaymentAttemptCreateResult.Fail(
                     "PAYMENT_REVIEW_REQUIRED",
                     "A previous payment for this registration needs organiser review. Please contact the organiser before trying again.");
@@ -409,6 +412,15 @@ public sealed class PaymentAttemptService
                 case "succeeded":
                     await FinalizePaymentIntentAsync(intent, $"attempt_backstop_{intent.Id}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}", ct);
                     break;
+                case "processing" when attempt.ExpiresAt <= now:
+                    await MarkNeedsReconciliationAsync(
+                        attempt,
+                        "CHECKOUT_EXPIRED_PROCESSING",
+                        "Payment was still processing after the payment attempt expired.",
+                        intent,
+                        $"attempt_backstop_{intent.Id}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}",
+                        ct);
+                    break;
                 case "requires_payment_method":
                 case "canceled":
                     attempt.Status = attempt.ExpiresAt <= now ? Expired : Failed;
@@ -416,6 +428,17 @@ public sealed class PaymentAttemptService
                     attempt.UpdatedAt = now;
                     attempt.ErrorMessage = "Stripe payment was not completed.";
                     await _db.SaveChangesAsync(ct);
+                    break;
+                case "requires_action":
+                case "requires_confirmation":
+                case "requires_capture":
+                    if (attempt.ExpiresAt <= now)
+                    {
+                        attempt.Status = Expired;
+                        attempt.UpdatedAt = now;
+                        attempt.ErrorMessage = "Payment attempt expired before payment was completed.";
+                        await _db.SaveChangesAsync(ct);
+                    }
                     break;
             }
         }
@@ -496,7 +519,7 @@ public sealed class PaymentAttemptService
             safeEventId = $"{gatewayEventId}_{suffix}";
         }
 
-        _db.WebhookLogs.Add(new WebhookLog
+        var log = new WebhookLog
         {
             PaymentGateway = "stripe",
             GatewayEventId = safeEventId,
@@ -512,8 +535,21 @@ public sealed class PaymentAttemptService
             ContactPhone = attempt?.ContactPhone ?? intent.Metadata?.GetValueOrDefault("contact_phone"),
             Amount = ToMajorUnits(intent.AmountReceived > 0 ? intent.AmountReceived : intent.Amount),
             Currency = intent.Currency?.ToUpperInvariant(),
-        });
+        };
+        _db.WebhookLogs.Add(log);
         await _db.SaveChangesAsync(ct);
+
+        try
+        {
+            await _emailService.SendPaymentReconciliationAlertAsync(_db, log, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogError(
+                ex,
+                "Failed to send payment reconciliation alert for webhook log {WebhookLogId}",
+                log.WebhookLogId);
+        }
     }
 
     private static string NormalizeAttemptKey(

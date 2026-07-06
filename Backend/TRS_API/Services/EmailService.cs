@@ -78,4 +78,101 @@ public class EmailService
         await client.SendMailAsync(message, ct);
         _logger.LogInformation("Payment confirmation email sent for registration {RegistrationId} to {Email}", registrationId, reg.ContactEmail);
     }
+
+    public async Task SendPaymentReconciliationAlertAsync(TRSDbContext db, WebhookLog log, CancellationToken ct = default)
+    {
+        var adminEmails = await db.AdminUsers
+            .AsNoTracking()
+            .Where(u => u.IsActive && (u.Role == "superadmin" || u.Role == "eventadmin"))
+            .Select(u => u.Email)
+            .ToListAsync(ct);
+
+        var recipients = adminEmails
+            .Where(r => !string.IsNullOrWhiteSpace(r))
+            .Select(r => r.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(IsValidEmailAddress)
+            .ToArray();
+
+        if (recipients.Length == 0)
+        {
+            _logger.LogWarning(
+                "Skipping payment reconciliation alert for webhook log {WebhookLogId}: no active admin recipients with valid email addresses",
+                log.WebhookLogId);
+            return;
+        }
+
+        var host = _config["Email:Smtp:Host"];
+        var port = _config.GetValue<int?>("Email:Smtp:Port") ?? 587;
+        var username = _config["Email:Smtp:Username"];
+        var password = _config["Email:Smtp:Password"];
+        var fromAddress = _config["Email:FromAddress"] ?? username;
+        var fromName = _config["Email:FromName"] ?? "TRS";
+
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
+        {
+            _logger.LogWarning(
+                "Skipping payment reconciliation alert for webhook log {WebhookLogId}: SMTP is not configured",
+                log.WebhookLogId);
+            return;
+        }
+
+        var amount = log.Amount.HasValue
+            ? $"{log.Currency ?? "SGD"} {log.Amount.Value:0.00}"
+            : log.Currency ?? "Unknown amount";
+
+        using var message = new MailMessage
+        {
+            From = new MailAddress(fromAddress, fromName),
+            Subject = $"TRS payment reconciliation required ({log.GatewaySessionId})",
+            Body =
+                "A payment needs organiser review in TRS.\n\n" +
+                $"Reason: {log.ErrorMessage}\n" +
+                $"Gateway: {log.PaymentGateway}\n" +
+                $"Event type: {log.EventType}\n" +
+                $"Reference: {log.GatewaySessionId}\n" +
+                $"Amount: {amount}\n" +
+                $"Contact: {log.ContactName ?? "-"}\n" +
+                $"Email: {log.ContactEmail ?? "-"}\n" +
+                $"Phone: {log.ContactPhone ?? "-"}\n" +
+                $"Received at UTC: {log.ReceivedAt:yyyy-MM-dd HH:mm:ss}\n\n" +
+                "Please review this in Admin > Payment Reconciliation.",
+            IsBodyHtml = false,
+        };
+
+        foreach (var recipient in recipients)
+        {
+            message.To.Add(recipient);
+        }
+
+        using var client = new SmtpClient(host, port)
+        {
+            EnableSsl = _config.GetValue("Email:Smtp:EnableSsl", true),
+            DeliveryMethod = SmtpDeliveryMethod.Network,
+        };
+
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            client.Credentials = new NetworkCredential(username, password);
+        }
+
+        await client.SendMailAsync(message, ct);
+        _logger.LogInformation(
+            "Payment reconciliation alert sent for webhook log {WebhookLogId} to {RecipientCount} recipient(s)",
+            log.WebhookLogId,
+            recipients.Length);
+    }
+
+    private static bool IsValidEmailAddress(string email)
+    {
+        try
+        {
+            _ = new MailAddress(email);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }

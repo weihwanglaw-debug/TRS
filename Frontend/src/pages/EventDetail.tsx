@@ -334,6 +334,7 @@ export default function EventDetail() {
   const [paymentMethod, setPaymentMethod] = useState<"card" | "paynow">("card");
   const [paymentAttempt, setPaymentAttempt] = useState<EmbeddedPaymentAttempt | null>(null);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const paymentAttemptKeyRef = useRef<{ signature: string; key: string } | null>(null);
   const cartRequiresPayment = cart.some(e => {
     const prog = event?.programs.find(p => p.id === e.programId);
     return prog?.paymentRequired && e.fee > 0;
@@ -721,13 +722,63 @@ export default function EventDetail() {
       amount: entry.fee,
     }));
 
-  const createAttemptKey = () => {
+  const documentSignature = (file: File | null | undefined) =>
+    file
+      ? {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          lastModified: file.lastModified,
+        }
+      : null;
+
+  const buildAttemptSignature = () => JSON.stringify({
+    eventId: event?.id,
+    paymentMethod,
+    currency,
+    totalPrice,
+    contact: registrationContact,
+    cart: cart.map((entry) => ({
+      programId: entry.programId,
+      programName: entry.programName,
+      fee: entry.fee,
+      feeStructure: entry.feeStructure,
+      feePerPlayer: entry.feePerPlayer,
+      participants: entry.participants.map((p) => ({
+        fullName: p.fullName,
+        dobDay: p.dobDay,
+        dobMonth: p.dobMonth,
+        dobYear: p.dobYear,
+        gender: p.gender,
+        nationality: p.nationality,
+        clubSchoolCompany: p.clubSchoolCompany,
+        email: p.email,
+        contactNumber: p.contactNumber,
+        tshirtSize: p.tshirtSize,
+        sbaId: p.sbaId,
+        guardianName: p.guardianName,
+        guardianContact: p.guardianContact,
+        remark: p.remark,
+        documentFile: documentSignature(p.documentFile),
+        customFieldValues: p.customFieldValues ?? {},
+      })),
+    })),
+  });
+
+  const createAttemptKey = (signature: string) => {
+    if (paymentAttemptKeyRef.current?.signature === signature) {
+      return paymentAttemptKeyRef.current.key;
+    }
+
     const randomPart = crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
-    return `trs_${event!.id}_${Date.now()}_${randomPart}`;
+    const key = `trs_${event!.id}_${Date.now()}_${randomPart}`;
+    paymentAttemptKeyRef.current = { signature, key };
+    return key;
   };
 
   const handlePaymentConfirmed = async (registrationId: string) => {
     clearSession();
+    paymentAttemptKeyRef.current = null;
     setCart([]);
     setSelectedProgram(null);
     setParticipants([]);
@@ -804,10 +855,11 @@ export default function EventDetail() {
       }
 
       // Ask backend to create a Stripe session only — no DB write yet
+      const attemptSignature = buildAttemptSignature();
       const attemptResult = await apiCreateEmbeddedPaymentAttempt(
         registrationPayload,
         paymentMethod,
-        createAttemptKey(),
+        createAttemptKey(attemptSignature),
       );
       if (attemptResult.error) { setSubmitError(attemptResult.error.message); return; }
 
@@ -1048,20 +1100,6 @@ export default function EventDetail() {
           {status === "open" && (
             <div className="event-detail-registration section-anchor" id="registration" ref={registrationRef}>
               <div className="h-px mb-12" style={{ backgroundColor: "var(--color-table-border)" }} />
-              <div className="flex items-center gap-3 mb-10">
-                {[{ n: 1, label: "Program" }, { n: 2, label: "Participants" }, { n: 3, label: "Cart" }].map((s) => (
-                  <div key={s.n} className="flex items-center gap-3">
-                    <div className="w-9 h-9 flex items-center justify-center text-sm font-bold"
-                      style={{
-                        backgroundColor: step >= s.n ? "var(--color-primary)" : "var(--color-table-border)",
-                        color: step >= s.n ? "var(--color-hero-text)" : "var(--color-body-text)",
-                      }}>{s.n}</div>
-                    <span className="text-sm font-medium hidden sm:inline">{s.label}</span>
-                    {s.n < 3 && <div className="w-10 h-px" style={{ backgroundColor: "var(--color-table-border)" }} />}
-                  </div>
-                ))}
-              </div>
-
               <AnimatePresence mode="wait">
                 {step === 1 && !selectedProgram && (
                   <motion.div key="step1" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
@@ -1073,8 +1111,12 @@ export default function EventDetail() {
                   <motion.div key="step2" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
                     <div className="flex items-center justify-between mb-6">
                       <h3 className="font-bold text-lg">{editingCartIndex !== null ? "Edit: " : ""}{selectedProgram.name} — Participant Details</h3>
-                      <button onClick={() => { setStep(cart.length > 0 ? 3 : 1); setSelectedProgram(null); setEditingCartIndex(null); }}
-                        className="text-sm font-medium" style={{ color: "var(--color-primary)" }}>Cancel</button>
+                      <button
+                        onClick={() => { setStep(cart.length > 0 ? 3 : 1); setSelectedProgram(null); setEditingCartIndex(null); }}
+                        className="btn-outline px-4 py-2 text-sm font-medium"
+                      >
+                        Cancel
+                      </button>
                     </div>
                     {formError && (
                       <div className="flex items-center gap-2 p-4 mb-5 text-sm" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
@@ -1184,10 +1226,12 @@ export default function EventDetail() {
                                 </p>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-                              <span className="font-bold" style={{ color: "var(--color-primary)" }}>{currency} ${entry.fee.toFixed(2)}</span>
-                              <button onClick={() => editCartEntry(idx)} className="p-1.5 opacity-50 hover:opacity-100" title="Edit"><Edit2 className="h-4 w-4" /></button>
-                              <button onClick={() => removeCartEntry(idx)} className="p-1.5 opacity-50 hover:opacity-100" title="Remove"><Trash2 className="h-4 w-4" /></button>
+                            <div className="flex flex-col items-end gap-2 flex-shrink-0 ml-4">
+                              <span className="font-bold text-right" style={{ color: "var(--color-primary)" }}>{currency} ${entry.fee.toFixed(2)}</span>
+                              <div className="flex items-center gap-1">
+                                <button onClick={() => editCartEntry(idx)} className="p-1.5 opacity-50 hover:opacity-100" title="Edit"><Edit2 className="h-4 w-4" /></button>
+                                <button onClick={() => removeCartEntry(idx)} className="p-1.5 opacity-50 hover:opacity-100" title="Remove"><Trash2 className="h-4 w-4" /></button>
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -1312,9 +1356,12 @@ export default function EventDetail() {
         attempt={paymentAttempt}
         paymentMethod={paymentMethod}
         summaryItems={buildPaymentSummaryItems()}
-        onClose={() => {
+        onClose={(phase) => {
           setPaymentModalOpen(false);
           setPaymentAttempt(null);
+          if (phase === "failed" || phase === "expired" || phase === "review") {
+            paymentAttemptKeyRef.current = null;
+          }
         }}
         onConfirmed={handlePaymentConfirmed}
       />

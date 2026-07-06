@@ -34,6 +34,7 @@ export const MONTHS = [
 export const DAYS  = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0"));
 export const YEARS = Array.from({ length: 100 }, (_, i) => String(new Date().getFullYear() - i));
 export const TSHIRT_SIZES = ["XS","S","M","L","XL","XXL","3XL"];
+const CLUB_NA_VALUE = "NA";
 const CLUB_OTHERS_VALUE = "__others__";
 const ALLOWED_DOCUMENT_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -365,6 +366,12 @@ export default function ParticipantFieldsForm({
       return;
     }
 
+    if (savedClub === CLUB_NA_VALUE) {
+      setClubSelectValue(CLUB_NA_VALUE);
+      setOtherClubName("");
+      return;
+    }
+
     if (clubNames.includes(savedClub)) {
       setClubSelectValue(savedClub);
       setOtherClubName("");
@@ -562,6 +569,7 @@ export default function ParticipantFieldsForm({
                 set({ clubSchoolCompany: next });
               }}>
               <option value="">Select club</option>
+              <option value={CLUB_NA_VALUE}>{CLUB_NA_VALUE}</option>
               {badmintonClubs.map(club => (
                 <option key={club.clubId} value={club.name}>{club.name}</option>
               ))}

@@ -499,6 +499,8 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.PaymentId).HasColumnName("PaymentID");
             e.Property(x => x.ReconciliationReason).HasMaxLength(100).IsUnicode(false);
             e.Property(x => x.ErrorMessage).HasMaxLength(1000);
+            e.Property(x => x.ResolvedBy).HasMaxLength(256);
+            e.Property(x => x.ResolutionNote).HasMaxLength(1000);
             e.Property(x => x.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
             e.Property(x => x.UpdatedAt).HasDefaultValueSql("(sysutcdatetime())");
             e.Property(x => x.RowVersion).IsRowVersion();

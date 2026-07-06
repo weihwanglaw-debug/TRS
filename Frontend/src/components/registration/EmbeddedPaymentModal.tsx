@@ -15,13 +15,20 @@ type PaymentSummaryItem = {
   detail?: string;
 };
 
+export type PaymentModalPhase = "ready" | "submitting" | "waiting" | "success" | "failed" | "expired" | "review";
+
 type EmbeddedPaymentModalProps = {
   open: boolean;
   attempt: EmbeddedPaymentAttempt | null;
   paymentMethod: "card" | "paynow";
   summaryItems: PaymentSummaryItem[];
-  onClose: () => void;
+  onClose: (phase?: PaymentModalPhase) => void;
   onConfirmed: (registrationId: string) => void;
+};
+
+type EmbeddedPaymentBodyProps = EmbeddedPaymentModalProps & {
+  onCloseLockChange: (locked: boolean) => void;
+  onPhaseChange: (phase: PaymentModalPhase) => void;
 };
 
 const stripePromiseCache = new Map<string, ReturnType<typeof loadStripe>>();
@@ -46,6 +53,8 @@ function secondsLeft(expiresAt: string) {
 
 export default function EmbeddedPaymentModal(props: EmbeddedPaymentModalProps) {
   const { open, attempt } = props;
+  const [closeLocked, setCloseLocked] = useState(false);
+  const [currentPhase, setCurrentPhase] = useState<PaymentModalPhase>("ready");
   const stripePromise = useMemo(
     () => attempt ? getStripePromise(attempt.publishableKey) : null,
     [attempt?.publishableKey],
@@ -67,14 +76,34 @@ export default function EmbeddedPaymentModal(props: EmbeddedPaymentModalProps) {
   }, [attempt]);
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) props.onClose(); }}>
-      <DialogContent className="max-w-3xl p-0 overflow-hidden" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (next) return;
+        if (closeLocked) return;
+        props.onClose(currentPhase);
+      }}
+    >
+      <DialogContent
+        className="max-w-3xl p-0 overflow-hidden"
+        style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}
+        onEscapeKeyDown={(event) => {
+          if (closeLocked) event.preventDefault();
+        }}
+        onPointerDownOutside={(event) => {
+          if (closeLocked) event.preventDefault();
+        }}
+      >
         <DialogHeader className="p-6 pb-0">
           <DialogTitle className="font-bold text-xl">Complete Payment</DialogTitle>
         </DialogHeader>
         {attempt && stripePromise && options ? (
           <Elements stripe={stripePromise} options={options}>
-            <EmbeddedPaymentBody {...props} />
+            <EmbeddedPaymentBody
+              {...props}
+              onCloseLockChange={setCloseLocked}
+              onPhaseChange={setCurrentPhase}
+            />
           </Elements>
         ) : (
           <div className="p-8 text-sm opacity-70">Preparing payment...</div>
@@ -90,10 +119,12 @@ function EmbeddedPaymentBody({
   summaryItems,
   onClose,
   onConfirmed,
-}: EmbeddedPaymentModalProps) {
+  onCloseLockChange,
+  onPhaseChange,
+}: EmbeddedPaymentBodyProps) {
   const stripe = useStripe();
   const elements = useElements();
-  const [phase, setPhase] = useState<"ready" | "submitting" | "waiting" | "success" | "failed" | "expired" | "review">("ready");
+  const [phase, setPhase] = useState<PaymentModalPhase>("ready");
   const [message, setMessage] = useState("");
   const [remaining, setRemaining] = useState(attempt ? secondsLeft(attempt.expiresAt) : 0);
   const [confirmedRegistrationId, setConfirmedRegistrationId] = useState<string | null>(null);
@@ -102,6 +133,11 @@ function EmbeddedPaymentBody({
   const submitted = phase === "submitting" || phase === "waiting" || phase === "success" || phase === "review";
   const controlsDisabled = phase === "submitting" || phase === "waiting" || phase === "success" || phase === "review";
   const total = summaryItems.reduce((sum, item) => sum + item.amount, 0);
+
+  useEffect(() => {
+    onPhaseChange(phase);
+    onCloseLockChange(phase === "submitting" || phase === "waiting");
+  }, [onCloseLockChange, onPhaseChange, phase]);
 
   useEffect(() => {
     if (!attempt || submitted) return;
@@ -165,6 +201,13 @@ function EmbeddedPaymentBody({
     setPhase("submitting");
     setMessage("");
     setPatienceReached(false);
+
+    const elementSubmit = await elements.submit();
+    if (elementSubmit.error) {
+      setPhase("failed");
+      setMessage(elementSubmit.error.message || "Payment details are incomplete. Please check and try again.");
+      return;
+    }
 
     const submittedResult = await apiSubmitEmbeddedPaymentAttempt(attempt.paymentAttemptId);
     if (submittedResult.error) {
@@ -312,7 +355,7 @@ function EmbeddedPaymentBody({
           </button>
         )}
         {(phase === "expired" || phase === "failed" || phase === "review") && (
-          <button type="button" className="btn-outline w-full py-3 font-semibold" onClick={onClose}>
+          <button type="button" className="btn-outline w-full py-3 font-semibold" onClick={() => onClose(phase)}>
             Close
           </button>
         )}

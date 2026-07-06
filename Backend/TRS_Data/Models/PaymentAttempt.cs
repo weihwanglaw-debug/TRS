@@ -26,6 +26,9 @@ public class PaymentAttempt
     public int? PaymentId { get; set; }
     public string? ReconciliationReason { get; set; }
     public string? ErrorMessage { get; set; }
+    public DateTime? ResolvedAt { get; set; }
+    public string? ResolvedBy { get; set; }
+    public string? ResolutionNote { get; set; }
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 }

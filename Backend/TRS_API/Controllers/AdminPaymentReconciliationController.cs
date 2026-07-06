@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Stripe;
 using Stripe.Checkout;
+using TRS_API.Services;
 using TRS_Data;
 using TRS_Data.Models;
 
@@ -320,6 +321,23 @@ public class AdminPaymentReconciliationController : ControllerBase
                 // Mark the WebhookLog resolved so it drops off the Case-C list
                 log.ProcessingStatus = "S";
                 log.ProcessedAt      = DateTime.UtcNow;
+
+                var gatewaySessionId = log.GatewaySessionId;
+                if (!string.IsNullOrWhiteSpace(gatewaySessionId) &&
+                    gatewaySessionId.StartsWith("pi_", StringComparison.OrdinalIgnoreCase))
+                {
+                    var attempt = await _db.PaymentAttempts
+                        .FirstOrDefaultAsync(a => a.GatewayPaymentIntentId == gatewaySessionId);
+                    if (attempt != null &&
+                        attempt.Status == PaymentAttemptService.NeedsReconciliation &&
+                        attempt.ResolvedAt == null)
+                    {
+                        attempt.ResolvedAt = log.ProcessedAt;
+                        attempt.ResolvedBy = User.Identity?.Name ?? "admin";
+                        attempt.ResolutionNote = $"Resolved by orphan refund {stripeRefund.Id}: {req.Reason}";
+                        attempt.UpdatedAt = log.ProcessedAt.Value;
+                    }
+                }
             }
 
             _db.PaymentAuditLogs.Add(new PaymentAuditLog
