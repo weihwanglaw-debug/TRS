@@ -42,9 +42,9 @@ This document maps the current backend API from controller attributes. JSON resp
 |---|---|---|---|
 | GET | `/api/clubs?search=` | Public | List active clubs ordered by name; optional name search. |
 | GET | `/api/clubs/{id}` | Public | Load active club by id. |
-| POST | `/api/clubs` | `superadmin,eventadmin` | Create active club. |
-| PUT | `/api/clubs/{id}` | `superadmin,eventadmin` | Update active club. |
-| DELETE | `/api/clubs/{id}` | `superadmin` | Soft delete club. |
+| POST | `/api/clubs` | `superadmin,eventadmin` | Create active club and write admin audit log. |
+| PUT | `/api/clubs/{id}` | `superadmin,eventadmin` | Update active club and write admin audit log. |
+| DELETE | `/api/clubs/{id}` | `superadmin,eventadmin` | Soft delete club and write admin audit log. |
 
 EF maps this feature to SQL table `BadmintonClub`.
 
@@ -74,11 +74,14 @@ EF maps this feature to SQL table `BadmintonClub`.
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | GET | `/api/Payment/get-payment-info/{registrationId}` | Public, rate-limited | Return payment status for an existing registration. |
-| POST | `/api/Payment/create-checkout-session` | Public, rate-limited | Create Stripe Checkout Session for session-first or legacy flow. |
-| POST | `/api/Payment/confirm-session` | Public, rate-limited | Verify paid Stripe session and finalize session-first registration. |
+| POST | `/api/Payment/embedded-attempt` | Public, rate-limited | Create embedded Stripe PaymentIntent attempt from registration payload. |
+| POST | `/api/Payment/embedded-attempt/{attemptId}/submit` | Public, rate-limited | Mark an embedded attempt submitted before frontend confirms payment. |
+| GET | `/api/Payment/embedded-attempt/{attemptId}/status` | Public, rate-limited | Return attempt status for modal polling. |
+| POST | `/api/Payment/create-checkout-session` | Public, rate-limited | Legacy hosted Stripe Checkout Session creation. |
+| POST | `/api/Payment/confirm-session` | Public, rate-limited | Legacy hosted Checkout session confirmation/finalization. |
 | GET | `/api/Payment/verify/{paymentId}` | Public | Return payment details by payment id. |
 
-Rate limiter policy name is `payment`. `ConfirmSessionRequest.registrationPayload` is required by the request model but finalization reads the stored payload from `PendingCheckouts`.
+Rate limiter policy name is `payment`. Embedded attempts use `PaymentAttempts`; legacy hosted Checkout finalization reads the stored payload from `PendingCheckouts`.
 
 ## Stripe Webhook: `/api/webhooks/stripe`
 
@@ -90,9 +93,13 @@ Handled events:
 
 - `checkout.session.completed`
 - `checkout.session.expired`
+- `payment_intent.processing`
+- `payment_intent.succeeded`
+- `payment_intent.payment_failed`
+- `payment_intent.canceled`
 - `charge.refunded`
 
-Webhook processing writes `WebhookLogs` and uses `PaymentFinalizationService` for session-first completion.
+Webhook processing writes `WebhookLogs`. Embedded PaymentIntent events finalize through `PaymentAttemptService`; legacy hosted Checkout sessions finalize through `PaymentFinalizationService`.
 
 ## Fixtures: `/api/fixtures`
 
@@ -122,7 +129,9 @@ All endpoints require `superadmin,eventadmin`.
 | GET | `/api/sba/rankings?type=` | Public | List rankings, optionally by type. |
 | GET | `/api/sba/members/{sbaId}?type=` | Public | Lookup member by SBA id. |
 | GET | `/api/sba/members?name=&type=` | Public | Search members by name. |
-| POST | `/api/sba/import` | `superadmin,eventadmin` | Replace rankings from uploaded `.xlsx`. |
+| POST | `/api/sba/import` | `superadmin,eventadmin` | Replace rankings from uploaded `.xlsx`, append new club names to `BadmintonClub`, and write admin audit logs. |
+
+`POST /api/sba/import` response includes `importedRows`, `categories`, `addedClubs`, `addedClubNames`, and `skippedSheets`.
 
 ## Uploads: `/api/uploads`
 
@@ -164,5 +173,5 @@ Controller-level auth is `superadmin,eventadmin`; orphan refund endpoint is narr
 - Frontend event filters may include fields not handled by `GET /api/events`; backend currently supports `includeInactive`.
 - Uploads are public despite frontend auth headers.
 - Registration detail and receipt endpoints are public and id-based.
-- `GET /api/Payment/get-payment-info/{registrationId}` and `GET /api/Payment/verify/{paymentId}` exist but are not central to the current session-first frontend flow.
+- `GET /api/Payment/get-payment-info/{registrationId}` and `GET /api/Payment/verify/{paymentId}` exist but are not central to the current embedded payment frontend flow.
 - `ConfirmSessionRequest.registrationPayload` is required but not used for finalization logic.

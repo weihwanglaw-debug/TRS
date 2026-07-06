@@ -507,41 +507,38 @@ public class RegistrationsController : ControllerBase
             participant.DateOfBirth = string.IsNullOrWhiteSpace(req.Dob)
                 ? null
                 : DateOnly.Parse(req.Dob);
-
-        // Update custom field values (upsert by label)
         if (req.CustomFieldValues != null)
         {
-            // Load program custom field definitions to resolve CustomFieldId
-            // for labels that have no existing row (field added after registration).
             var programFields = await _db.ProgramCustomFields
                 .Where(cf => cf.ProgramId == participant.Group.ProgramId)
-                .ToDictionaryAsync(cf => cf.Label, cf => cf.CustomFieldId);
+                .ToListAsync();
 
-            foreach (var (label, value) in req.CustomFieldValues)
+            foreach (var (key, value) in req.CustomFieldValues)
             {
+                var customField = ResolveCustomField(programFields, key);
+                if (customField == null)
+                    continue;
+
                 var existing = participant.CustomFieldValues
-                    .FirstOrDefault(cf => cf.FieldLabel == label);
+                    .FirstOrDefault(cf => cf.CustomFieldId == customField.CustomFieldId);
 
                 if (existing != null)
                 {
+                    existing.FieldLabel = customField.Label;
                     existing.FieldValue = value;
                 }
-                else if (programFields.TryGetValue(label, out var customFieldId))
+                else
                 {
-                    // Insert new row — field was added to the program after this
-                    // participant registered so no row existed yet.
                     _db.ParticipantCustomFieldValues.Add(new ParticipantCustomFieldValue
                     {
                         ParticipantId = participant.ParticipantId,
-                        CustomFieldId = customFieldId,
-                        FieldLabel    = label,
+                        CustomFieldId = customField.CustomFieldId,
+                        FieldLabel    = customField.Label,
                         FieldValue    = value,
                     });
                 }
-                // Label not found in program fields = renamed/deleted — skip silently.
             }
         }
-
         participant.UpdatedAt = DateTime.UtcNow;
 
         // TODO: write ParticipantAuditLog entries here (one per changed field)
@@ -973,14 +970,27 @@ public class RegistrationsController : ControllerBase
                     p.GuardianContact,
                     p.DocumentUrl,
                     p.Remark,
-                    // Return label-keyed dict to match what the frontend sent on create
-                    customFieldValues = p.CustomFieldValues
-                        .ToDictionary(
-                            cf => cf.FieldLabel ?? cf.CustomFieldId.ToString(),
-                            cf => cf.FieldValue ?? ""),
+                    customFieldValues = MapCustomFieldValues(p.CustomFieldValues),
                 }).ToList()
             }).ToList(),
             payment = payment == null ? null : MapPayment(payment)
         };
+    }
+
+    private static Dictionary<string, string> MapCustomFieldValues(IEnumerable<ParticipantCustomFieldValue> values)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var cf in values)
+        {
+            result[cf.CustomFieldId.ToString()] = cf.FieldValue ?? "";
+        }
+        return result;
+    }
+
+    private static ProgramCustomField? ResolveCustomField(IEnumerable<ProgramCustomField> customFields, string key)
+    {
+        return int.TryParse(key, out var customFieldId)
+            ? customFields.FirstOrDefault(cf => cf.CustomFieldId == customFieldId)
+            : null;
     }
 }

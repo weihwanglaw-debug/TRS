@@ -29,7 +29,7 @@ interface Props {
 function ScoreStr({ match }: { match: MatchEntry }) {
   if (match.walkover) return <span className="font-mono text-xs">W/O</span>;
   const played = match.games.filter(g => g.p1 !== "" && g.p2 !== "");
-  if (!played.length) return <span className="opacity-30 text-xs">-</span>;
+  if (!played.length) return <span className="text-xs" style={{ color: "var(--color-disabled-text)" }}>-</span>;
   return (
     <span className="font-mono text-xs">
       {played.map((g, i) => <span key={i}>{i > 0 ? ", " : ""}{g.p1}-{g.p2}</span>)}
@@ -88,7 +88,11 @@ function InlineEdit({ value, placeholder, type = "text", onChange }: {
         onClick={() => { setDraft(value); setEditing(true); }}
         className="flex items-center gap-1 group text-left w-full"
         title="Click to edit">
-        <span className={`text-xs ${value ? "" : "opacity-30 italic"}`}>{value || placeholder}</span>
+        <span
+          className={`text-xs ${value ? "" : "italic"}`}
+          style={{ color: value ? "var(--color-body-text)" : "var(--color-disabled-text)" }}>
+          {value || placeholder}
+        </span>
         <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-40 flex-shrink-0" />
       </button>
     );
@@ -180,7 +184,7 @@ function ResultRow({
               style={{ color: match.winner === "team1" ? "var(--color-primary)" : undefined }}>
               {team1.main}
             </span>
-            {team1.sub && <div className="text-xs opacity-50">{team1.sub}</div>}
+            {team1.sub && <div className="text-xs" style={{ color: "var(--color-disabled-text)" }}>{team1.sub}</div>}
           </div>
         </div>
       </td>
@@ -198,7 +202,7 @@ function ResultRow({
               style={{ color: match.winner === "team2" ? "var(--color-primary)" : undefined }}>
               {team2.main}
             </span>
-            {team2.sub && <div className="text-xs opacity-50">{team2.sub}</div>}
+            {team2.sub && <div className="text-xs" style={{ color: "var(--color-disabled-text)" }}>{team2.sub}</div>}
           </div>
         </div>
       </td>

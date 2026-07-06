@@ -136,7 +136,6 @@ export default function EventEdit() {
     eventStartDate: "", eventEndDate: "", openDate: "", closeDate: "",
     maxParticipants: 100, sponsorInfo: "", bannerUrl: "",
     additionalInfo: "",          // replaces prospectusUrl
-    consentStatement: "",
     isSports: true, sportType: "Badminton",
     fixtureMode: "internal" as "internal" | "external" | "not_required",
   });
@@ -175,7 +174,7 @@ export default function EventEdit() {
   // ── Load existing event ─────────────────────────────────────────────────────
   useEffect(() => {
     if (isNew) return;
-    apiGetEvent(eventId!).then(r => {
+    apiGetEvent(eventId!, { admin: true }).then(r => {
       if (r.error) { setApiError(r.error.message); return; }
       const ev = r.data!;
       setEvent(ev);
@@ -201,7 +200,6 @@ export default function EventEdit() {
         sponsorInfo:      ev.sponsorInfo || "",
         bannerUrl:        ev.bannerUrl || "",
         additionalInfo:   ev.additionalInfo || "",
-        consentStatement: ev.consentStatement || "",
         isSports:         ev.isSports ?? true,
         sportType:        ev.sportType || "Badminton",
         fixtureMode:      (ev.fixtureMode || "internal") as "internal" | "external" | "not_required",
@@ -374,6 +372,10 @@ export default function EventEdit() {
   };
 
   const status = event ? getEventStatus(event) : undefined;
+  const panelStyle = {
+    border: "1px solid var(--color-table-border)",
+    background: "linear-gradient(var(--color-row-hover), var(--color-row-hover)), var(--color-page-bg)",
+  };
 
   if (loading) return <PageLoader label="Loading event…" />;
   if (!isNew && !event && !loading) return (
@@ -383,7 +385,7 @@ export default function EventEdit() {
   return (
     <div>
       {/* ── Sticky Header ── */}
-      <div className="sticky-header px-2 md:px-4">
+      <div className="sticky-header px-2 md:px-4" style={panelStyle}>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
             <button onClick={() => navigate("/admin/events")} className="btn-back">
@@ -436,7 +438,7 @@ export default function EventEdit() {
       )}
 
       {/* ── Event Details ── */}
-      <div className="mb-8 p-8" style={{ border: "1px solid var(--color-table-border)" }}>
+      <div className="mb-8 p-8" style={panelStyle}>
         <SectionTitle>Event Details</SectionTitle>
         <div className="grid md:grid-cols-2 gap-6">
           <FF label="Event Name *" error={errors.name}>
@@ -477,7 +479,7 @@ export default function EventEdit() {
       </div>
 
       {/* ── Documents ── */}
-      <div className="mb-8 p-8" style={{ border: "1px solid var(--color-table-border)" }}>
+      <div className="mb-8 p-8" style={panelStyle}>
         <div className="flex items-center justify-between mb-1">
           <SectionTitle>Documents</SectionTitle>
           {editing && (
@@ -556,7 +558,7 @@ export default function EventEdit() {
       </div>
 
       {/* ── Additional Information (rich text) ── */}
-      <div className="mb-8 p-8" style={{ border: "1px solid var(--color-table-border)" }}>
+      <div className="mb-8 p-8" style={panelStyle}>
         <SectionTitle>Additional Information</SectionTitle>
         <p className="text-xs opacity-60 mb-4">
           Free-form content shown on the event page — key dates, venue details, important notes, etc.
@@ -570,7 +572,7 @@ export default function EventEdit() {
       </div>
 
       {/* ── Sport / Fixture Settings ── */}
-      <div className="mb-8 p-8" style={{ border: "1px solid var(--color-table-border)" }}>
+      <div className="mb-8 p-8" style={panelStyle}>
         <SectionTitle>Sport &amp; Fixture Settings</SectionTitle>
         <div className="space-y-5">
           <label className="flex items-center gap-3 text-sm cursor-pointer">
@@ -629,7 +631,7 @@ export default function EventEdit() {
       </div>
 
       {/* ── Event Banner ── */}
-      <div className="mb-8 p-8" style={{ border: "1px solid var(--color-table-border)" }}>
+      <div className="mb-8 p-8" style={panelStyle}>
         <SectionTitle>Event Banner</SectionTitle>
         <p className="text-xs opacity-60 mb-4">Hero background on the event page (JPG, PNG, WEBP · max {MAX_IMAGE_MB}MB)</p>
         {editing && (
@@ -659,7 +661,7 @@ export default function EventEdit() {
       </div>
 
       {/* ── Gallery ── */}
-      <div className="mb-8 p-8" style={{ border: "1px solid var(--color-table-border)" }}>
+      <div className="mb-8 p-8" style={panelStyle}>
         <SectionTitle>Event Gallery</SectionTitle>
         <p className="text-xs opacity-60 mb-4">Upload multiple images (JPG, PNG, WEBP · max {MAX_IMAGE_MB}MB each)</p>
         {editing && (
@@ -692,16 +694,6 @@ export default function EventEdit() {
         )}
       </div>
 
-      {/* ── Consent Statement ── */}
-      <div className="mb-8 p-8" style={{ border: "1px solid var(--color-table-border)" }}>
-        <SectionTitle>Consent Statement</SectionTitle>
-        <p className="text-xs opacity-60 mb-4">Shown to participants at registration. Leave blank to use the default.</p>
-        <FF label="Consent Statement">
-          <textarea className="field-input" rows={4} value={form.consentStatement}
-            onChange={e => set("consentStatement", e.target.value)} disabled={!editing} />
-        </FF>
-      </div>
-
       {/* ── Programs ── */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-6">
@@ -717,7 +709,8 @@ export default function EventEdit() {
           </div>
         )}
         {programs.length > 0 && (
-          <div className="overflow-x-auto" style={{ border: "1px solid var(--color-table-border)" }}>
+          <>
+          <div className="hidden md:block overflow-x-auto" style={{ border: "1px solid var(--color-table-border)" }}>
             <table className="trs-table">
               <thead>
                 <tr>
@@ -768,6 +761,51 @@ export default function EventEdit() {
               </tbody>
             </table>
           </div>
+          <div className="md:hidden space-y-3">
+            {programs.map(prog => (
+              <div key={prog.id} className="p-4" style={{ border: "1px solid var(--color-table-border)" }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm truncate">{prog.name}</p>
+                    <p className="text-xs opacity-50 mt-0.5">{prog.type} - {prog.gender} - Age {prog.minAge}-{prog.maxAge}</p>
+                  </div>
+                  <button
+                    onClick={e => setOpenAction(openAction?.prog.id === prog.id ? null : { prog, anchorEl: e.currentTarget })}
+                    className="p-2 -mr-2 hover:opacity-70"
+                    style={{ color: "var(--color-primary)" }}
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold px-2 py-0.5"
+                    style={{
+                      backgroundColor: prog.status === "closed" ? "var(--badge-closed-bg)" : "var(--badge-open-bg)",
+                      color: prog.status === "closed" ? "var(--badge-closed-text)" : "var(--badge-open-text)",
+                    }}>
+                    {prog.status === "closed" ? "Closed" : "Open"}
+                  </span>
+                  <span className="text-xs opacity-60">Min / Max: {prog.minParticipants} / {prog.maxParticipants}</span>
+                </div>
+                <div className="mt-4 flex items-end justify-between gap-3">
+                  <p className="font-semibold text-sm" style={{ color: "var(--color-primary)" }}>
+                    {prog.fee > 0 ? `$${prog.fee.toFixed(2)}` : "Free"}
+                  </p>
+                  <div className="text-right text-xs opacity-70">
+                    Filled
+                    <div className="h-1 mt-1 w-24" style={{ backgroundColor: "var(--color-table-border)" }}>
+                      <div className="h-1 transition-all" style={{
+                        width: `${Math.min(100, (prog.currentParticipants / prog.maxParticipants) * 100)}%`,
+                        backgroundColor: prog.currentParticipants >= prog.maxParticipants ? "var(--badge-open-text)" : "var(--color-primary)",
+                      }} />
+                    </div>
+                    <span>{prog.currentParticipants} / {prog.maxParticipants}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          </>
         )}
       </div>
 

@@ -5,13 +5,15 @@ import {
   Calendar, MapPin, Users, Download, ArrowLeft,
   ShoppingCart, Plus, Trash2, AlertCircle, Edit2,
   Search, ChevronLeft, ChevronRight, X, Trophy,
+  BadgeInfo, CalendarDays, UserRound, FileText, Images, ListChecks, ClipboardList,
 } from "lucide-react";
 import type { TournamentEvent, Program, Participant, CartEntry } from "@/types/config";
 import { getEventStatus, formatDate } from "@/lib/eventUtils";
-import { apiGetEvent, apiGetSbaMember, apiCreateRegistration, apiInitiateCheckout, apiConfirmRegistration, apiUploadFile, assetUrl } from "@/lib/api";
+import { apiGetEvent, apiGetSbaMember, apiCreateRegistration, apiCreateEmbeddedPaymentAttempt, apiConfirmRegistration, apiUploadFile, assetUrl } from "@/lib/api";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
 import StatusBadge, { getProgramCapacityStatus } from "@/components/events/StatusBadge";
 import { useAuth } from "@/contexts/AuthContext";
+import { NATIONALITY_OPTIONS } from "@/lib/countries";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import { PageLoader } from "@/components/ui/LoadingSpinner";
@@ -21,6 +23,8 @@ import ParticipantFieldsForm, {
   validateParticipant,
   MONTHS, DAYS, YEARS,
 } from "@/components/registration/ParticipantFieldsForm";
+import EmbeddedPaymentModal from "@/components/registration/EmbeddedPaymentModal";
+import type { EmbeddedPaymentAttempt } from "@/types/registration";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -31,57 +35,14 @@ import eventBanner3 from "@/assets/event-banner-3.jpg";
 
 const FALLBACK_BANNERS = [eventBanner1, eventBanner2, eventBanner3];
 
-// MONTHS, DAYS, YEARS imported from ParticipantFieldsForm
-const PRIORITY_COUNTRY_CODES = ["SG", "MY"];
-const FALLBACK_COUNTRY_CODES = [
-  "AF", "AX", "AL", "DZ", "AS", "AD", "AO", "AI", "AQ", "AG", "AR", "AM", "AW", "AU", "AT", "AZ",
-  "BS", "BH", "BD", "BB", "BY", "BE", "BZ", "BJ", "BM", "BT", "BO", "BQ", "BA", "BW", "BV", "BR",
-  "IO", "BN", "BG", "BF", "BI", "CV", "KH", "CM", "CA", "KY", "CF", "TD", "CL", "CN", "CX", "CC",
-  "CO", "KM", "CG", "CD", "CK", "CR", "CI", "HR", "CU", "CW", "CY", "CZ", "DK", "DJ", "DM", "DO",
-  "EC", "EG", "SV", "GQ", "ER", "EE", "SZ", "ET", "FK", "FO", "FJ", "FI", "FR", "GF", "PF", "TF",
-  "GA", "GM", "GE", "DE", "GH", "GI", "GR", "GL", "GD", "GP", "GU", "GT", "GG", "GN", "GW", "GY",
-  "HT", "HM", "VA", "HN", "HK", "HU", "IS", "IN", "ID", "IR", "IQ", "IE", "IM", "IL", "IT", "JM",
-  "JP", "JE", "JO", "KZ", "KE", "KI", "KP", "KR", "KW", "KG", "LA", "LV", "LB", "LS", "LR", "LY",
-  "LI", "LT", "LU", "MO", "MG", "MW", "MY", "MV", "ML", "MT", "MH", "MQ", "MR", "MU", "YT", "MX",
-  "FM", "MD", "MC", "MN", "ME", "MS", "MA", "MZ", "MM", "NA", "NR", "NP", "NL", "NC", "NZ", "NI",
-  "NE", "NG", "NU", "NF", "MK", "MP", "NO", "OM", "PK", "PW", "PS", "PA", "PG", "PY", "PE", "PH",
-  "PN", "PL", "PT", "PR", "QA", "RE", "RO", "RU", "RW", "BL", "SH", "KN", "LC", "MF", "PM", "VC",
-  "WS", "SM", "ST", "SA", "SN", "RS", "SC", "SL", "SG", "SX", "SK", "SI", "SB", "SO", "ZA", "GS",
-  "SS", "ES", "LK", "SD", "SR", "SJ", "SE", "CH", "SY", "TW", "TJ", "TZ", "TH", "TL", "TG", "TK",
-  "TO", "TT", "TN", "TR", "TM", "TC", "TV", "UG", "UA", "AE", "GB", "US", "UM", "UY", "UZ", "VU",
-  "VE", "VN", "VG", "VI", "WF", "EH", "YE", "ZM", "ZW",
-];
-
-const regionNames = typeof Intl !== "undefined" && "DisplayNames" in Intl
-  ? new Intl.DisplayNames(["en"], { type: "region" })
-  : null;
-const getSupportedRegionCodes = () => {
-  try {
-    return (Intl as typeof Intl & { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.("region");
-  } catch {
-    return undefined;
-  }
+type EventSectionNavItem = {
+  id: string;
+  label: string;
+  icon: React.ElementType;
 };
-const supportedRegionCodes = getSupportedRegionCodes();
-const countryCodes = supportedRegionCodes?.filter((code) => /^[A-Z]{2}$/.test(code)) ?? FALLBACK_COUNTRY_CODES;
-const NATIONALITY_OPTIONS = Array.from(new Set([...PRIORITY_COUNTRY_CODES, ...countryCodes]))
-  .map((code) => ({ code, label: regionNames?.of(code) ?? code }))
-  .sort((a, b) => {
-    const pa = PRIORITY_COUNTRY_CODES.indexOf(a.code);
-    const pb = PRIORITY_COUNTRY_CODES.indexOf(b.code);
-    if (pa !== -1 || pb !== -1) return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb);
-    return a.label.localeCompare(b.label);
-  });
-const COUNTRY_NAME_TO_CODE = new Map(NATIONALITY_OPTIONS.map(({ code, label }) => [label.toLowerCase(), code]));
 
-
+// MONTHS, DAYS, YEARS imported from ParticipantFieldsForm
 function generateId() { return Math.random().toString(36).slice(2, 10); }
-
-function toCountryCode(value: string) {
-  const clean = value.trim();
-  if (/^[A-Z]{2}$/.test(clean)) return clean;
-  return COUNTRY_NAME_TO_CODE.get(clean.toLowerCase()) ?? clean;
-}
 
 function blankParticipant(): Participant {
   return { id: generateId(), ...blankParticipantFormValues() };
@@ -240,6 +201,54 @@ function EventGallery({ images }: { images: string[] }) {
 }
 
 // ── Main component ──
+function EventDetailSectionNav({ sections }: { sections: EventSectionNavItem[] }) {
+  const [activeId, setActiveId] = useState(sections[0]?.id ?? "");
+
+  useEffect(() => {
+    if (sections.length === 0) return;
+
+    const observers: IntersectionObserver[] = [];
+    sections.forEach(({ id }) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting) setActiveId(id);
+        },
+        { rootMargin: "-35% 0px -55% 0px", threshold: 0.01 },
+      );
+      observer.observe(el);
+      observers.push(observer);
+    });
+
+    return () => observers.forEach((observer) => observer.disconnect());
+  }, [sections]);
+
+  const scrollToSection = (sectionId: string) => {
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  if (sections.length < 2) return null;
+
+  return (
+    <nav className="event-detail-section-nav" aria-label="Event page sections">
+      {sections.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          type="button"
+          className={activeId === id ? "is-active" : ""}
+          onClick={() => scrollToSection(id)}
+          aria-current={activeId === id ? "true" : undefined}
+        >
+          <Icon className="h-4 w-4" />
+          <span>{label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 export default function EventDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -323,6 +332,8 @@ export default function EventDetail() {
   const [submitting,    setSubmitting]    = useState(false);
   const [submitError,   setSubmitError]   = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"card" | "paynow">("card");
+  const [paymentAttempt, setPaymentAttempt] = useState<EmbeddedPaymentAttempt | null>(null);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const cartRequiresPayment = cart.some(e => {
     const prog = event?.programs.find(p => p.id === e.programId);
     return prog?.paymentRequired && e.fee > 0;
@@ -350,6 +361,17 @@ export default function EventDetail() {
     if (safe.length > 0) return safe;
     return FALLBACK_BANNERS;
   }, [event]);
+
+  const sectionNavItems = useMemo<EventSectionNavItem[]>(() => {
+    if (!event) return [];
+    return [
+      { id: "event-info", label: "Info", icon: BadgeInfo },
+      ...(event.documents?.length ? [{ id: "event-documents", label: "Docs", icon: FileText }] : []),
+      ...(galleryImages.length ? [{ id: "event-gallery", label: "Gallery", icon: Images }] : []),
+      { id: "event-categories", label: event.sportType.toLowerCase() === "badminton" ? "Categories" : "Programs", icon: ListChecks },
+      ...(status === "open" ? [{ id: "registration", label: "Register", icon: ClipboardList }] : []),
+    ];
+  }, [event, galleryImages.length, status]);
 
   // ── Program selection with scroll ──
   // Re-fetches the event before opening the form so that currentParticipants
@@ -381,6 +403,59 @@ export default function EventDetail() {
 
   // ── Participant field updates ──
 
+  const errorKeysForParticipantPatch = (patch: Partial<Participant>): string[] => {
+    const keys = new Set<string>();
+
+    Object.keys(patch).forEach((key) => {
+      if (key === "dobDay" || key === "dobMonth" || key === "dobYear") {
+        keys.add("dob");
+        return;
+      }
+
+      if (key === "customFieldValues") {
+        keys.add("custom.");
+        return;
+      }
+
+      keys.add(key);
+    });
+
+    return Array.from(keys);
+  };
+
+  const clearParticipantErrors = (idx: number, fieldKeys: string[]) => {
+    if (fieldKeys.length === 0) return;
+
+    const prefix = `p${idx}.`;
+    setErrors((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      fieldKeys.forEach((fieldKey) => {
+        if (fieldKey.endsWith(".")) {
+          Object.keys(next).forEach((key) => {
+            if (key.startsWith(`${prefix}${fieldKey}`)) {
+              delete next[key];
+              changed = true;
+            }
+          });
+          return;
+        }
+
+        const errorKey = `${prefix}${fieldKey}`;
+        if (errorKey in next) {
+          delete next[errorKey];
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+
+    if (fieldKeys.includes("gender")) {
+      setFormError("");
+    }
+  };
 
 
 
@@ -388,17 +463,35 @@ export default function EventDetail() {
     setParticipants((prev) =>
       prev.map((p, i) => i === participantIdx ? { ...existing, id: p.id, documentFile: null } : p)
     );
+    clearParticipantErrors(participantIdx, ["sbaId", "fullName", "dob", "gender", "email", "contactNumber", "nationality", "clubSchoolCompany", "tshirtSize", "guardianName", "guardianContact", "documentUpload", "remark", "custom."]);
     setSuggestions(null);
   };
 
   const addParticipant = () => {
     if (!selectedProgram || participants.length >= selectedProgram.maxPlayers) return;
     setParticipants((prev) => [...prev, blankParticipant()]);
+    setFormError("");
   };
 
   const removeParticipant = (idx: number) => {
     if (!selectedProgram || participants.length <= selectedProgram.minPlayers) return;
     setParticipants((prev) => prev.filter((_, i) => i !== idx));
+    setErrors((prev) => {
+      const next: Record<string, string> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const match = /^p(\d+)\.(.+)$/.exec(key);
+        if (!match) {
+          next[key] = value;
+          return;
+        }
+
+        const participantIndex = Number(match[1]);
+        if (participantIndex < idx) next[key] = value;
+        else if (participantIndex > idx) next[`p${participantIndex - 1}.${match[2]}`] = value;
+      });
+      return next;
+    });
+    setFormError("");
     // Rebuild sbaStatus: participants above the removed index shift down by one
     setSbaStatus((prev) => {
       const next: Record<number, "idle" | "loading" | "found" | "not_found"> = {};
@@ -431,6 +524,7 @@ export default function EventDetail() {
             clubSchoolCompany: found.club } : p
         )
       );
+      clearParticipantErrors(idx, ["sbaId", "fullName", "dob", "clubSchoolCompany"]);
       setSbaStatus((prev) => ({ ...prev, [idx]: "found" }));
     } else {
       setSbaStatus((prev) => ({ ...prev, [idx]: "not_found" }));
@@ -543,7 +637,6 @@ export default function EventDetail() {
     currentCart: CartEntry[],
     currentContact: { name: string; email: string; phone: string },
     payload: object,
-    gatewaySessionId?: string,
   ): boolean => {
     if (!SESSION_KEY) return false;
     try {
@@ -554,7 +647,6 @@ export default function EventDetail() {
         })),
         contact: currentContact,
         payload,
-        gatewaySessionId,
       };
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(serializable));
       return true;
@@ -622,15 +714,39 @@ export default function EventDetail() {
     };
   };
 
-  // ── Checkout ──────────────────────────────────────────────────────────────
-  // New flow for paid registrations:
-  //   1. Save cart + contact to sessionStorage (survives browser redirect)
-  //   2. Send cart payload to backend to create Stripe session (no DB write yet)
-  //   3. Redirect user to Stripe
-  //   4. On success: Stripe webhook fires → backend writes Registration + Payment to DB
-  //   5. PaymentResult.tsx detects success, calls clearSession()
-  //   On cancel/fail: user returns to this page with cart restored from sessionStorage.
-  //   No dirty Pending records are created in the database.
+  const buildPaymentSummaryItems = () =>
+    cart.map((entry) => ({
+      label: entry.programName,
+      detail: entry.participants.map(p => p.fullName).join(" / "),
+      amount: entry.fee,
+    }));
+
+  const createAttemptKey = () => {
+    const randomPart = crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+    return `trs_${event!.id}_${Date.now()}_${randomPart}`;
+  };
+
+  const handlePaymentConfirmed = async (registrationId: string) => {
+    clearSession();
+    setCart([]);
+    setSelectedProgram(null);
+    setParticipants([]);
+    setEditingCartIndex(null);
+    setPaymentAttempt(null);
+    setPaymentModalOpen(false);
+    setStep(1);
+    setSubmitError("");
+    if (id) {
+      const fresh = await apiGetEvent(id);
+      if (fresh.data) setEvent(fresh.data);
+    }
+    navigate(`/payment/result?status=success&reg=${registrationId}&direct=paid`);
+  };
+
+  // Checkout
+  // Paid registrations use embedded Stripe PaymentIntents. The backend validates
+  // pricing before creating an attempt, and the webhook is the source of truth
+  // for final registration creation.
   const handleCheckout = async () => {
     if (!event || !canSubmitCart) return;
 
@@ -675,7 +791,9 @@ export default function EventDetail() {
         const regResult = await apiCreateRegistration(registrationPayload);
         if (regResult.error) { setSubmitError(regResult.error.message); return; }
         clearSession();
-        navigate(`/payment/result?status=success&reg=${regResult.data!.id}`);
+        navigate(`/payment/result?status=success&reg=${regResult.data!.id}&direct=free`, {
+          state: { directRegistration: regResult.data, directMode: "free" },
+        });
         return;
       }
 
@@ -686,21 +804,25 @@ export default function EventDetail() {
       }
 
       // Ask backend to create a Stripe session only — no DB write yet
-      const checkoutResult = await apiInitiateCheckout("", paymentMethod, registrationPayload, event.id);
-      if (checkoutResult.error) { setSubmitError(checkoutResult.error.message); return; }
+      const attemptResult = await apiCreateEmbeddedPaymentAttempt(
+        registrationPayload,
+        paymentMethod,
+        createAttemptKey(),
+      );
+      if (attemptResult.error) { setSubmitError(attemptResult.error.message); return; }
 
       const didSaveSession = saveSession(
         cart,
         contact,
         registrationPayload,
-        checkoutResult.data?.gatewaySessionId,
       );
       if (!didSaveSession) {
         setSubmitError("We couldn't save your registration details in this browser. Please enable storage and try again.");
         return;
       }
 
-      window.location.href = checkoutResult.data!.checkoutUrl;
+      setPaymentAttempt(attemptResult.data!);
+      setPaymentModalOpen(true);
 
     } finally {
       setSubmitting(false);
@@ -751,40 +873,40 @@ export default function EventDetail() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="event-detail-shell min-h-screen flex flex-col">
       <Header />
+      <EventDetailSectionNav sections={sectionNavItems} />
       <main className="flex-1" style={{ backgroundColor: "var(--color-page-bg)" }}>
 
         {/* ── Banner Hero ── */}
-        <div className="relative" style={{ minHeight: "380px" }}>
+        <div className="event-detail-hero relative">
           <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${bannerImage})` }} />
-          <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.7) 100%)" }} />
-          <div className="relative z-10 max-w-5xl mx-auto px-8 pt-24 pb-14">
+          <div className="event-detail-hero-overlay absolute inset-0" />
+          <div className="event-detail-hero-inner relative z-10 mx-auto px-8 pt-24 pb-14">
             <button onClick={() => navigate("/")}
-              className="flex items-center gap-2 text-sm mb-6 px-4 py-2 text-white/80 hover:text-white transition-colors"
-              style={{ border: "1px solid rgba(255,255,255,0.3)", backgroundColor: "rgba(255,255,255,0.1)" }}>
+              className="event-detail-back flex items-center gap-2 text-sm mb-6 px-4 py-2 text-white/80 hover:text-white transition-colors">
               <ArrowLeft className="h-4 w-4" /> Back to events
             </button>
             <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
-              <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "var(--color-primary)" }}>
+              <p className="event-detail-kicker text-xs font-bold uppercase tracking-widest mb-3">
                 {event.venue}
               </p>
               <div className="flex items-start gap-3 mb-3 flex-wrap">
-                <h1 className="font-bold text-3xl md:text-4xl text-white">{event.name}</h1>
+                <h1 className="event-detail-title font-bold text-3xl md:text-4xl text-white">{event.name}</h1>
                 <StatusBadge status={status} />
               </div>
-              <p className="text-white/80 max-w-2xl text-base">{event.description}</p>
+              <p className="event-detail-description text-white/80 text-base">{event.description}</p>
             </motion.div>
           </div>
         </div>
 
-        <div className="max-w-5xl mx-auto py-12 px-8">
+        <div className="event-detail-body mx-auto py-12 px-8">
 
           {/* ── Section 1: Event Info ── */}
-          <div className="grid md:grid-cols-2 gap-10 mb-12">
+          <div id="event-info" className="event-detail-info-grid section-anchor grid md:grid-cols-2 gap-10 mb-12">
 
-            <div className="space-y-5">
-              <h2 className="font-bold text-xl mb-6">Event Information</h2>
+            <div className="event-detail-panel space-y-5">
+              <h2 className="event-detail-section-heading font-bold text-xl mb-6">Event Information</h2>
               <InfoRow icon={Calendar} label="Event Dates" value={`${formatDate(event.eventStartDate)} – ${formatDate(event.eventEndDate)}`} />
               <InfoRow icon={MapPin} label="Venue" value={`${event.venue}, ${event.venueAddress}`} />
               <InfoRow icon={Users} label="Max Participants" value={String(event.maxParticipants)} />
@@ -799,10 +921,10 @@ export default function EventDetail() {
                 </div>
               )}
             </div>
-            <div className="flex flex-col gap-4">
+            <div id="event-documents" className="event-detail-panel event-detail-documents section-anchor flex flex-col gap-4">
              {event.documents && event.documents.length > 0 && (
-                <div className="flex flex-col gap-2">
-                    <h2 className="font-bold text-xl mb-6">Event Documents</h2>
+                <div className="flex flex-col gap-4">
+                    <h2 className="event-detail-section-heading font-bold text-xl mb-6">Event Documents</h2>
 
                       {event.documents
                         .slice()
@@ -813,9 +935,16 @@ export default function EventDetail() {
                             href={assetUrl(doc.fileUrl)}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="btn-primary inline-flex items-center gap-2 px-6 py-3 font-semibold text-sm w-fit"
+                            className="event-detail-document-link"
                           >
-                            <Download className="h-4 w-4" /> {doc.label}
+                            <span className="event-detail-document-icon">
+                              <Download className="h-5 w-5" />
+                            </span>
+                            <span className="event-detail-document-copy">
+                              <span>{doc.label}</span>
+                              <small>Open tournament document</small>
+                            </span>
+                            <span className="event-detail-document-action">View</span>
                           </a>
                         ))}
                 </div>
@@ -833,7 +962,7 @@ export default function EventDetail() {
 
           {/* Google Maps embed */}
           {event.venueAddress && (
-            <div className="mb-12 overflow-hidden" style={{ border: "1px solid var(--color-table-border)", height: "200px" }}>
+            <div className="event-detail-map mb-12 overflow-hidden">
               <iframe title="Venue Map" width="100%" height="100%" style={{ border: 0 }} loading="lazy" allowFullScreen
                 referrerPolicy="no-referrer-when-downgrade"
                 src={`https://maps.google.com/maps?q=${encodeURIComponent(event.venue + " " + event.venueAddress)}&output=embed`} />
@@ -842,12 +971,14 @@ export default function EventDetail() {
 
           {/* ── Gallery Section ── */}
    
-          <EventGallery images={galleryImages} />
+          <div id="event-gallery" className="section-anchor">
+            <EventGallery images={galleryImages} />
+          </div>
 
           {/* ── Additional Information ── */}
           {event.additionalInfo && event.additionalInfo.trim() !== "" && event.additionalInfo !== "<p></p>" && (
-            <div className="mb-12">
-                 <h2 className="font-bold text-xl mb-6">Additional Information</h2>
+            <div className="event-detail-panel mb-12">
+                 <h2 className="event-detail-section-heading font-bold text-xl mb-6">Additional Information</h2>
               <div
                 className="prose prose-sm max-w-none"
                 style={{ color: "var(--color-body-text)" }}
@@ -857,8 +988,8 @@ export default function EventDetail() {
           )}
 
           {/* ── Section 2: Program Cards ── */}
-          <div ref={programsRef}>
-          <h2 className="font-bold text-xl mb-6">           
+          <div id="event-categories" className="section-anchor" ref={programsRef}>
+          <h2 className="event-detail-section-heading font-bold text-xl mb-6">           
             {event.sportType.toLowerCase() === "badminton" ? "Event Categories" : "Programs"}
           </h2>
           </div>
@@ -873,35 +1004,37 @@ export default function EventDetail() {
               const progClosed = prog.status === "closed";
               const canRegister = status === "open" && !isFull && !progClosed;
               return (
-                <div key={prog.id} className="flex flex-col"
+                <div key={prog.id} className="event-detail-program-card flex flex-col"
                   style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
                   <div className="h-1" style={{ backgroundColor: "var(--color-primary)" }} />
                   <div className="p-6 flex flex-col flex-1">
                     <div className="flex items-start justify-between mb-3 gap-2">
-                      <h3 className="font-bold text-base leading-tight flex-1">{prog.name}</h3>
+                      <h3 className="event-category-title flex-1">{prog.name}</h3>
                       <StatusBadge status={capStatus} />
                     </div>
-                    <div className="space-y-1.5 text-xs mb-4" style={{ color: "var(--color-body-text)" }}>
-                      <div className="flex items-center gap-2"><span className="opacity-50">Type</span><span className="font-medium">{prog.type}</span></div>
-                      <div className="flex items-center gap-2"><span className="opacity-50">Gender</span><span className="font-medium">{prog.gender}</span></div>
-                      <div className="flex items-center gap-2"><span className="opacity-50">Age</span><span className="font-medium">{prog.minAge}–{prog.maxAge} yrs</span></div>
-                      <div className="flex items-center gap-2"><span className="opacity-50">Players</span>
-                        <span className="font-medium">{prog.minPlayers === prog.maxPlayers ? prog.maxPlayers : `${prog.minPlayers}–${prog.maxPlayers}`} per entry</span>
-                      </div>
-                    </div>
-                    <div className="mt-auto flex items-center justify-between pt-4" style={{ borderTop: "1px solid var(--color-table-border)" }}>
-                      <div>
-                        <span className="font-bold text-lg" style={{ color: "var(--color-primary)" }}>
+                    <div className="event-category-body">
+                      <div className="event-category-price-block">
+                        <span className="event-category-fee">
                           {prog.paymentRequired ? `${currency} $${prog.fee}` : "Free"}
                         </span>
                         {prog.paymentRequired && (
-                          <p className="text-xs opacity-50 leading-tight">
+                          <p className="event-category-fee-note">
                             {prog.feeStructure === "per_player" ? "per player" : "per entry"}
                           </p>
                         )}
                       </div>
+                      <div className="event-category-facts">
+                        <div className="event-category-fact"><BadgeInfo className="event-category-fact-icon" /><span>{prog.type}</span></div>
+                        <div className="event-category-fact"><UserRound className="event-category-fact-icon" /><span>{prog.gender}</span></div>
+                        <div className="event-category-fact"><CalendarDays className="event-category-fact-icon" /><span>{prog.minAge}–{prog.maxAge} yrs</span></div>
+                        <div className="event-category-fact"><Users className="event-category-fact-icon" />
+                          <span>{prog.minPlayers === prog.maxPlayers ? prog.maxPlayers : `${prog.minPlayers}–${prog.maxPlayers}`} per entry</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="event-category-action">
                       <button disabled={!canRegister} onClick={() => handleSelectProgram(prog)}
-                        className="btn-primary px-4 py-2 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+                        className="btn-primary event-category-button disabled:opacity-40 disabled:cursor-not-allowed">
                         {isFull ? (cartEntryCount > 0 ? "Limit Reached" : "Full") : progClosed ? "Closed" : "Register"}
                       </button>
                     </div>
@@ -913,7 +1046,7 @@ export default function EventDetail() {
 
           {/* ── Section 3: Registration Steps ── */}
           {status === "open" && (
-            <div className="section-anchor" id="registration" ref={registrationRef}>
+            <div className="event-detail-registration section-anchor" id="registration" ref={registrationRef}>
               <div className="h-px mb-12" style={{ backgroundColor: "var(--color-table-border)" }} />
               <div className="flex items-center gap-3 mb-10">
                 {[{ n: 1, label: "Program" }, { n: 2, label: "Participants" }, { n: 3, label: "Cart" }].map((s) => (
@@ -961,6 +1094,7 @@ export default function EventDetail() {
                         <ParticipantFieldsForm
                           values={p}
                           onChange={(patch) => {
+                            clearParticipantErrors(idx, errorKeysForParticipantPatch(patch));
                             setParticipants((prev) =>
                               prev.map((pp, i) => i === idx ? { ...pp, ...patch } : pp)
                             );
@@ -985,17 +1119,21 @@ export default function EventDetail() {
                               .map(([k, v]) => [k.replace(`p${idx}.`, ""), v])
                           )}
                           onFileChange={(file) =>
-                            setParticipants((prev) =>
-                              prev.map((pp, i) => i === idx ? { ...pp, documentFile: file } : pp)
-                            )
+                            {
+                              clearParticipantErrors(idx, ["documentUpload"]);
+                              setParticipants((prev) =>
+                                prev.map((pp, i) => i === idx ? { ...pp, documentFile: file } : pp)
+                              );
+                            }
                           }
                           newFile={p.documentFile ?? null}
                           sbaEnabled={true}
                           sbaStatus={sbaStatus[idx] ?? "idle"}
                           onSbaRetrieve={() => retrieveBySbaId(idx, p.sbaId || "")}
-                          onSbaIdChange={(v) =>
-                            setSbaStatus((prev) => ({ ...prev, [idx]: v.trim() ? prev[idx] : "idle" }))
-                          }
+                          onSbaIdChange={(v) => {
+                            clearParticipantErrors(idx, ["sbaId"]);
+                            setSbaStatus((prev) => ({ ...prev, [idx]: v.trim() ? prev[idx] : "idle" }));
+                          }}
                           suggestions={
                             suggestions?.idx === idx
                               ? suggestions.matches
@@ -1058,17 +1196,9 @@ export default function EventDetail() {
                           <span className="font-bold text-xl" style={{ color: "var(--color-primary)" }}>{currency} ${totalPrice.toFixed(2)}</span>
                         </div>
                         {/* Session restored banner — shown when user returns after payment cancel */}
-                        {savedSession && (
-                          <div className="flex items-center gap-3 p-4 mb-5 text-sm"
-                            style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)", border: "1px solid var(--badge-soon-text)" }}>
-                            <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                            <span>Your previous cart has been restored. You can review and try payment again.</span>
-                          </div>
-                        )}
-
                         {/* Contact person — receipt will be sent here */}
                         {!isAdminPaymentBypass && (
-                        <div className="p-5 mb-5" style={{ border: "1px solid var(--color-table-border)" }}>
+                        <div className="event-detail-panel p-5 mb-5" style={{ border: "1px solid var(--color-table-border)" }}>
                           <p className="text-xs font-semibold mb-4 opacity-60">CONTACT PERSON</p>
                           <p className="text-xs opacity-50 mb-4">The registration receipt will be emailed to this address.</p>
                           <div className="grid sm:grid-cols-3 gap-4">
@@ -1115,7 +1245,7 @@ export default function EventDetail() {
 
                         {/* Payment method selector — only shown when payment is required */}
                         {cartRequiresPayment && !isAdminPaymentBypass && (
-                          <div className="mb-5 p-5" style={{ border: "1px solid var(--color-table-border)" }}>
+                          <div className="event-detail-panel mb-5 p-5" style={{ border: "1px solid var(--color-table-border)" }}>
                             <p className="text-xs font-semibold mb-3 opacity-60">Payment Method</p>
                             <div className="flex gap-3">
                               {([
@@ -1126,7 +1256,7 @@ export default function EventDetail() {
                                   key={opt.value}
                                   type="button"
                                   onClick={() => setPaymentMethod(opt.value)}
-                                  className="flex-1 p-4 text-left transition-all"
+                                  className="event-detail-choice-card flex-1 p-4 text-left transition-all"
                                   style={{
                                     border: `2px solid ${paymentMethod === opt.value ? "var(--color-primary)" : "var(--color-table-border)"}`,
                                     backgroundColor: paymentMethod === opt.value ? "var(--color-row-hover)" : "transparent",
@@ -1136,16 +1266,11 @@ export default function EventDetail() {
                                 </button>
                               ))}
                             </div>
-                            {paymentMethod === "paynow" && (
-                              <p className="mt-3 text-xs opacity-60">
-                                PayNow checkout expires in 30 minutes. Complete the transfer before the QR session times out.
-                              </p>
-                            )}
                           </div>
                         )}
 
                         {!isAdminPaymentBypass && (
-                        <div className="p-5 mb-5" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
+                        <div className="event-detail-panel p-5 mb-5" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
                           <label className="flex items-start justify-between gap-4 cursor-pointer text-sm leading-relaxed">
                             <span style={{ color: "var(--color-body-text)" }}>{cfg.consentText}</span>
                             <Switch checked={consentChecked} onCheckedChange={setConsentChecked} />
@@ -1181,6 +1306,18 @@ export default function EventDetail() {
           )}
         </div>
       </main>
+
+      <EmbeddedPaymentModal
+        open={paymentModalOpen}
+        attempt={paymentAttempt}
+        paymentMethod={paymentMethod}
+        summaryItems={buildPaymentSummaryItems()}
+        onClose={() => {
+          setPaymentModalOpen(false);
+          setPaymentAttempt(null);
+        }}
+        onConfirmed={handlePaymentConfirmed}
+      />
 
       {/* ── Admin Registration Confirmation Modal ── */}
       <Dialog open={adminConfirmOpen} onOpenChange={v => { if (!v) { setAdminConfirmOpen(false); setAdminConfirmNote(""); setAdminConfirmRef(""); } }}>
@@ -1278,7 +1415,9 @@ export default function EventDetail() {
                   if (confirmResult.error) { setSubmitError(confirmResult.error.message); setAdminConfirmOpen(false); return; }
                   clearSession();
                   setAdminConfirmOpen(false);
-                  navigate(`/payment/result?status=success&reg=${regResult.data!.id}`);
+                  navigate(`/payment/result?status=success&reg=${regResult.data!.id}&direct=admin`, {
+                    state: { directRegistration: confirmResult.data, directMode: "admin" },
+                  });
                 } finally {
                   setSubmitting(false);
                 }

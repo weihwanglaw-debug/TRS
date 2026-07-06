@@ -103,7 +103,12 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
     const canAssignPlaces   = allResultsEntered && selectedPlaces.length > 0 && !hasDuplicatePlaces;
 
     return (
-      <div style={{ border: `2px solid ${isActive ? "var(--color-primary)" : round.isComplete ? "var(--color-table-border)" : "var(--color-table-border)"}`, opacity: !isActive && !round.isComplete ? 0.4 : 1 }}>
+      <div
+        style={{
+          borderLeft: isActive ? "3px solid var(--color-primary)" : "3px solid transparent",
+          backgroundColor: "var(--color-row-hover)",
+          opacity: !isActive && !round.isComplete ? 0.55 : 1,
+        }}>
         {/* Header */}
         <button className="w-full flex items-center justify-between px-5 py-4"
           style={{ backgroundColor: round.isComplete ? "var(--color-row-hover)" : isActive ? "var(--color-row-hover)" : "transparent" }}
@@ -133,7 +138,7 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
         </button>
 
         {open && (
-          <div className="border-t" style={{ borderColor: "var(--color-table-border)" }}>
+          <div>
             {error && (
               <div className="px-5 pt-4">
                 <div
@@ -298,14 +303,22 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
       )}
 
       {/* Heats config summary */}
-      <div className="flex flex-wrap gap-4 text-xs opacity-50 px-1">
-        <span>{rounds.length} rounds total (incl. final)</span>
-        <span>·</span>
-        <span>{advanceCount} advance per round</span>
-        <span>·</span>
-        <span>{resultLabel} per participant</span>
-        <span>·</span>
-        <span>{placesAwarded} places awarded</span>
+      <div className="flex flex-wrap items-center gap-2 px-1 pb-2">
+        <span className="text-xs font-bold uppercase tracking-wide px-2.5 py-1"
+          style={{ color: "var(--color-primary)", backgroundColor: "var(--badge-open-bg)" }}>
+          Format: Heats
+        </span>
+        {[
+          `${rounds.length} rounds total (incl. final)`,
+          `${advanceCount} advance per round`,
+          `${resultLabel} per participant`,
+          `${placesAwarded} places awarded`,
+        ].map(item => (
+          <span key={item} className="text-xs px-2.5 py-1"
+            style={{ color: "var(--color-body-text)", backgroundColor: "var(--color-row-hover)" }}>
+            {item}
+          </span>
+        ))}
       </div>
 
       {/* Round cards */}

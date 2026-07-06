@@ -3,9 +3,9 @@
  *
  * ── AUTH SPLIT ────────────────────────────────────────────────────────────────
  *
- *   PUBLIC  (no login required — matches HTML checkout page):
+ *   PUBLIC  (no login required):
  *     apiCreateRegistration()    POST /api/registrations
- *     apiInitiateCheckout()      POST /api/Payment/create-checkout-session
+ *     apiCreateEmbeddedPaymentAttempt() POST /api/Payment/embedded-attempt
  *     apiGetRegistration()       GET  /api/registrations/:id   (receipt lookup)
  *
  *   ADMIN   (requires Bearer token):
@@ -35,8 +35,9 @@ import { ok, err, delay, paginate, API_BASE, publicHeaders, adminHeaders, parseE
 import type { ApiResult, PageParams, PagedResult } from "./_base";
 import type {
   Registration, ParticipantGroup, Payment, PaymentItem,
-  Refund, CheckoutSession, PaymentStatus, RegistrationStats,
+  Refund, PaymentStatus, RegistrationStats,
   WebhookFailure, PaymentAuditEntry, OrphanRefundHistory,
+  EmbeddedPaymentAttempt, EmbeddedPaymentAttemptStatus,
 } from "@/types/registration";
 
 // ── Filter params ─────────────────────────────────────────────────────────────
@@ -57,9 +58,9 @@ export interface RegistrationFilters {
 
 /**
  * POST /api/registrations
- * Public: creates a new registration (status=Pending, payment=Pending).
- * Called by EventDetail.tsx when the user submits their cart.
- * Does NOT initiate checkout — call apiInitiateCheckout() next.
+ * Public: creates a registration directly.
+ * Used for free registrations; paid public registrations use embedded
+ * payment attempts and are finalized by Stripe webhook processing.
  */
 export async function apiCreateRegistration(
   payload: Record<string, unknown>,
@@ -76,90 +77,10 @@ export async function apiCreateRegistration(
 }
 
 /**
- * POST /api/Payment/create-checkout-session
- * Public: creates a Stripe checkout session for a Pending registration.
- * Returns CheckoutSession.checkoutUrl — redirect the user there immediately.
- *
- * paymentMethod: "card" | "paynow"
- *   "card"   → Stripe hosted checkout (credit card)
- *   "paynow" → Stripe PayNow flow (or your own PayNow endpoint)
- *
- * ── SESSION-FIRST PAYMENT FLOW ───────────────────────────────────────────────
- * For paid registrations the frontend no longer writes a Pending registration
- * to the DB before redirecting to Stripe. Instead:
- *   1. Full cart payload is sent here as `registrationPayload`.
- *   2. Backend creates the Stripe session, embedding the payload as metadata.
- *   3. DB write (Registration + Payment) happens ONLY inside the Stripe webhook
- *      after payment is confirmed — no dirty Pending records ever exist.
- *   4. Stripe embeds the real registrationId in the return URL via metadata.
- *   5. On cancel/failure no DB record exists — user retries from sessionStorage.
- *
- * For free registrations, registrationPayload is omitted and registrationId is
- * passed instead (DB write happens before calling this, no gateway involved).
- */
-export async function apiInitiateCheckout(
-  registrationId: string,
-  paymentMethod:  "card" | "paynow" = "card",
-  registrationPayload?: object,   // full cart payload — session-first paid flow only
-  eventId?: string,               // used to build cancel return URL for retry routing
-): Promise<ApiResult<CheckoutSession>> {
-  await delay();
-
-  const isPaidFlow = !!registrationPayload;
-
-  const body = isPaidFlow
-    ? {
-        // Session-first: backend creates Stripe session only.
-        // Full payload NOT sent here — it lives in browser sessionStorage.
-        // Backend computes amount from registrationPayload for security,
-        // then discards it. DB insert happens in confirm-session after Stripe success.
-        registrationPayload,  // backend uses this to compute amount only
-        paymentMethod,
-        successUrl: `${window.location.origin}/payment/result?status=success${eventId ? `&event=${eventId}` : ""}`,
-        cancelUrl:  `${window.location.origin}/payment/result?status=cancel${eventId ? `&event=${eventId}` : ""}`,
-      }
-    : {
-        registrationId: Number(registrationId),
-        paymentMethod,
-        successUrl: `${window.location.origin}/payment/result?status=success&reg=${registrationId}`,
-        cancelUrl:  `${window.location.origin}/payment/result?status=cancel&reg=${registrationId}`,
-      };
-
-  const res = await apiFetch(`${API_BASE}/api/Payment/create-checkout-session`, {
-    method: "POST",
-    headers: publicHeaders(),
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) return err("CHECKOUT_FAILED", (await parseError(res)).message);
-  const data = await res.json();
-  return ok({
-    registrationId:   String(data.registrationId ?? registrationId ?? ""),
-    paymentId:        String(data.paymentId ?? ""),
-    checkoutUrl:      data.checkoutUrl ?? data.url,
-    gatewaySessionId: data.gatewaySessionId ?? data.sessionId ?? "",
-    expiresAt:        data.expiresAt ?? new Date(Date.now() + 86400000).toISOString(),
-  });
-}
-
-/**
  * POST /api/Payment/confirm-session
- * Public: called by PaymentResult.tsx after Stripe redirects back with success.
- *
- * This is the ONLY point where Registration + Payment are written to the DB.
- * The backend must:
- *   1. Verify the gatewaySessionId with Stripe (confirm payment_status = "paid")
- *   2. Insert Registration, ParticipantGroups, Participants, Payment, PaymentItems
- *   3. Generate receipt number
- *   4. Send confirmation email to contactEmail
- *   5. Return the new registrationId
- *
- * Idempotent: if a Registration already exists for this gatewaySessionId,
- * return the existing registrationId without re-inserting.
- *
- * 409 Conflict = CHECKOUT_CONTEXT_MISSING: the webhook already processed this
- * session and purged the PendingCheckout row before the browser returned.
- * This is NOT a failure — the registration exists or is being finalised.
- * Returned as alreadyProcessed: true so the UI shows "processing" not "error".
+ * Legacy hosted Checkout fallback used by PaymentResult when returning from an
+ * older Stripe Checkout Session. New paid public registrations use embedded
+ * payment attempts instead.
  */
 export async function apiConfirmSession(
   gatewaySessionId: string,
@@ -183,6 +104,56 @@ export async function apiConfirmSession(
   if (!res.ok) return err("CONFIRM_FAILED", (await parseError(res)).message);
   const data = await res.json();
   return ok({ registrationId: String(data.registrationId) });
+}
+
+export async function apiCreateEmbeddedPaymentAttempt(
+  registrationPayload: object,
+  paymentMethod: "card" | "paynow",
+  attemptKey: string,
+): Promise<ApiResult<EmbeddedPaymentAttempt>> {
+  await delay();
+
+  const res = await apiFetch(`${API_BASE}/api/Payment/embedded-attempt`, {
+    method: "POST",
+    headers: publicHeaders(),
+    body: JSON.stringify({ registrationPayload, paymentMethod, attemptKey }),
+  });
+  if (!res.ok) {
+    const e = await parseError(res);
+    return err(e.code, e.message);
+  }
+  return ok(await res.json());
+}
+
+export async function apiSubmitEmbeddedPaymentAttempt(
+  paymentAttemptId: number,
+): Promise<ApiResult<{ status: string }>> {
+  await delay();
+
+  const res = await apiFetch(`${API_BASE}/api/Payment/embedded-attempt/${paymentAttemptId}/submit`, {
+    method: "POST",
+    headers: publicHeaders(),
+  });
+  if (!res.ok) {
+    const e = await parseError(res);
+    return err(e.code, e.message);
+  }
+  return ok(await res.json());
+}
+
+export async function apiGetEmbeddedPaymentAttemptStatus(
+  paymentAttemptId: number,
+): Promise<ApiResult<EmbeddedPaymentAttemptStatus>> {
+  await delay();
+
+  const res = await apiFetch(`${API_BASE}/api/Payment/embedded-attempt/${paymentAttemptId}/status`, {
+    headers: publicHeaders(),
+  });
+  if (!res.ok) {
+    const e = await parseError(res);
+    return err(e.code, e.message);
+  }
+  return ok(await res.json());
 }
 
 

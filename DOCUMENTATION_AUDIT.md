@@ -2,6 +2,8 @@
 
 Documentation synchronized with the current repository implementation.
 
+Last targeted sync: badminton club admin CRUD, SBA import club append behavior, and admin audit logging updates.
+
 ## What Changed
 
 - Rewrote `AGENTS.md` with current repository layout, implementation guardrails, verification commands, and high-risk areas.
@@ -24,8 +26,12 @@ Documentation synchronized with the current repository implementation.
 ## Added New Sections
 
 - Added current `BadmintonClubsController` API documentation.
+- Added current `/admin/badminton-clubs` route documentation.
 - Added badminton club business rules, including active-only lookup, duplicate name prevention, soft delete, and "Others" frontend behavior.
+- Added badminton club CRUD and SBA import admin audit behavior.
+- Added SBA import club append behavior and response fields.
 - Added logging architecture for Serilog plus custom `EFCoreSink` writing to `AppLogs`.
+- Added `AdminAuditService` behavior and `AdminAuditLogDetail` to architecture/context notes.
 - Added `AppLogs` and `BadmintonClub` to the data model overview.
 - Added explicit note that `TRSDbContext.BadmintonClubs` maps to SQL table `BadmintonClub`.
 - Added current frontend admin route aliases for participant detail views.

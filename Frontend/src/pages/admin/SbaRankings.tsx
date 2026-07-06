@@ -280,7 +280,7 @@ export default function SbaRankings() {
       </div>
 
       {/* ── Grid ── */}
-      <div style={{ border: "1px solid var(--color-table-border)", overflowX: "auto" }}>
+      <div className="hidden md:block" style={{ border: "1px solid var(--color-table-border)", overflowX: "auto" }}>
         <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "2px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
@@ -405,6 +405,65 @@ export default function SbaRankings() {
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className="md:hidden space-y-3">
+        {loading ? (
+          <div className="text-center py-16 opacity-40" style={{ border: "1px solid var(--color-table-border)" }}>
+            <Loader2 className="h-5 w-5 animate-spin inline" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-16 opacity-40 text-sm" style={{ border: "1px solid var(--color-table-border)" }}>
+            {rankings.length === 0
+              ? "No rankings imported yet. Use the Import XLSX button to get started."
+              : "No results match your filters."}
+          </div>
+        ) : filtered.map(r => {
+          const isDoubles = !!r.player2;
+          return (
+            <div key={r.id} className="p-4" style={{ border: "1px solid var(--color-table-border)" }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-mono font-bold text-sm">#{r.ranking}</p>
+                  <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium">
+                    {isDoubles
+                      ? <Users className="h-3.5 w-3.5 opacity-50 flex-shrink-0" />
+                      : <User  className="h-3.5 w-3.5 opacity-50 flex-shrink-0" />}
+                    {r.rankingType}
+                  </p>
+                </div>
+                <p className="font-mono text-sm font-semibold text-right" style={{ color: "var(--color-primary)" }}>
+                  {fmt(r.accumulatedScore)}
+                  <span className="block text-xs opacity-60">{r.tournaments} tourn.</span>
+                </p>
+              </div>
+              <div className="mt-3 space-y-2">
+                <div>
+                  <p className="text-xs opacity-50">Player(s)</p>
+                  <p className="text-sm font-medium">{r.player1.name}</p>
+                  {r.player2 && <p className="text-sm font-medium opacity-70">{r.player2.name}</p>}
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <p className="opacity-50">SBA ID</p>
+                    <p className="font-mono">{r.player1.sbaId}</p>
+                    {r.player2 && <p className="font-mono opacity-60">{r.player2.sbaId}</p>}
+                  </div>
+                  <div>
+                    <p className="opacity-50">DOB</p>
+                    <p>{r.player1.dob || "-"}</p>
+                    {r.player2 && <p className="opacity-70">{r.player2.dob || "-"}</p>}
+                  </div>
+                </div>
+                <div className="text-xs opacity-70">
+                  <p className="opacity-50">Club</p>
+                  <p>{r.player1.club || "-"}</p>
+                  {r.player2 && <p className="opacity-70">{r.player2.club || "-"}</p>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Footer count */}

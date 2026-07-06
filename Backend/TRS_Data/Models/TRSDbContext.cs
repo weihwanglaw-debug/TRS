@@ -31,6 +31,7 @@ public partial class TRSDbContext : DbContext
     public virtual DbSet<AdminAuditLog>              AdminAuditLogs             { get; set; }
     public virtual DbSet<AdminAuditLogDetail>        AdminAuditLogDetails       { get; set; }
     public virtual DbSet<PendingCheckout>            PendingCheckouts           { get; set; }
+    public virtual DbSet<PaymentAttempt>             PaymentAttempts            { get; set; }
     public virtual DbSet<AppLog>                     AppLogs                    { get; set; }
     public virtual DbSet<BadmintonClub>              BadmintonClubs             { get; set; }
 
@@ -474,6 +475,39 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.PaymentMethod).HasMaxLength(20).IsUnicode(false).HasDefaultValue("CreditCard");
             e.Property(x => x.PayloadJson).HasColumnType("nvarchar(max)").HasColumnName("PayloadJSON");
             e.Property(x => x.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
+        });
+
+        // PaymentAttempts
+        mb.Entity<PaymentAttempt>(e => {
+            e.ToTable("PaymentAttempts");
+            e.HasKey(x => x.PaymentAttemptId).HasName("PK_PaymentAttempts");
+            e.Property(x => x.PaymentAttemptId).HasColumnName("PaymentAttemptID");
+            e.Property(x => x.AttemptKey).HasMaxLength(120).IsUnicode(false);
+            e.Property(x => x.EventId).HasColumnName("EventID");
+            e.Property(x => x.ContactName).HasMaxLength(200);
+            e.Property(x => x.ContactEmail).HasMaxLength(255);
+            e.Property(x => x.ContactPhone).HasMaxLength(30).IsUnicode(false);
+            e.Property(x => x.PaymentMethod).HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.Amount).HasColumnType("decimal(10,2)");
+            e.Property(x => x.Currency).HasMaxLength(3).IsUnicode(false).HasDefaultValue("SGD");
+            e.Property(x => x.GatewayPaymentIntentId).HasMaxLength(255).IsUnicode(false)
+             .HasColumnName("GatewayPaymentIntentID");
+            e.Property(x => x.Status).HasMaxLength(30).IsUnicode(false);
+            e.Property(x => x.PayloadJson).HasColumnType("nvarchar(max)").HasColumnName("PayloadJSON");
+            e.Property(x => x.LineItemsJson).HasColumnType("nvarchar(max)").HasColumnName("LineItemsJSON");
+            e.Property(x => x.RegistrationId).HasColumnName("RegistrationID");
+            e.Property(x => x.PaymentId).HasColumnName("PaymentID");
+            e.Property(x => x.ReconciliationReason).HasMaxLength(100).IsUnicode(false);
+            e.Property(x => x.ErrorMessage).HasMaxLength(1000);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
+            e.Property(x => x.UpdatedAt).HasDefaultValueSql("(sysutcdatetime())");
+            e.Property(x => x.RowVersion).IsRowVersion();
+            e.HasIndex(x => x.AttemptKey).IsUnique().HasDatabaseName("UQ_PaymentAttempts_AttemptKey");
+            e.HasIndex(x => x.GatewayPaymentIntentId).IsUnique()
+             .HasDatabaseName("UQ_PaymentAttempts_GatewayPaymentIntentID")
+             .HasFilter("[GatewayPaymentIntentID] IS NOT NULL");
+            e.HasIndex(x => new { x.EventId, x.ContactEmail, x.Status })
+             .HasDatabaseName("IX_PaymentAttempts_ActiveLookup");
         });
 
         mb.Entity<AppLog>(e => {

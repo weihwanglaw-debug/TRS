@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Stripe;
@@ -10,9 +10,9 @@ namespace TRS_API.Controllers;
 
 /// <summary>
 /// Endpoints that serve the Payment Reconciliation page:
-///   GET  /api/admin/payment-reconciliation/stats          — dashboard card count
-///   GET  /api/admin/payment-reconciliation/webhook-failures — Case-C row list
-///   POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund — orphan refund
+///   GET  /api/admin/payment-reconciliation/stats          â€” dashboard card count
+///   GET  /api/admin/payment-reconciliation/webhook-failures â€” Case-C row list
+///   POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund â€” orphan refund
 /// </summary>
 [ApiController]
 [Route("api/admin/payment-reconciliation")]
@@ -32,7 +32,7 @@ public class AdminPaymentReconciliationController : ControllerBase
         _config = config;
     }
 
-    // ── GET /api/admin/payment-reconciliation/stats ───────────────────────────
+    // â”€â”€ GET /api/admin/payment-reconciliation/stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Returns the combined count for the Dashboard "Payment Reconciliation" card.
     // caseA: RegStatus=Confirmed, PaymentStatus=P
     // caseB: RegStatus=Pending,   PaymentStatus=S
@@ -58,15 +58,17 @@ public class AdminPaymentReconciliationController : ControllerBase
         var failedSessionIds = await _db.WebhookLogs
             .Where(w =>
                 w.ProcessingStatus == "F" &&
-                (w.EventType == "checkout.session.completed" || w.EventType == "processing_error") &&
+                (w.EventType == "checkout.session.completed" ||
+                 w.EventType == "payment_intent.succeeded" ||
+                 w.EventType == "processing_error") &&
                 w.GatewaySessionId != null)
             .Select(w => w.GatewaySessionId!)
             .ToListAsync();
 
         var matchedSessionIds = await _db.Payments
-            .Where(p => p.GatewaySessionId != null &&
-                        failedSessionIds.Contains(p.GatewaySessionId!))
-            .Select(p => p.GatewaySessionId!)
+            .Where(p => (p.GatewaySessionId != null && failedSessionIds.Contains(p.GatewaySessionId!)) ||
+                        (p.GatewayPaymentId != null && failedSessionIds.Contains(p.GatewayPaymentId!)))
+            .Select(p => p.GatewaySessionId ?? p.GatewayPaymentId!)
             .ToListAsync();
 
         var caseC = failedSessionIds
@@ -82,7 +84,7 @@ public class AdminPaymentReconciliationController : ControllerBase
         });
     }
 
-    // ── GET /api/admin/payment-reconciliation/webhook-failures ────────────────
+    // â”€â”€ GET /api/admin/payment-reconciliation/webhook-failures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Returns all unresolved Case-C rows for the "Unmatched Stripe Payments" tab.
     // Filters out any row where a Payment was subsequently written for that session
     // (self-healed race condition).
@@ -92,7 +94,9 @@ public class AdminPaymentReconciliationController : ControllerBase
         var failures = await _db.WebhookLogs
             .Where(w =>
                 w.ProcessingStatus == "F" &&
-                (w.EventType == "checkout.session.completed" || w.EventType == "processing_error") &&
+                (w.EventType == "checkout.session.completed" ||
+                 w.EventType == "payment_intent.succeeded" ||
+                 w.EventType == "processing_error") &&
                 w.GatewaySessionId != null)
             .OrderByDescending(w => w.ReceivedAt)
             .ToListAsync();
@@ -106,14 +110,14 @@ public class AdminPaymentReconciliationController : ControllerBase
             .ToList();
 
         var healedList = await _db.Payments
-            .Where(p => p.GatewaySessionId != null &&
-                        sessionIds.Contains(p.GatewaySessionId!))
-            .Select(p => p.GatewaySessionId!)
+            .Where(p => (p.GatewaySessionId != null && sessionIds.Contains(p.GatewaySessionId!)) ||
+                        (p.GatewayPaymentId != null && sessionIds.Contains(p.GatewayPaymentId!)))
+            .Select(p => p.GatewaySessionId ?? p.GatewayPaymentId!)
             .ToListAsync();
         var healed = healedList.ToHashSet();
 
         // Also get retry counts from the log (each webhook retry creates its own row
-        // with the same GatewaySessionId but a different GatewayEventId suffix —
+        // with the same GatewaySessionId but a different GatewayEventId suffix â€”
         // Stripe re-uses the same event ID on retries, so count by GatewaySessionId).
         var retryCounts = failures
             .GroupBy(f => f.GatewaySessionId!)
@@ -174,12 +178,12 @@ public class AdminPaymentReconciliationController : ControllerBase
         return Ok(rows);
     }
 
-    // ── POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund ───
+    // â”€â”€ POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund â”€â”€â”€
     // Issues a Stripe refund for an orphan payment (Case C).
     // Reuses the same RefundService().CreateAsync() call as the normal refund flow,
     // but writes a Refund row with PaymentId=null and marks the WebhookLog resolved.
     [HttpPost("webhook-failures/{webhookLogId:int}/refund")]
-    [Authorize(Roles = "superadmin")]   // restrict to superadmin — irreversible
+    [Authorize(Roles = "superadmin")]   // restrict to superadmin â€” irreversible
     public async Task<IActionResult> RefundOrphanedPayment(
         int webhookLogId,
         [FromBody] OrphanRefundRequest req)
@@ -195,25 +199,37 @@ public class AdminPaymentReconciliationController : ControllerBase
             return Conflict(new { code = "ALREADY_RESOLVED", message = "This webhook failure is already resolved." });
 
         if (string.IsNullOrEmpty(log.GatewaySessionId))
-            return BadRequest(new { code = "NO_SESSION_ID", message = "Cannot refund — session ID not recorded on this webhook." });
+            return BadRequest(new { code = "NO_SESSION_ID", message = "Cannot refund â€” session ID not recorded on this webhook." });
 
-        // Retrieve the Stripe session to get the PaymentIntent ID and amount
+        // Retrieve the Stripe reference to get the PaymentIntent ID and amount.
+        // Hosted checkout orphan rows store cs_..., embedded attempts store pi_...
         StripeConfiguration.ApiKey = _config["Stripe:SecretKey"];
-        Stripe.Checkout.Session? session;
+        string paymentIntentId;
+        long amountCents;
         try
         {
-            session = await new SessionService().GetAsync(log.GatewaySessionId);
+            if (log.GatewaySessionId.StartsWith("pi_", StringComparison.OrdinalIgnoreCase))
+            {
+                var intent = await new PaymentIntentService().GetAsync(log.GatewaySessionId);
+                if (intent.Status != "succeeded")
+                    return BadRequest(new { code = "NOT_PAID", message = $"PaymentIntent status is '{intent.Status}' - only 'succeeded' intents can be refunded here." });
+                paymentIntentId = intent.Id;
+                amountCents = intent.AmountReceived > 0 ? intent.AmountReceived : intent.Amount;
+            }
+            else
+            {
+                var session = await new SessionService().GetAsync(log.GatewaySessionId);
+                paymentIntentId = session.PaymentIntentId;
+                amountCents = session.AmountTotal ?? 0;
+            }
         }
         catch (StripeException ex)
         {
-            _logger.LogError(ex, "Failed to retrieve Stripe session {SessionId}", log.GatewaySessionId);
+            _logger.LogError(ex, "Failed to retrieve Stripe orphan reference {ReferenceId}", log.GatewaySessionId);
             return StatusCode(502, new { code = "STRIPE_ERROR", message = ex.StripeError?.Message ?? ex.Message });
         }
 
-        if (session.PaymentStatus != "paid")
-            return BadRequest(new { code = "NOT_PAID", message = $"Session payment_status is '{session.PaymentStatus}' — only 'paid' sessions can be refunded here." });
 
-        var amountCents = session.AmountTotal ?? 0;
         if (amountCents <= 0)
             return BadRequest(new { code = "ZERO_AMOUNT", message = "Session amount is zero." });
 
@@ -252,8 +268,8 @@ public class AdminPaymentReconciliationController : ControllerBase
             {
                 refund = new TRS_Data.Models.Refund
         {
-            PaymentId       = null,           // orphan — no Payment row
-            PaymentItemId   = null,           // orphan — no PaymentItem row
+            PaymentId       = null,           // orphan â€” no Payment row
+            PaymentItemId   = null,           // orphan â€” no PaymentItem row
             GatewaySessionId = log.GatewaySessionId,
             WebhookLogId    = webhookLogId,
             PaymentGateway  = "Stripe",
@@ -284,7 +300,7 @@ public class AdminPaymentReconciliationController : ControllerBase
             var stripeRefund = await new RefundService().CreateAsync(
                 new RefundCreateOptions
                 {
-                    PaymentIntent = session.PaymentIntentId,
+                    PaymentIntent = paymentIntentId,
                     Amount        = amountCents,
                     Reason        = "requested_by_customer",
                     Metadata      = new Dictionary<string, string>
@@ -355,7 +371,7 @@ public class AdminPaymentReconciliationController : ControllerBase
     }
 }
 
-// ── Request model ─────────────────────────────────────────────────────────────
+// â”€â”€ Request model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 public class OrphanRefundRequest
 {
     public string  Reason    { get; set; } = null!;

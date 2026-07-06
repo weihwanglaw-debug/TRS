@@ -14,7 +14,8 @@ export default function Footer() {
   const { cfg } = useLiveConfig();
   return (
     <footer
-      className="py-12 px-8"
+      id="receipt"
+      className="trs-footer py-12 px-8"
       style={{ background: "var(--color-hero-bg)", color: "var(--color-hero-text)" }}
     >
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
@@ -28,7 +29,7 @@ export default function Footer() {
                 href={link.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-2 hover:bg-white/10 transition-colors"
+                className="social-link p-2 hover:bg-white/10 transition-colors"
                 aria-label={link.platform}
               >
                 <Icon className="h-5 w-5" />

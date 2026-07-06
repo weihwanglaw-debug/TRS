@@ -21,6 +21,15 @@ First provide:
 
 Do not immediately start coding when requirements are ambiguous. Ask questions when business rules are unclear, especially around registration, payment, refunds, fixtures, ranking, seeding, or admin override behavior.
 
+When the user asks a question, asks for advice, or describes a possible issue without explicitly asking for implementation, first answer with:
+
+1. Whether it needs a change
+2. Proposed fix/solution
+3. Files likely affected
+4. Risks or alternatives
+
+Then ask for permission before modifying files. Do not edit files immediately unless the user clearly asks to implement, fix, amend, update, or proceed.
+
 ## Change Scope
 
 Only modify files directly related to the requested task.
@@ -36,6 +45,8 @@ Do not:
 
 Keep changes focused and surgical.
 
+Do not leave temporary build, browser, test, or scratch folders in the repository. If a temporary folder is necessary, explain why, keep it ignored or outside the repo when practical, and remove it before finishing.
+
 ## Existing Patterns First
 
 Prefer existing project patterns:
@@ -48,6 +59,8 @@ Prefer existing project patterns:
 - Shared participant field behavior belongs in `ParticipantFieldsForm`.
 
 Avoid introducing new frameworks, architectural layers, or abstractions unless there is a clear justification.
+
+Admin-created, updated, deleted, imported, or generated business data should use `AdminAuditService` when an authenticated admin performs the action. Include old/new snapshots where practical, especially for master data, event/program changes, imports, and fixture mutations.
 
 ## Database Safety
 
@@ -168,6 +181,20 @@ Run focused verification when practical:
 - Backend: `dotnet build Backend/TRS_API/TRS_API.csproj`
 - Backend tests, if added later: `dotnet test`
 - Frontend: `npm.cmd run build` from `Frontend/`
+
+## Local Dev Workflow
+
+Before running a backend build, check whether `TRS_API` is already running when practical. Do not stop or kill the API process unless explicitly requested.
+
+If `dotnet build` fails because `TRS_API.exe` or related backend output files are locked by a running API process, do not create alternate temporary build/output folders.
+
+Instead:
+
+- Tell the user the API process is locking the build output.
+- Ask the user to stop the running API.
+- Retry the normal build only after the user confirms the API has stopped.
+
+Before finishing, mention visible unrelated working-tree changes if they could affect review, staging, or deployment. Do not stage, commit, delete, or format unrelated files unless explicitly requested.
 
 ## Output Format
 

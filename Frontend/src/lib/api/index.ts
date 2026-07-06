@@ -2,7 +2,7 @@
  * index.ts — Single import point for all API modules.
  *
  * Usage:
- *   import { apiGetEvents, apiInitiateCheckout, apiGetRefunds } from "@/lib/api";
+ *   import { apiGetEvents, apiCreateEmbeddedPaymentAttempt, apiGetRefunds } from "@/lib/api";
  *
  * Every function is a stub: mock data now, swap to fetch() later by
  * replacing only the function body — no caller edits needed.
@@ -66,7 +66,9 @@ export type {
   Refund,
   Payment,
   Registration,
-  CheckoutSession,
+  EmbeddedPaymentAttempt,
+  EmbeddedPaymentAttemptStatus,
+  PaymentAttemptStatus,
   RegistrationStats,
 } from "@/types/registration";
 

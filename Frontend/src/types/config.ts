@@ -1,6 +1,8 @@
 // ── Custom field + program field config ──────────────────────────────────────
 
 export interface CustomField {
+  id?: string | number;
+  customFieldId?: string | number;
   label: string;
   type: string;
   required: boolean;

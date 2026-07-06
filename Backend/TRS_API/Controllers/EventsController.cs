@@ -549,7 +549,12 @@ public class EventsController : ControllerBase
                 requireTshirt = p.Fields.RequireTshirt,
                 customFields = p.CustomFields.OrderBy(cf => cf.SortOrder).Select(cf => (object)new
                 {
-                    label = cf.Label, type = cf.FieldType, required = cf.IsRequired, options = cf.Options
+                    id = cf.CustomFieldId,
+                    customFieldId = cf.CustomFieldId,
+                    label = cf.Label,
+                    type = cf.FieldType,
+                    required = cf.IsRequired,
+                    options = cf.Options
                 }).ToList()
             }
     };

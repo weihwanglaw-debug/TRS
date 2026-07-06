@@ -89,6 +89,7 @@ builder.Services.AddScoped<AdminAuditService>();
 builder.Services.AddScoped<FixtureGenerationService>();
 builder.Services.AddScoped<RegistrationWorkflowService>();
 builder.Services.AddScoped<PaymentFinalizationService>();
+builder.Services.AddScoped<PaymentAttemptService>();
 builder.Services.AddSingleton<IBackgroundJobQueue, BackgroundJobQueue>();
 builder.Services.AddHostedService<BackgroundJobWorker>();
 builder.Services.AddHostedService<PaymentCleanupWorker>();

@@ -1,91 +1,100 @@
-import { motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { ExternalLink } from "lucide-react";
+import { motion } from "framer-motion";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
+import { assetUrl } from "@/lib/api";
 import defaultAdBg from "@/assets/court-booking-ad.jpg";
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function overlayAlpha(progress: number) {
+  const minAlpha = 0.2;
+  const maxAlpha = 0.88;
+  return minAlpha + progress * (maxAlpha - minAlpha);
+}
 
 export default function AdvertiseSection() {
   const { cfg } = useLiveConfig();
+  const sectionRef = useRef<HTMLElement>(null);
+  const [alpha, setAlpha] = useState(0.2);
 
-  if (cfg.adEnabled === "false" || (!cfg.adTitle && !cfg.adUrl)) return null;
+  useEffect(() => {
+    const update = () => {
+      const el = sectionRef.current;
+      if (!el) return;
 
-  const bgImage = cfg.adImageUrl || defaultAdBg;
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+      const viewportHeight = window.innerHeight;
+      const sectionTop = el.offsetTop;
+      const sectionHeight = el.offsetHeight || 1;
+      const start = sectionTop - viewportHeight;
+      const end = Math.max(start + 1, sectionTop + sectionHeight - viewportHeight);
+      const progress = clamp((scrollTop - start) / Math.max(end - start, 1), 0, 1);
+      setAlpha(overlayAlpha(progress));
+    };
+
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  if (cfg.adEnabled === "false" || (!cfg.adTitle && !cfg.adUrl && !cfg.adBody)) return null;
+
+  const adImage = cfg.adImageUrl ? assetUrl(cfg.adImageUrl) : defaultAdBg;
+  const adTitle = cfg.adTitle || "Book a Badminton Court";
+  const adBody =
+    cfg.adBody ||
+    "Need to practice before the tournament? Book courts at Wyse Active Hub - flexible scheduling, professional facilities, and competitive rates.";
+  const adTag = cfg.adTag || "Partner Venue";
+  const buttonLabel = cfg.adButtonLabel || "Book Now";
 
   return (
-    <section className="py-16 px-8" style={{ backgroundColor: "var(--color-page-bg)" }}>
-      <div className="max-w-6xl mx-auto">
-        <motion.a
-          href={cfg.adUrl || "#"}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block relative overflow-hidden group cursor-pointer"
-          style={{ border: "1px solid var(--color-table-border)" }}
-          initial={{ opacity: 0, y: 20 }}
+    <section
+      ref={sectionRef}
+      id="details"
+      className="trs-ad-section section-anchor"
+      style={{
+        "--ad-bg": `url(${adImage})`,
+        "--ad-overlay-alpha": alpha.toFixed(3),
+      } as CSSProperties}
+    >
+      <div className="trs-ad-layout">
+        <motion.figure
+          className="trs-ad-media"
+          aria-label="Partner venue image"
+          initial={{ opacity: 0, y: 22 }}
           whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
+          viewport={{ once: true, amount: 0.2 }}
         >
-          {/* Background image */}
-          <div
-            className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
-            style={{ backgroundImage: `url(${bgImage})` }}
-          />
+          <img src={adImage} alt={adTitle} />
+        </motion.figure>
 
-          {/* Overlay */}
-          <div
-            className="absolute inset-0 transition-all duration-500"
-            style={{
-              background: "linear-gradient(90deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.5) 60%, rgba(0,0,0,0.3) 100%)",
-            }}
-          />
-
-          {/* Content */}
-          <div className="relative z-10 flex items-center justify-between px-10 py-14 md:py-16">
-            <div className="max-w-lg">
-              {cfg.adTag && (
-                <p
-                  className="text-xs font-bold uppercase tracking-widest mb-3"
-                  style={{ color: "var(--color-primary)" }}
-                >
-                  {cfg.adTag}
-                </p>
-              )}
-              <h3
-                className="font-bold text-2xl md:text-3xl mb-3"
-                style={{ color: "#ffffff" }}
-              >
-                {cfg.adTitle}
-              </h3>
-              {cfg.adBody && (
-                <p
-                  className="text-sm md:text-base mb-6"
-                  style={{ color: "rgba(255,255,255,0.75)" }}
-                >
-                  {cfg.adBody}
-                </p>
-              )}
-              <span
-                className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold transition-all duration-300 group-hover:gap-3"
-                style={{
-                  backgroundColor: "var(--color-primary)",
-                  color: "var(--color-hero-text)",
-                }}
-              >
-                {cfg.adButtonLabel || "Learn More"} <ExternalLink className="h-4 w-4" />
-              </span>
-            </div>
-
-            <motion.div
-              className="hidden md:flex items-center justify-center w-16 h-16 flex-shrink-0"
-              style={{
-                border: "2px solid var(--color-primary)",
-                color: "var(--color-primary)",
-              }}
-              whileHover={{ scale: 1.1 }}
-            >
-              <ExternalLink className="h-6 w-6" />
-            </motion.div>
-          </div>
-        </motion.a>
+        <motion.div
+          className="trs-ad-copy"
+          initial={{ opacity: 0, y: 22 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.2 }}
+          transition={{ delay: 0.1 }}
+        >
+          <p className="landing-eyebrow">{adTag} /</p>
+          <h2>{adTitle}</h2>
+          <p>{adBody}</p>
+          <a
+            className="landing-button mt-8"
+            href={cfg.adUrl || "#register"}
+            target={cfg.adUrl ? "_blank" : undefined}
+            rel={cfg.adUrl ? "noopener noreferrer" : undefined}
+          >
+            {buttonLabel} {cfg.adUrl && <ExternalLink className="ml-2 h-4 w-4" />}
+          </a>
+        </motion.div>
       </div>
     </section>
   );

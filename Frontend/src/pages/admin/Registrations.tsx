@@ -1033,6 +1033,7 @@ export default function AdminRegistrations() {
 
         {/* Table */}
         <div style={{ border: "1px solid var(--color-table-border)" }}>
+          <div className="hidden md:block overflow-x-auto">
           <table className="trs-table">
             <thead>
               <tr>
@@ -1111,6 +1112,70 @@ export default function AdminRegistrations() {
               })}
             </tbody>
           </table>
+          </div>
+          <div className="md:hidden divide-y" style={{ borderColor: "var(--color-table-border)" }}>
+            {loadingRegs && (
+              <div className="text-center py-6">
+                <LoadingSpinner size="sm" label="Loading registrations..." />
+              </div>
+            )}
+            {!loadingRegs && paged.length === 0 && (
+              <div className="text-center py-10 opacity-40 text-sm">No registrations found.</div>
+            )}
+            {paged.map(reg => {
+              const payment      = getPayment(reg);
+              const programInfo  = programEntrySummary(reg.groups);
+              const regRefunds   = refundsByReg[reg.id] ?? [];
+              const refunded     = calcRefunded(regRefunds, payment?.items ?? []);
+
+              return (
+                <div key={reg.id} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-mono text-xs opacity-50">Reg {reg.id}</p>
+                      <p className="font-semibold text-sm truncate">{reg.contactName}</p>
+                      <p className="text-xs opacity-50 truncate">{reg.contactEmail}</p>
+                    </div>
+                    <button
+                      onClick={(e) =>
+                        setOpenAction(openAction?.reg.id === reg.id ? null : { reg, anchorEl: e.currentTarget })
+                      }
+                      className="p-2 -mr-2 hover:opacity-70"
+                      style={{ color: "var(--color-primary)" }}
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <p className="mt-3 text-sm font-medium truncate">{reg.eventName}</p>
+                  <div className="mt-2 flex items-start gap-1.5">
+                    <Users className="h-3.5 w-3.5 opacity-30 mt-0.5 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm">{programInfo.programCount} program{programInfo.programCount !== 1 ? "s" : ""}</p>
+                      <p className="text-xs opacity-50">{programInfo.text}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <RegBadge status={reg.regStatus} />
+                    {payment ? <PayBadge status={payment.paymentStatus} /> : <span className="text-xs opacity-40">No payment</span>}
+                  </div>
+                  <div className="mt-4 flex items-end justify-between gap-3">
+                    <div className="text-xs opacity-60">
+                      Submitted
+                      <p>{new Date(reg.submittedAt).toLocaleDateString("en-SG", { day: "2-digit", month: "short", year: "numeric" })}</p>
+                    </div>
+                    <p className="text-right font-semibold text-sm" style={{ color: "var(--color-primary)" }}>
+                      ${payment ? totalFee(reg).toFixed(2) : "0.00"}
+                      {refunded > 0 && (
+                        <span className="block text-xs font-normal" style={{ color: "var(--badge-open-text)" }}>
+                          -${refunded.toFixed(2)} refunded
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           <Pagination page={page} totalPages={regTotalPgs} perPage={perPage} total={regTotal}
             setPage={setPage} setPerPage={n => { setPerPage(n); setPage(1); }} />
         </div>

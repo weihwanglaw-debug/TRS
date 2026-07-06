@@ -145,13 +145,14 @@ public class RegistrationWorkflowService
         try
         {
             var programIds = req.Groups.Select(g => g.ProgramId).Distinct().ToList();
-            var customFieldsByProgram = await _db.ProgramCustomFields
+            var customFields = await _db.ProgramCustomFields
                 .Where(cf => programIds.Contains(cf.ProgramId))
+                .ToListAsync(ct);
+            var customFieldsByProgram = customFields
                 .GroupBy(cf => cf.ProgramId)
-                .ToDictionaryAsync(
+                .ToDictionary(
                     g => g.Key,
-                    g => g.ToDictionary(cf => cf.Label, cf => cf.CustomFieldId),
-                    ct);
+                    g => g.ToList());
 
             var programs = await _db.Programs
                 .Include(p => p.Fields)
@@ -247,23 +248,24 @@ public class RegistrationWorkflowService
                 await _db.SaveChangesAsync(ct);
 
                 var customFieldLookup = customFieldsByProgram.GetValueOrDefault(groupDto.ProgramId)
-                    ?? new Dictionary<string, int>();
+                    ?? new List<ProgramCustomField>();
 
                 for (var pi = 0; pi < groupDto.Participants.Count; pi++)
                 {
-                    foreach (var (label, value) in groupDto.Participants[pi].CustomFieldValues)
+                    foreach (var (key, value) in groupDto.Participants[pi].CustomFieldValues)
                     {
-                        if (!customFieldLookup.TryGetValue(label, out var customFieldId))
+                        var customField = ResolveCustomField(customFieldLookup, key);
+                        if (customField == null)
                         {
-                            _log.LogWarning("Custom field label '{Label}' not found for program {ProgramId} - skipping", label, groupDto.ProgramId);
+                            _log.LogWarning("Custom field key '{Key}' not found for program {ProgramId} - skipping", key, groupDto.ProgramId);
                             continue;
                         }
 
                         _db.ParticipantCustomFieldValues.Add(new ParticipantCustomFieldValue
                         {
                             ParticipantId = createdParticipants[pi].ParticipantId,
-                            CustomFieldId = customFieldId,
-                            FieldLabel = label,
+                            CustomFieldId = customField.CustomFieldId,
+                            FieldLabel = customField.Label,
                             FieldValue = value,
                         });
                     }
@@ -465,7 +467,8 @@ public class RegistrationWorkflowService
 
             foreach (var customField in program.CustomFields.Where(cf => cf.IsRequired))
             {
-                if (!participant.CustomFieldValues.TryGetValue(customField.Label, out var value) || string.IsNullOrWhiteSpace(value))
+                if (!participant.CustomFieldValues.TryGetValue(customField.CustomFieldId.ToString(), out var value)
+                    || string.IsNullOrWhiteSpace(value))
                     return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"'{customField.Label}' is required for '{participant.FullName}'.");
             }
 
@@ -487,6 +490,13 @@ public class RegistrationWorkflowService
         }
 
         return RegistrationWorkflowResult<object>.Ok(null);
+    }
+
+    private static ProgramCustomField? ResolveCustomField(IEnumerable<ProgramCustomField> customFields, string key)
+    {
+        return int.TryParse(key, out var customFieldId)
+            ? customFields.FirstOrDefault(cf => cf.CustomFieldId == customFieldId)
+            : null;
     }
 
     private static bool IsEventOpen(Event eventEntity)

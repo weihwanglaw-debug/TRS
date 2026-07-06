@@ -18,7 +18,7 @@ export default function AdminEvents() {
   const [openAction,     setOpenAction]     = useState<{ id: string; anchorEl: HTMLElement } | null>(null);
 
   useEffect(() => {
-    apiGetEvents({ includeInactive: false }).then(r => {
+    apiGetEvents({ includeInactive: true }).then(r => {
       if (r.data) setEvents(r.data);
     }).finally(() => setLoading(false));
   }, []);

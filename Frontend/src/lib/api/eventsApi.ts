@@ -56,9 +56,14 @@ export async function apiGetEvents(filters?: {
   return ok(await res.json());
 }
 
-export async function apiGetEvent(eventId: string): Promise<ApiResult<TournamentEvent>> {
+export async function apiGetEvent(
+  eventId: string,
+  options?: { admin?: boolean },
+): Promise<ApiResult<TournamentEvent>> {
   await delay();
-  const res = await apiFetch(`${API_BASE}/api/events/${eventId}`, { headers: publicHeaders() });
+  const res = await apiFetch(`${API_BASE}/api/events/${eventId}`, {
+    headers: options?.admin ? adminHeaders() : publicHeaders(),
+  });
   if (!res.ok) return err("NOT_FOUND", "Event not found.");
   return ok(await res.json());
 }

@@ -1,52 +1,20 @@
 /**
  * PaymentResult.tsx
  *
- * Landing page after Stripe redirects back OR after free registration.
+ * Confirmation/receipt landing page.
  *
- * ── SESSION-FIRST FLOW (PAID) ─────────────────────────────────────────────────
- * All registration data (cart, participants, contact person) is stored in
- * browser sessionStorage under key trs_cart_{eventId}. No DB record is created
- * before Stripe confirms payment.
+ * Current public paid registrations are completed inside EmbeddedPaymentModal.
+ * After the webhook finalizes the registration, EventDetail navigates here with
+ * status=success&reg={registrationId}&direct=paid so this page can show the
+ * registration result without hosted Checkout session recovery.
  *
- * On SUCCESS (/payment/result?status=success&event={eventId}):
- *   1. Read gatewaySessionId + full payload from sessionStorage
- *   2. Call POST /api/registrations/confirm-session
- *      Backend: verifies payment with Stripe, writes Registration + Payment to DB,
- *      generates receipt, sends confirmation email, returns registrationId.
- *      If 409 (webhook already processed) → go directly to "processing" done state.
- *   3. Poll GET /api/registrations/:id until paymentStatus = "S"
- *   4. Clear sessionStorage, show receipt
+ * Free and admin-bypass registrations also arrive here with a registration id.
  *
- * ── TIMING MODEL (per architecture spec) ─────────────────────────────────────
- * Stage A (0–15 s):  "Processing payment…"
- * Stage B (>15 s):   "Payment is processing. Confirmation will be sent via email."
- * Timeout is ONLY a UI concern — backend never marks a payment failed due to timeout.
- *
- * ── FREE REGISTRATION FLOW ───────────────────────────────────────────────────
- * Free registrations are written directly to the DB (no Stripe session).
- * The confirmation page is reached via:
- *   /payment/result?status=success&reg={registrationId}
- *
- * On FREE SUCCESS (/payment/result?status=success&reg={registrationId}):
- *   1. Detect: status=success + reg param present + no event param
- *   2. Skip confirm-session entirely — set regId directly
- *   3. Poll GET /api/registrations/:id until regStatus = "Confirmed"
- *      (paymentStatus stays "P" for free regs — never "S")
- *   4. Show receipt
- *
- * On CANCEL (/payment/result?status=cancel&event={eventId}):
- *   - No DB record was created — nothing to clean up
- *   - sessionStorage cart is intact
- *   - "Try Again" routes back to event page, cart auto-restores to Step 3
- *
- * Edge case — sessionStorage missing (different browser/device after payment):
- *   - confirm-session cannot be called without the payload
- *   - Show "processing" state — webhook may have already handled it
- *
- * Public page — no login required.
+ * Legacy hosted Checkout support remains for older return URLs containing
+ * status=success&event={eventId}. In that case this page reads the saved
+ * gatewaySessionId/payload from sessionStorage and calls confirm-session.
  */
-
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { CheckCircle, XCircle, Loader2, AlertCircle } from "lucide-react";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
@@ -57,6 +25,11 @@ import { API_BASE } from "@/lib/api/_base";
 import type { Registration } from "@/lib/api";
 
 type Phase = "confirming" | "polling" | "done" | "cancelled" | "error";
+type DirectMode = "admin" | "free" | "paid";
+type DirectResultState = {
+  directMode?: DirectMode;
+  directRegistration?: Registration;
+};
 
 // Stage A → Stage B threshold in milliseconds (spec: 15 s)
 const PROCESSING_STAGE_B_MS = 15_000;
@@ -64,21 +37,33 @@ const PROCESSING_STAGE_B_MS = 15_000;
 export default function PaymentResult() {
   const [params]  = useSearchParams();
   const navigate  = useNavigate();
+  const location  = useLocation();
   const status    = params.get("status");
   const eventId   = params.get("event");
   const regParam  = params.get("reg");
+  const directParam = params.get("direct");
 
   const isSuccess = status === "success";
   const isCancel  = status === "cancel" || status === "failed";
+  const directMode: DirectMode | null =
+    directParam === "admin" || directParam === "free" || directParam === "paid" ? directParam : null;
+  const isDirectReg = isSuccess && !!regParam && !eventId && !!directMode;
+  const directState = (location.state ?? {}) as DirectResultState;
+  const initialDirectRegistration =
+    directState.directMode === directMode &&
+    directState.directRegistration &&
+    String(directState.directRegistration.id) === String(regParam)
+      ? directState.directRegistration
+      : null;
 
   // Free registration: status=success + reg param present + no event param
-  const isFreeReg = isSuccess && !!regParam && !eventId;
+  const isFreeReg = isSuccess && !!regParam && !eventId && !directMode;
 
-  const initialPhase: Phase = isSuccess ? "confirming" : isCancel ? "cancelled" : "done";
+  const initialPhase: Phase = initialDirectRegistration ? "done" : isSuccess ? "confirming" : isCancel ? "cancelled" : "done";
 
   const [phase,        setPhase]        = useState<Phase>(initialPhase);
-  const [registration, setRegistration] = useState<Registration | null>(null);
-  const [regId,        setRegId]        = useState<string | null>(null);
+  const [registration, setRegistration] = useState<Registration | null>(initialDirectRegistration);
+  const [regId,        setRegId]        = useState<string | null>(initialDirectRegistration ? String(initialDirectRegistration.id) : null);
   const [errorMsg,     setErrorMsg]     = useState("");
   const [pollCount,    setPollCount]    = useState(0);
   // Stage A/B: tracks whether we've passed the 15-second processing threshold
@@ -97,6 +82,21 @@ export default function PaymentResult() {
   // ── On success: handle paid flow (confirm-session) OR free flow ──────────
   useEffect(() => {
     if (!isSuccess) return;
+    if (initialDirectRegistration) return;
+
+    if (isDirectReg) {
+      setRegId(regParam);
+      apiGetRegistration(regParam).then(r => {
+        if (r.error) {
+          setPhase("error");
+          setErrorMsg(r.error.message);
+          return;
+        }
+        setRegistration(r.data);
+        setPhase("done");
+      });
+      return;
+    }
 
     // ── FREE REGISTRATION: reg param present, no event param ─────────────────
     if (isFreeReg) {

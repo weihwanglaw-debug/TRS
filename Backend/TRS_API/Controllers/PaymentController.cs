@@ -23,6 +23,7 @@ namespace TRS_API.Controllers
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly RegistrationWorkflowService _registrationWorkflow;
         private readonly PaymentFinalizationService _paymentFinalization;
+        private readonly PaymentAttemptService _paymentAttempts;
 
         public PaymentController(
             ILogger<PaymentController> logger,
@@ -31,7 +32,8 @@ namespace TRS_API.Controllers
             IBackgroundJobQueue jobQueue,
             IServiceScopeFactory serviceScopeFactory,
             RegistrationWorkflowService registrationWorkflow,
-            PaymentFinalizationService paymentFinalization)
+            PaymentFinalizationService paymentFinalization,
+            PaymentAttemptService paymentAttempts)
         {
             _logger = logger;
             _config = config;
@@ -40,7 +42,56 @@ namespace TRS_API.Controllers
             _serviceScopeFactory = serviceScopeFactory;
             _registrationWorkflow = registrationWorkflow;
             _paymentFinalization = paymentFinalization;
+            _paymentAttempts = paymentAttempts;
             StripeConfiguration.ApiKey = _config["Stripe:SecretKey"];
+        }
+
+        [EnableRateLimiting("payment")]
+        [HttpPost("embedded-attempt")]
+        public async Task<IActionResult> CreateEmbeddedAttempt([FromBody] EmbeddedPaymentAttemptRequest request)
+        {
+            var result = await _paymentAttempts.CreateAsync(request, HttpContext.RequestAborted);
+            if (!result.Success)
+            {
+                var status = result.Code switch
+                {
+                    "PAYMENT_IN_PROGRESS" or "PAYMENT_REVIEW_REQUIRED" => StatusCodes.Status409Conflict,
+                    "STRIPE_PUBLISHABLE_KEY_MISSING" => StatusCodes.Status500InternalServerError,
+                    _ => StatusCodes.Status400BadRequest,
+                };
+                return StatusCode(status, new { code = result.Code, message = result.Message });
+            }
+
+            var attempt = result.Attempt!;
+            return Ok(new
+            {
+                paymentAttemptId = attempt.PaymentAttemptId,
+                attemptKey = attempt.AttemptKey,
+                paymentIntentId = attempt.GatewayPaymentIntentId,
+                clientSecret = result.ClientSecret,
+                publishableKey = result.PublishableKey,
+                status = attempt.Status,
+                amount = attempt.Amount,
+                currency = attempt.Currency,
+                paymentMethod = attempt.PaymentMethod,
+                expiresAt = attempt.ExpiresAt,
+            });
+        }
+
+        [EnableRateLimiting("payment")]
+        [HttpPost("embedded-attempt/{attemptId:int}/submit")]
+        public async Task<IActionResult> MarkEmbeddedAttemptSubmitted(int attemptId)
+        {
+            var ok = await _paymentAttempts.MarkSubmittedAsync(attemptId, HttpContext.RequestAborted);
+            return ok ? Ok(new { status = "Submitted" }) : NotFound(new { code = "NOT_FOUND" });
+        }
+
+        [EnableRateLimiting("payment")]
+        [HttpGet("embedded-attempt/{attemptId:int}/status")]
+        public async Task<IActionResult> GetEmbeddedAttemptStatus(int attemptId)
+        {
+            var status = await _paymentAttempts.GetStatusAsync(attemptId, HttpContext.RequestAborted);
+            return status == null ? NotFound(new { code = "NOT_FOUND" }) : Ok(status);
         }
 
         // -- GET /api/Payment/get-payment-info/:registrationId -----------------

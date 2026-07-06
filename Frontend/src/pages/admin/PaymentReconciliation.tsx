@@ -153,7 +153,7 @@ export default function PaymentReconciliation() {
         </div>
       )}
 
-      <div style={{ border: "1px solid var(--color-table-border)" }}>
+      <div className="hidden md:block overflow-x-auto" style={{ border: "1px solid var(--color-table-border)" }}>
         <table className="trs-table">
           <thead>
             <tr>
@@ -215,12 +215,59 @@ export default function PaymentReconciliation() {
         </table>
       </div>
 
+      <div className="md:hidden space-y-3">
+        {loadingC && (
+          <div className="text-center py-10">
+            <LoadingSpinner size="sm" label="Loading..." />
+          </div>
+        )}
+        {!loadingC && failures.length === 0 && (
+          <div className="text-center py-10 opacity-40 text-sm">
+            <CheckCircle className="h-5 w-5 inline mr-2" />
+            No unmatched payments - all clear.
+          </div>
+        )}
+        {failures.map(f => (
+          <div key={f.webhookLogId} className="p-4" style={{ border: "1px solid var(--color-table-border)" }}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-semibold text-sm truncate">{f.contactName ?? "-"}</p>
+                <p className="text-xs opacity-50 truncate">{f.contactEmail ?? "-"}</p>
+                <p className="text-xs opacity-50">{f.contactPhone ?? "-"}</p>
+              </div>
+              <p className="font-semibold text-sm whitespace-nowrap" style={{ color: "var(--color-primary)" }}>
+                {f.currency} {f.amount != null ? f.amount.toFixed(2) : "-"}
+              </p>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs opacity-60">
+              <div>
+                <span className="opacity-50">Received</span>
+                <p>{formatDateTime(f.receivedAt)}</p>
+              </div>
+              <div>
+                <span className="opacity-50">Retries</span>
+                <p>{f.retryCount}</p>
+              </div>
+            </div>
+            <p className="mt-3 font-mono text-xs opacity-50 truncate" title={f.gatewaySessionId}>
+              {f.gatewaySessionId}
+            </p>
+            <button
+              className="btn-outline mt-4 w-full px-3 py-2 text-xs font-semibold"
+              onClick={() => { setRefundTarget(f); setRefundReason(""); setRefundNote(""); }}
+            >
+              Refund
+            </button>
+          </div>
+        ))}
+      </div>
+
       {/* ══════════ REFUND MODAL ══════════ */}
         </>
       )}
 
       {activeTab === "history" && (
-        <div style={{ border: "1px solid var(--color-table-border)" }}>
+        <div className="hidden md:block overflow-x-auto" style={{ border: "1px solid var(--color-table-border)" }}>
           <table className="trs-table">
             <thead>
               <tr>
@@ -276,6 +323,47 @@ export default function PaymentReconciliation() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {activeTab === "history" && (
+        <div className="md:hidden space-y-3">
+          {loadingH && (
+            <div className="text-center py-10">
+              <LoadingSpinner size="sm" label="Loading..." />
+            </div>
+          )}
+          {!loadingH && history.length === 0 && (
+            <div className="text-center py-10 opacity-40 text-sm">
+              <CheckCircle className="h-5 w-5 inline mr-2" />
+              No reconciliation refunds yet.
+            </div>
+          )}
+          {history.map(r => (
+            <div key={r.refundId} className="p-4" style={{ border: "1px solid var(--color-table-border)" }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm truncate">{r.contactName ?? "-"}</p>
+                  <p className="text-xs opacity-50 truncate">{r.contactEmail ?? "-"}</p>
+                </div>
+                <RefundStatusBadge status={r.refundStatus} />
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <p className="font-semibold text-sm" style={{ color: "var(--color-primary)" }}>
+                  {r.currency} {r.refundAmount.toFixed(2)}
+                </p>
+                <p className="text-xs opacity-60 text-right">
+                  {formatDateTime(r.processedAt ?? r.createdAt)}
+                  <span className="block opacity-50">{r.requestedBy ?? "admin"}</span>
+                </p>
+              </div>
+              <p className="mt-3 text-xs opacity-70">{r.refundReason ?? "-"}</p>
+              <div className="mt-3 space-y-1 font-mono text-xs opacity-50">
+                <p className="truncate" title={r.gatewaySessionId ?? ""}>Session: {r.gatewaySessionId ?? "-"}</p>
+                <p className="truncate" title={r.gatewayRefundId ?? ""}>Refund: {r.gatewayRefundId ?? "-"}</p>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

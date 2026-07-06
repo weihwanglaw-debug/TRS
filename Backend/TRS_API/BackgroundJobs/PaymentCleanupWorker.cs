@@ -19,8 +19,10 @@ public class PaymentCleanupWorker : BackgroundService
 
             using var scope = _services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<TRSDbContext>();
+            var paymentAttempts = scope.ServiceProvider.GetRequiredService<TRS_API.Services.PaymentAttemptService>();
 
             await PruneExpiredPendingCheckouts(db, stoppingToken);
+            await paymentAttempts.SweepAsync(stoppingToken);
             // NOTE: CancelStalePayments intentionally removed.
             // Stripe payments are asynchronous — a pending payment is NEVER failed
             // due to timeout. Only an explicit Stripe failure event marks a payment failed.

@@ -116,7 +116,7 @@ function openPrintWindow(
   autoPrint:   boolean,
   isSplit?:    boolean,
   paperSize:   PrintPaperSize = "A4 landscape",
-): void {
+): string | null {
   const now = new Date().toLocaleString("en-SG", {
     day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
   });

@@ -21,6 +21,7 @@ namespace TRS_API.Controllers
         private readonly IBackgroundJobQueue _jobQueue;
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly PaymentFinalizationService _paymentFinalization;
+        private readonly PaymentAttemptService _paymentAttempts;
 
         public StripeWebhookController(
             ILogger<StripeWebhookController> logger,
@@ -28,7 +29,8 @@ namespace TRS_API.Controllers
             TRSDbContext db,
             IBackgroundJobQueue jobQueue,
             IServiceScopeFactory serviceScopeFactory,
-            PaymentFinalizationService paymentFinalization)
+            PaymentFinalizationService paymentFinalization,
+            PaymentAttemptService paymentAttempts)
         {
             _logger = logger;
             _config = config;
@@ -36,6 +38,7 @@ namespace TRS_API.Controllers
             _jobQueue = jobQueue;
             _serviceScopeFactory = serviceScopeFactory;
             _paymentFinalization = paymentFinalization;
+            _paymentAttempts = paymentAttempts;
         }
 
         [HttpPost]
@@ -74,6 +77,42 @@ namespace TRS_API.Controllers
                     case "checkout.session.expired":
                         var expiredSession = stripeEvent.Data.Object as Session;
                         await HandleCheckoutExpired(expiredSession!, eventId);
+                        break;
+
+                    case "payment_intent.processing":
+                        var processingIntent = stripeEvent.Data.Object as PaymentIntent;
+                        await _paymentAttempts.MarkProcessingAsync(processingIntent!, HttpContext.RequestAborted);
+                        await UpsertWebhookLogAsync(eventId, stripeEvent.Type, json, "I");
+                        break;
+
+                    case "payment_intent.succeeded":
+                        var succeededIntent = stripeEvent.Data.Object as PaymentIntent;
+                        var result = await _paymentAttempts.FinalizePaymentIntentAsync(
+                            succeededIntent!,
+                            eventId,
+                            HttpContext.RequestAborted);
+                        await UpsertWebhookLogAsync(
+                            eventId,
+                            stripeEvent.Type,
+                            json,
+                            result.Success ? (result.AlreadyProcessed ? "I" : "S") : "F",
+                            result.Success ? null : $"{result.Code}: {result.Message}",
+                            intent: succeededIntent);
+                        break;
+
+                    case "payment_intent.payment_failed":
+                        var failedIntent = stripeEvent.Data.Object as PaymentIntent;
+                        await _paymentAttempts.MarkFailedAsync(
+                            failedIntent!,
+                            failedIntent?.LastPaymentError?.Message,
+                            HttpContext.RequestAborted);
+                        await UpsertWebhookLogAsync(eventId, stripeEvent.Type, json, "I", intent: failedIntent);
+                        break;
+
+                    case "payment_intent.canceled":
+                        var canceledIntent = stripeEvent.Data.Object as PaymentIntent;
+                        await _paymentAttempts.MarkCanceledAsync(canceledIntent!, HttpContext.RequestAborted);
+                        await UpsertWebhookLogAsync(eventId, stripeEvent.Type, json, "I", intent: canceledIntent);
                         break;
 
                     case "charge.refunded":
@@ -430,7 +469,8 @@ namespace TRS_API.Controllers
             string  payloadJson,
             string  processingStatus,
             string? errorMessage = null,
-            Session? session     = null)
+            Session? session     = null,
+            PaymentIntent? intent = null)
         {
             var now = DateTime.UtcNow;
             var log = await _db.WebhookLogs
@@ -476,6 +516,16 @@ namespace TRS_API.Controllers
                                          ? session.AmountTotal.Value / 100m
                                          : null;
                 log.Currency         = session.Currency?.ToUpperInvariant();
+            }
+
+            if (intent != null)
+            {
+                log.GatewaySessionId = intent.Id;
+                log.ContactName      = intent.Metadata?.GetValueOrDefault("contact_name");
+                log.ContactEmail     = intent.Metadata?.GetValueOrDefault("contact_email");
+                log.ContactPhone     = intent.Metadata?.GetValueOrDefault("contact_phone");
+                log.Amount           = (intent.AmountReceived > 0 ? intent.AmountReceived : intent.Amount) / 100m;
+                log.Currency         = intent.Currency?.ToUpperInvariant();
             }
 
             await _db.SaveChangesAsync();

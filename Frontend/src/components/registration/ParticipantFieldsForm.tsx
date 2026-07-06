@@ -88,6 +88,15 @@ export interface ValidateParticipantOptions {
 const normalizeName = (name: string) =>
   name.trim().replace(/\s+/g, " ").toLowerCase();
 
+export function customFieldValueKey(cf: CustomField): string {
+  const id = cf.customFieldId ?? cf.id;
+  return id != null ? String(id) : "";
+}
+
+function customFieldValue(values: Record<string, string>, cf: CustomField): string {
+  return values[customFieldValueKey(cf)] ?? "";
+}
+
 export function validateParticipant(
   v: ParticipantFormValues,
   opts: ValidateParticipantOptions,
@@ -171,7 +180,7 @@ export function validateParticipant(
 
   // Required custom fields
   for (const cf of program.fields.customFields) {
-    if (cf.required && !v.customFieldValues[cf.label]?.trim())
+    if (cf.required && !customFieldValue(v.customFieldValues, cf).trim())
       errs[`custom.${cf.label}`] = "Required";
   }
 
@@ -234,11 +243,11 @@ export function FieldWrapper({
   label, error, children,
 }: { label: string; error?: string; children: React.ReactNode }) {
   return (
-    <div>
-      <label className="block text-xs font-semibold mb-1.5 opacity-70">{label}</label>
+    <div className={error ? "registration-field-error" : undefined}>
+      <label className="registration-form-label">{label}</label>
       {children}
       {error && (
-        <p className="text-xs mt-1 font-medium" style={{ color: "var(--badge-closed-text)" }}>
+        <p className="registration-form-error text-xs mt-1 font-semibold">
           {error}
         </p>
       )}
@@ -322,8 +331,8 @@ export default function ParticipantFieldsForm({
 }: ParticipantFieldsFormProps) {
 
   const set = (patch: Partial<ParticipantFormValues>) => onChange(patch);
-  const setCustom = (label: string, value: string) =>
-    set({ customFieldValues: { ...values.customFieldValues, [label]: value } });
+  const setCustom = (cf: CustomField, value: string) =>
+    set({ customFieldValues: { ...values.customFieldValues, [customFieldValueKey(cf)]: value } });
 
   const sbaLocked = sbaStatus === "found";
   const isBadminton = eventType?.toLowerCase() === "badminton";
@@ -385,14 +394,20 @@ export default function ParticipantFieldsForm({
                       onSbaIdChange?.(e.target.value);
                       set({ sbaId: e.target.value });
                     }}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && !disabled && sbaStatus !== "loading") {
+                        e.preventDefault();
+                        onSbaRetrieve?.();
+                      }
+                    }}
                   />
                   <button
                     type="button"
                     onClick={onSbaRetrieve}
                     disabled={disabled || sbaStatus === "loading"}
-                    className="btn-primary px-4 py-2 text-xs font-semibold whitespace-nowrap disabled:opacity-60"
+                    className="btn-primary px-4 py-2 text-sm font-semibold"
                   >
-                    {sbaStatus === "loading" ? "Loading…" : "Retrieve →"}
+                    {sbaStatus === "loading" ? "Loading…" : "Retrieve"}
                   </button>
                 </div>
                 {sbaStatus === "found" && (
@@ -404,7 +419,7 @@ export default function ParticipantFieldsForm({
                 )}
                 {sbaStatus === "not_found" && (
                   <p className="text-xs mt-1 flex items-center gap-1"
-                    style={{ color: "var(--badge-closed-text)" }}>
+                    style={{ color: "var(--color-primary)" }}>
                     <XCircle className="h-3 w-3" /> SBA ID not found.
                   </p>
                 )}
@@ -420,7 +435,7 @@ export default function ParticipantFieldsForm({
       )}
 
       {/* ── Full Name ── */}
-      <FieldWrapper label="Full Name (as per NRIC/Passport)" error={errors.fullName}>
+      <FieldWrapper label="Full Name (as per NRIC/Passport) *" error={errors.fullName}>
         <div className="relative">
           <input
             className="field-input"
@@ -454,7 +469,7 @@ export default function ParticipantFieldsForm({
       </FieldWrapper>
 
       {/* ── Date of Birth ── */}
-      <FieldWrapper label="Date of Birth" error={errors.dob}>
+      <FieldWrapper label="Date of Birth *" error={errors.dob}>
         <div className="flex gap-2">
           <select className="field-input flex-1" value={values.dobDay}
             disabled={disabled || sbaLocked}
@@ -481,7 +496,7 @@ export default function ParticipantFieldsForm({
       </FieldWrapper>
 
       {/* ── Gender ── */}
-      <FieldWrapper label="Gender" error={errors.gender}>
+      <FieldWrapper label="Gender *" error={errors.gender}>
         <select className="field-input" value={values.gender}
           disabled={disabled}
           style={sbaLocked ? { opacity: 0.6 } : undefined}
@@ -493,21 +508,21 @@ export default function ParticipantFieldsForm({
       </FieldWrapper>
 
       {/* ── Email ── */}
-      <FieldWrapper label="Email" error={errors.email}>
+      <FieldWrapper label="Email *" error={errors.email}>
         <input type="email" className="field-input" value={values.email}
           disabled={disabled}
           onChange={e => set({ email: e.target.value })} />
       </FieldWrapper>
 
       {/* ── Contact Number ── */}
-      <FieldWrapper label="Contact Number" error={errors.contactNumber}>
+      <FieldWrapper label="Contact Number *" error={errors.contactNumber}>
         <input className="field-input" value={values.contactNumber}
           disabled={disabled}
           onChange={e => set({ contactNumber: e.target.value })} />
       </FieldWrapper>
 
       {/* ── Nationality ── */}
-      <FieldWrapper label="Nationality" error={errors.nationality}>
+      <FieldWrapper label="Nationality *" error={errors.nationality}>
         {nationalityOptions ? (
           <select className="field-input" value={values.nationality}
             disabled={disabled}
@@ -525,7 +540,7 @@ export default function ParticipantFieldsForm({
       </FieldWrapper>
 
       {/* ── Club / School / Company ── */}
-      <FieldWrapper label={isBadminton ? "Club" : "Club / School / Company"} error={errors.clubSchoolCompany}>
+      <FieldWrapper label={`${isBadminton ? "Club" : "Club / School / Company"} *`} error={errors.clubSchoolCompany}>
         {isBadminton ? (
           <>
             <select className="field-input" value={clubSelectValue}
@@ -668,8 +683,8 @@ export default function ParticipantFieldsForm({
         >
           <CustomFieldInput
             cf={cf}
-            value={values.customFieldValues[cf.label] ?? ""}
-            onChange={v => setCustom(cf.label, v)}
+            value={customFieldValue(values.customFieldValues, cf)}
+            onChange={v => setCustom(cf, v)}
             disabled={disabled}
           />
         </FieldWrapper>

@@ -46,7 +46,7 @@ The frontend uses component state and React contexts:
 - `ThemeContext`: theme values.
 - `LiveConfigContext`: loads public system config from `GET /api/config`.
 
-Registration cart state lives mainly in `EventDetail.tsx`. The session-first paid flow stores payload context in browser storage around the Stripe redirect.
+Registration cart state lives mainly in `EventDetail.tsx`. The current paid flow uses embedded Stripe Elements in `EmbeddedPaymentModal`; cart/contact context is kept in browser storage only so refreshes or failed attempts can preserve user input.
 
 ### API Pattern
 
@@ -97,15 +97,17 @@ Controllers use attribute routing. Most admin mutations use `[Authorize(Roles = 
 Business logic is mixed:
 
 - Shared registration validation/persistence is centralized in `RegistrationWorkflowService`.
-- Stripe finalization is centralized in `PaymentFinalizationService`.
+- Embedded Stripe PaymentIntent attempt creation/finalization is centralized in `PaymentAttemptService`.
+- Legacy hosted Checkout finalization is centralized in `PaymentFinalizationService`.
 - Fixture logic is centralized in `FixtureGenerationService`.
+- Admin action audit snapshots are centralized in `AdminAuditService` where implemented.
 - Several controllers still directly query and mutate `TRSDbContext`.
 
 ### Service Pattern
 
 Services are registered in DI in `Program.cs`.
 
-- Scoped: auth, registration, payment finalization, fixtures, email, receipt.
+- Scoped: auth, registration, embedded payment attempts, legacy payment finalization, fixtures, email, receipt.
 - Singleton: background job queue.
 - Hosted: background job worker and payment cleanup worker.
 
@@ -123,6 +125,7 @@ Configuration/auth/logging:
 - `AdminUser`
 - `AppLog`
 - `AdminAuditLog`
+- `AdminAuditLogDetail`
 - `PaymentAuditLog`
 
 Events and programs:
@@ -148,6 +151,7 @@ Payment:
 - `Payment`
 - `PaymentItem`
 - `Refund`
+- `PaymentAttempt`
 - `PendingCheckout`
 - `WebhookLog`
 
@@ -186,7 +190,7 @@ These avoid expensive joins and preserve historical labels after event/program e
 
 ## Payment Architecture
 
-### Session-First Flow
+### Embedded Payment Attempt Flow
 
 ```mermaid
 sequenceDiagram
@@ -194,26 +198,25 @@ sequenceDiagram
     participant API as PaymentController
     participant DB as SQL Server
     participant Stripe as Stripe
-    participant Final as PaymentFinalizationService
+    participant Attempts as PaymentAttemptService
 
-    UI->>API: POST /api/Payment/create-checkout-session
+    UI->>API: POST /api/Payment/embedded-attempt
     API->>API: ValidateAndPriceAsync
-    API->>DB: Upsert PendingCheckout
-    API->>Stripe: Create Checkout Session
-    API-->>UI: checkoutUrl, gatewaySessionId
-    Stripe-->>API: POST /api/webhooks/stripe
-    UI->>API: POST /api/Payment/confirm-session
-    API->>Stripe: Verify session is paid
-    API->>Final: FinalizeSessionFirstAsync
-    Final->>DB: Create registration/payment graph
-    Final->>DB: Remove PendingCheckout
+    API->>DB: Insert PaymentAttempt
+    API->>Stripe: Create PaymentIntent
+    API-->>UI: clientSecret, publishableKey, attempt id
+    UI->>Stripe: confirmPayment via PaymentElement
+    Stripe-->>API: payment_intent.* webhook
+    API->>Attempts: FinalizePaymentIntentAsync
+    Attempts->>DB: Create registration/payment graph
+    Attempts->>DB: Mark attempt Succeeded or NeedsReconciliation
 ```
 
-Webhook and browser return are both allowed to win the race. `PaymentFinalizationService` first checks for an existing payment by `GatewaySessionId` and returns the existing registration when already processed.
+The webhook is the source of truth for final registration creation. The browser polls attempt status and only clears the cart after the backend reports a finalized registration. Late success after attempt expiry and finalization failures are marked for reconciliation rather than auto-registering.
 
-### Legacy Payment Flow
+### Legacy Hosted Checkout Flow
 
-`PaymentController` still supports creating a Stripe Checkout Session for an existing registration id. Current public paid registration uses the session-first path.
+`PaymentController` still supports `create-checkout-session` and `confirm-session` for older hosted Checkout return URLs. That path stores payloads in `PendingCheckouts` and finalizes through `PaymentFinalizationService`.
 
 ## Background Work
 
@@ -224,7 +227,7 @@ Implementation notes:
 - Queue is in-memory (`Channel<Func<CancellationToken, Task>>`).
 - Jobs are lost if the process restarts.
 - Email failures are logged but do not retry.
-- `PaymentCleanupWorker` deletes expired pending checkout rows hourly.
+- `PaymentCleanupWorker` deletes expired legacy pending checkout rows and sweeps embedded attempts for expiry/backstop reconciliation.
 
 ## Logging Architecture
 
@@ -236,6 +239,8 @@ Configured sinks:
 - `EFCoreSink`, writing to `AppLogs`.
 
 `EFCoreSink` creates a scoped `TRSDbContext` per log event, writes the event, and swallows sink exceptions.
+
+Admin audit logging is separate from application logging. `AdminAuditService` stores action-level old/new JSON snapshots in `AdminAuditLog` and flattened changed fields in `AdminAuditLogDetail`. It is used by implemented admin mutation paths such as event/program changes, fixture mutations, badminton club CRUD, and SBA import-created clubs.
 
 ## File Storage
 

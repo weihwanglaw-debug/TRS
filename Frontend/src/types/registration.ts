@@ -252,17 +252,6 @@ export interface Registration {
   payment:         Payment;
 }
 
-// ── Checkout initiation response ──────────────────────────────────────────────
-// Returned by POST /registrations/:id/payment/checkout
-// Frontend redirects to checkoutUrl immediately after receiving this.
-
-export interface CheckoutSession {
-  registrationId:  string;
-  paymentId:       string;
-  checkoutUrl:     string;   // Stripe: hosted checkout page URL
-  gatewaySessionId:string;   // Stripe: cs_xxxx — stored for webhook matching
-  expiresAt:       string;   // ISO datetime — session expiry (Stripe: 24h)
-}
 
 
 // ── Dashboard / stats aggregate ───────────────────────────────────────────────
@@ -358,4 +347,36 @@ export function canRefundItem(item: PaymentItem, activeRefunds: Refund[]): boole
     r => r.paymentItemId === item.id && r.refundStatus === "P"
   );
   return !hasPending;  // DB constraint: one Pending refund per item at a time
+}
+
+export type PaymentAttemptStatus =
+  | "Created"
+  | "Submitted"
+  | "Succeeded"
+  | "Failed"
+  | "Expired"
+  | "Canceled"
+  | "NeedsReconciliation";
+
+export interface EmbeddedPaymentAttempt {
+  paymentAttemptId: number;
+  attemptKey: string;
+  paymentIntentId: string;
+  clientSecret: string;
+  publishableKey: string;
+  status: PaymentAttemptStatus;
+  amount: number;
+  currency: string;
+  paymentMethod: PaymentMethod;
+  expiresAt: string;
+}
+
+export interface EmbeddedPaymentAttemptStatus {
+  paymentAttemptId: number;
+  status: PaymentAttemptStatus;
+  expiresAt: string;
+  registrationId: number | null;
+  paymentId: number | null;
+  reconciliationReason: string | null;
+  errorMessage: string | null;
 }

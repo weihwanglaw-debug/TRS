@@ -26,7 +26,7 @@ Business rules below are extracted from current controller/service/frontend code
 
 ## Registration Validation
 
-`RegistrationWorkflowService` validates public direct registration and paid session-first checkout payloads.
+`RegistrationWorkflowService` validates public direct registration and paid embedded payment-attempt payloads.
 
 Required registration shape:
 
@@ -98,14 +98,17 @@ Free/direct flow:
 - `POST /api/registrations` calls `RegistrationWorkflowService.CreateAsync`.
 - Successful confirmed registrations queue receipt generation and email.
 
-Paid session-first flow:
+Paid embedded payment flow:
 
-- `POST /api/Payment/create-checkout-session` validates and prices payload.
-- Payload is stored in `PendingCheckouts`.
-- Stripe Checkout Session is created.
-- Browser return and Stripe webhook both attempt finalization.
-- `PaymentFinalizationService` is idempotent by `GatewaySessionId`.
-- Successful finalization creates registration, groups, participants, payment, payment items, and removes pending checkout.
+- `POST /api/Payment/embedded-attempt` validates and prices payload.
+- Payload and line item snapshot are stored in `PaymentAttempts`.
+- Stripe PaymentIntent is created and shown through the embedded modal.
+- Stripe webhook is the source of truth for payment outcome and registration finalization.
+- `PaymentAttemptService` is idempotent by Stripe PaymentIntent id.
+- Successful finalization creates registration, groups, participants, payment, and payment items.
+- Payment received after attempt expiry, missing attempt context, or finalization failure is marked for reconciliation instead of auto-registering.
+
+Legacy hosted Checkout session-first code still exists for older return URLs and uses `PendingCheckouts` plus `PaymentFinalizationService`.
 
 ## Payment Rules
 
@@ -136,9 +139,16 @@ Receipt numbers:
 PayNow:
 
 - PayNow is only allowed for SGD.
-- PayNow Checkout sessions expire after 30 minutes.
+- Embedded PayNow attempts use the configured `Stripe:EmbeddedAttemptMinutes` expiry.
+- The modal freezes the countdown after payment submission because PayNow confirmation can complete outside the browser.
 
-Pending checkout reuse:
+Embedded attempt lock:
+
+- Active attempts for the same event and contact email block duplicate payment creation while submitted or under reconciliation.
+- Created-but-unsubmitted attempts can be canceled/superseded before submission.
+- Expired or stale submitted attempts are swept by `PaymentCleanupWorker`, with direct Stripe status lookup before reconciliation decisions.
+
+Legacy pending checkout reuse:
 
 - Active pending checkouts for the same event, contact email, payment method, amount, and payload hash can be reused.
 - Mismatched active pending checkout sessions are expired/removed before creating a new one.
@@ -163,8 +173,8 @@ Orphan refunds:
 
 - Only `superadmin` can refund orphan paid Stripe sessions from reconciliation.
 - Reason is required.
-- Stripe session must still be paid and have a positive amount.
-- Refund rows for orphan sessions have no `PaymentId` or `PaymentItemId`.
+- Stripe session or PaymentIntent must still be paid and have a positive amount.
+- Refund rows for orphan sessions/intents have no `PaymentId` or `PaymentItemId`.
 - Serializable transaction and filtered unique index protect against duplicate active orphan refunds.
 
 ## Admin Override Rules
@@ -206,7 +216,8 @@ Manual confirmation:
 - Name is required for create/update.
 - Active duplicate names are rejected.
 - Delete is soft delete (`IsActive=false`).
-- Only `superadmin` can delete.
+- `superadmin` and `eventadmin` can create, update, and soft-delete clubs.
+- Club create, update, and soft-delete are written to `AdminAuditLog`/`AdminAuditLogDetail`.
 - Registration UI shows a club dropdown for badminton events and an "Others" option with a free-text input.
 - The custom "Others" value is persisted as `clubSchoolCompany`.
 
@@ -215,7 +226,10 @@ Manual confirmation:
 - Ranking types are defined in code.
 - Public endpoints expose ranking types, rankings, member lookup, and member search.
 - Import requires `superadmin` or `eventadmin`.
-- Import accepts `.xlsx` and replaces rows for imported ranking categories.
+- Import accepts `.xlsx` and replaces the current SBA ranking list with the parsed workbook rows.
+- During import, non-blank player club names from singles and doubles rows are compared case-insensitively against `BadmintonClub`; new names are appended as active clubs.
+- SBA import writes an admin audit summary row. Each new club created from import also gets a `BADMINTON_CLUB_IMPORT_CREATE` audit row.
+- Import response includes imported row count, category counts, skipped sheets, added club count, and added club names.
 - SBA lookup normalizes member id comparisons through code paths in `SbaController`.
 - Name search returns a limited result set.
 

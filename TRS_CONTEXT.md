@@ -23,14 +23,14 @@ The repository is a monorepo:
 4. Uploads participant documents when enabled by program settings.
 5. Accepts consent.
 6. For free registrations, submits directly to `POST /api/registrations`.
-7. For paid registrations, creates a Stripe Checkout session through `POST /api/Payment/create-checkout-session`.
-8. Returns through `/payment/result`, which calls `POST /api/Payment/confirm-session` and displays the registration/receipt state.
+7. For paid registrations, creates an embedded Stripe payment attempt through `POST /api/Payment/embedded-attempt`.
+8. The embedded payment modal confirms the Stripe PaymentIntent, then `/payment/result` displays the finalized registration/receipt state after webhook completion.
 
 ### Admin User
 
 1. Logs in through `/login`.
 2. Uses JWT-backed admin routes under `/admin`.
-3. Manages events, programs, documents, registrations, payments, refunds, fixtures, SBA rankings, system config, users, and password changes according to role.
+3. Manages events, programs, documents, registrations, payments, refunds, fixtures, SBA rankings, badminton club master data, system config, users, and password changes according to role.
 4. When registering players from the public event detail page while logged in, paid carts use admin payment bypass: payer contact is taken from the admin profile, cart payment/consent fields are hidden, and the confirmation modal captures the selected payment outcome.
 
 ## Frontend Routes
@@ -57,6 +57,7 @@ Admin routes under `AdminLayout`:
 - `/admin/payment-reconciliation`: payment reconciliation.
 - `/admin/fixtures`: fixture management.
 - `/admin/sba-rankings`: SBA rankings.
+- `/admin/badminton-clubs`: badminton club master list maintenance.
 - `/admin/config`: system configuration.
 - `/admin/users`: admin user management.
 - `/admin/change-password`: password change.
@@ -69,7 +70,7 @@ API modules live in `Frontend/src/lib/api/`.
 - `authApi.ts`: login, logout, current user, password change.
 - `eventsApi.ts`: events, programs, documents.
 - `registrationsApi.ts`: registration CRUD/admin operations, payment updates, refunds, stats, export.
-- `clubsApi.ts`: badminton club lookup.
+- `clubsApi.ts`: badminton club lookup and admin club CRUD.
 - `uploadsApi.ts`: multipart uploads.
 - `configApi.ts`: system config.
 - `sbaApi.ts`: SBA ranking types, members, import.
@@ -85,9 +86,9 @@ API modules live in `Frontend/src/lib/api/`.
 - `AuthController`: admin login, logout, current user, password change.
 - `ConfigController`: public config read, superadmin config update.
 - `EventsController`: event CRUD, documents, programs, registration-safe event/program mutation checks, and admin audit logging.
-- `BadmintonClubsController`: public club lookup and admin club maintenance.
+- `BadmintonClubsController`: public club lookup and admin club maintenance with admin audit logging.
 - `RegistrationsController`: public registration creation/lookup/receipt and admin registration/payment/refund operations.
-- `PaymentController`: Stripe checkout creation, session confirmation, legacy payment info/verify endpoints.
+- `PaymentController`: embedded Stripe payment attempts, legacy hosted checkout/session confirmation, payment info/verify endpoints.
 - `StripeWebhookController`: Stripe webhook processing.
 - `FixturesController`: fixture generation, save, delete, scoring, scheduling, advancement.
 - `SbaController`: ranking types, member lookup/search, XLSX import.
@@ -99,14 +100,16 @@ API modules live in `Frontend/src/lib/api/`.
 
 - `AuthService`: BCrypt password verification/hash and JWT generation.
 - `RegistrationWorkflowService`: registration validation, pricing, persistence, receipt/email queueing.
-- `PaymentFinalizationService`: idempotent session-first Stripe finalization.
+- `PaymentAttemptService`: embedded Stripe PaymentIntent creation, status tracking, webhook finalization, and reconciliation marking.
+- `PaymentFinalizationService`: legacy idempotent session-first Stripe finalization.
 - `FixtureGenerationService`: authoritative bracket/heats generation, fixture mutation, score validation, advancement, and final placement rules.
 - `ReceiptService`: QuestPDF receipt generation.
 - `EmailService`: SMTP payment confirmation email with receipt attachment.
 - `BackgroundJobQueue` and `BackgroundJobWorker`: in-memory background work queue.
-- `PaymentCleanupWorker`: hourly cleanup of expired `PendingCheckout` rows.
+- `PaymentCleanupWorker`: hourly cleanup of expired legacy `PendingCheckout` rows and embedded payment-attempt backstop sweep.
+- `AdminAuditService`: writes admin action snapshots and field-level change details to `AdminAuditLog` and `AdminAuditLogDetail`.
 
-### Logging
+### Logging and Audit
 
 Serilog is configured in `Program.cs` with console output and a custom `EFCoreSink`.
 
@@ -114,15 +117,17 @@ Serilog is configured in `Program.cs` with console output and a custom `EFCoreSi
 - Framework `Microsoft.*` and `System.*` logs below `Error` are filtered out.
 - Framework `Error` and `Fatal` logs are eligible for `AppLogs`.
 - Sink failures are swallowed to avoid logging recursion.
+- Admin mutations for events/programs, fixtures, badminton club CRUD, and SBA import side effects use `AdminAuditService` where implemented.
+- SBA ranking import writes an import summary audit row and one audit row for each new badminton club appended from workbook data.
 
 ## Data Model Overview
 
 Main EF Core tables/sets:
 
-- Config/auth/logging: `SystemConfig`, `AdminUsers`, `AppLogs`, `AdminAuditLog`, `PaymentAuditLog`.
+- Config/auth/logging: `SystemConfig`, `AdminUsers`, `AppLogs`, `AdminAuditLog`, `AdminAuditLogDetail`, `PaymentAuditLog`.
 - Events: `Events`, `EventGalleryImages`, `EventDocuments`, `Programs`, `ProgramFields`, `ProgramCustomFields`.
 - Registration: `EventRegistrations`, `ParticipantGroups`, `Participants`, `ParticipantCustomFieldValues`, legacy `EventParticipants`.
-- Payment: `Payments`, `PaymentItems`, `Refunds`, `PendingCheckouts`, `WebhookLogs`.
+- Payment: `Payments`, `PaymentItems`, `Refunds`, `PaymentAttempts`, `PendingCheckouts`, `WebhookLogs`.
 - Competition: `Fixtures`, `SbaRankings`.
 - Utilities: `BackgroundJobs`, `BadmintonClub`.
 
@@ -140,16 +145,17 @@ Important mapping detail: `TRSDbContext.BadmintonClubs` maps to the SQL table `B
 
 ## Payment Summary
 
-Primary paid flow is session-first:
+Primary paid flow is embedded PaymentIntent:
 
-1. Frontend sends full registration payload to `POST /api/Payment/create-checkout-session`.
-2. Backend validates and prices the payload.
-3. Backend stores payload in `PendingCheckouts`.
-4. Backend creates a Stripe Checkout Session.
-5. Stripe webhook and browser return path both attempt finalization through `PaymentFinalizationService`.
-6. Finalization creates registration, groups, participants, payment, and payment items.
-7. Pending checkout row is removed after successful finalization.
-8. Receipt generation and email are queued in memory.
+1. Frontend sends full registration payload to `POST /api/Payment/embedded-attempt`.
+2. Backend validates and prices the payload, stores a `PaymentAttempts` row, and creates a Stripe PaymentIntent.
+3. The frontend displays Stripe Elements in `EmbeddedPaymentModal` and submits the PaymentIntent.
+4. Stripe webhook events update the attempt and finalize successful payments.
+5. Successful finalization creates registration, groups, participants, payment, and payment items.
+6. Late success after attempt expiry or finalization failure is marked for payment reconciliation rather than auto-registering.
+7. Receipt generation and email are queued in memory.
+
+The older hosted Checkout session-first path remains as a legacy fallback through `PendingCheckouts`, `PaymentFinalizationService`, and `/api/Payment/confirm-session`.
 
 Free registrations are created directly through `POST /api/registrations`.
 
@@ -172,7 +178,7 @@ Backend configuration comes from `appsettings*.json` and environment variables:
 
 - `ConnectionStrings:TRSConnection`
 - `Jwt:Secret`, `Jwt:Issuer`, `Jwt:Audience`, `Jwt:ExpiryHours`
-- `Stripe:SecretKey`, `Stripe:WebhookSecret`
+- `Stripe:SecretKey`, `Stripe:PublishableKey`, `Stripe:WebhookSecret`
 - `Cors:AllowedOrigins`
 - `RateLimiting:WindowMinutes`, `RateLimiting:PermitLimit`
 - `Email:*`

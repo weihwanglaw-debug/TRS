@@ -30,7 +30,9 @@ const CARD_BG   = "var(--color-row-stripe)";
 const CARD_LINE = "var(--color-table-border)";
 const TEXT_MAIN = "var(--color-body-text)";
 const TEXT_MUTED = "var(--color-disabled-text)";
-const LINK_LINE = "var(--color-table-border)";
+const LINK_LINE = "color-mix(in srgb, var(--color-body-text) 28%, transparent)";
+const PLACEHOLDER_TEXT = "color-mix(in srgb, var(--color-body-text) 46%, transparent)";
+const PLACEHOLDER_LINE = "color-mix(in srgb, var(--color-body-text) 18%, transparent)";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -175,7 +177,7 @@ function MatchCard({
             overflow:      "hidden",
             textOverflow:  "ellipsis",
             fontStyle:     !label ? "italic" : "normal",
-            color:         !label ? TEXT_MUTED : isWinner ? "var(--color-hero-text)" : TEXT_MAIN,
+            color:         !label ? PLACEHOLDER_TEXT : isWinner ? "var(--color-hero-text)" : TEXT_MAIN,
           }}>
             {label || "TBD"}
           </div>
@@ -240,11 +242,11 @@ function MatchCard({
           height:       CARD_H,
           display:      "flex",
           flexDirection: "column",
-          border:       isNull ? `1px dashed ${CARD_LINE}` : `1px solid ${CARD_LINE}`,
+          border:       isNull ? `1px dashed ${PLACEHOLDER_LINE}` : `1px solid ${CARD_LINE}`,
           borderRadius: 6,
           background:   isNull ? "var(--color-row-hover)" : CARD_BG,
           boxShadow:    "none",
-          opacity:      isNull ? 0.4 : 1,
+          opacity:      isNull ? 0.72 : 1,
           cursor:       match && !isBye ? "pointer" : "default",
           overflow:     "hidden",
           fontFamily:   "inherit",
@@ -337,14 +339,14 @@ function Connector({
       <path
         d={`M ${fromX} ${topStubY} H ${spineX}`}
         stroke={topWinner ? primary : LINK_LINE}
-        strokeWidth={topWinner ? 2 : 1.5}
+        strokeWidth={topWinner ? 2.5 : 2}
       />
       {/* Bottom stub — only if bottom match has a winner */}
       {botMatch && (
         <path
           d={`M ${fromX} ${botStubY} H ${spineX}`}
           stroke={botWinner ? primary : LINK_LINE}
-          strokeWidth={botWinner ? 2 : 1.5}
+          strokeWidth={botWinner ? 2.5 : 2}
         />
       )}
       {/* Vertical spine + arm — only when both have winners */}
@@ -352,13 +354,13 @@ function Connector({
         <path
           d={`M ${spineX} ${spineTopY} V ${spineBotY}`}
           stroke={bothWon ? primary : LINK_LINE}
-          strokeWidth={bothWon ? 2 : 1.5}
+          strokeWidth={bothWon ? 2.5 : 2}
         />
       )}
       <path
         d={`M ${spineX} ${armY} H ${armX}`}
         stroke={bothWon ? primary : LINK_LINE}
-        strokeWidth={bothWon ? 2 : 1.5}
+        strokeWidth={bothWon ? 2.5 : 2}
       />
     </g>
   );
@@ -434,7 +436,7 @@ export const BracketView = React.forwardRef<HTMLDivElement, {
               <line
                 x1={x} y1={HDR_H - 6}
                 x2={x + CARD_W} y2={HDR_H - 6}
-                stroke={LINK_LINE} strokeWidth={1}
+                stroke={LINK_LINE} strokeWidth={1.5}
               />
             </g>
           );
