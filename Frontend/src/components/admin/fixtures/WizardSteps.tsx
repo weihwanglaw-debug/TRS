@@ -262,7 +262,7 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
             {showSeeds && (
               <div className="self-end">
                 <button onClick={autoSeed}
-                  className="btn-outline flex items-center gap-2 px-4 py-2 text-xs font-medium">
+                  className="btn-outline flex items-center gap-2 px-4 py-2.5 text-sm font-semibold">
                   <Shuffle className="h-3.5 w-3.5" />
                   {isBadminton ? "Auto-fill from SBA" : "Auto-fill by rank"}
                 </button>
@@ -286,37 +286,35 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
           Participants ({count})
         </p>
         <div className="overflow-auto" style={{ border: "1px solid var(--color-table-border)", maxHeight: 340 }}>
-          <table className="trs-table">
+          <table className="trs-table" style={{ tableLayout: "fixed", minWidth: isBadminton ? 760 : 520 }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 1 }}>
               <tr>
-                <th>#</th>
                 <th>Entry</th>
-                {isBadminton && <th>SBA ID</th>}
-                {isBadminton && <th>SBA Score</th>}
-                {showSeeds && <th style={{ width: 120 }}>Seed</th>}
+                {isBadminton && <th style={{ width: 110 }}>SBA ID</th>}
+                {isBadminton && <th style={{ width: 110 }}>SBA Score</th>}
+                {showSeeds && <th style={{ width: 96, textAlign: "center" }}>Seed</th>}
               </tr>
             </thead>
             <tbody>
-              {seeds.map((s, i) => {
+              {seeds.map((s) => {
                 const sba    = getSba(s);
                 const isDup  = showSeeds && s.seed !== null && seeds.filter(x => x.seed === s.seed).length > 1;
                 const entry = entryDisplay(s);
                 return (
                   <tr key={s.id} style={isDup ? { backgroundColor: "var(--badge-closed-bg)" } : undefined}>
-                    <td className="font-mono text-xs opacity-30">{i + 1}</td>
                     <td>
                       <div className="font-medium text-sm">{entry.main}</div>
                       {entry.sub && <div className="text-xs opacity-50">{entry.sub}</div>}
                     </td>
                     {isBadminton && (
-                      <td className="font-mono text-xs">
+                      <td className="font-mono text-xs whitespace-nowrap">
                         {s.sbaId
                           ? <span className="opacity-60">{s.sbaId}</span>
-                          : <span className="italic opacity-25">No SBA ID</span>}
+                          : <span className="italic opacity-45">No SBA ID</span>}
                       </td>
                     )}
                     {isBadminton && (
-                      <td className="text-right font-mono text-xs">
+                      <td className="text-right font-mono text-xs whitespace-nowrap">
                         {sba
                           ? <span style={{ color: "var(--color-primary)", fontWeight: 600 }}>{sba.accumulatedScore.toLocaleString()}</span>
                           : <span className="opacity-25">—</span>}
@@ -324,10 +322,17 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
                     )}
                     {showSeeds && (
                       <td>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center justify-center gap-1">
                           <input type="number" min={1} max={numSeeds}
                             className="field-input py-1 text-sm text-center"
-                            style={{ width: "4rem", borderColor: isDup ? "var(--badge-closed-text)" : undefined }}
+                            style={{
+                              width: "4rem",
+                              minHeight: "2.25rem",
+                              backgroundColor: "var(--color-card-bg)",
+                              borderColor: isDup ? "var(--badge-closed-text)" : "var(--color-primary)",
+                              color: "var(--color-body-text)",
+                              fontWeight: 700,
+                            }}
                             value={s.seed ?? ""} placeholder="—"
                             onChange={e => setSeedValue(s.id, e.target.value)} />
                           {s.seed !== null && (
@@ -456,7 +461,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
         style={{
           color: selected ? "var(--color-hero-text)" : "var(--color-primary)",
           backgroundColor: selected ? "var(--color-primary)" : "transparent",
-          border: "1px solid var(--color-table-border)",
+          border: "1px solid var(--color-primary)",
         }}
       >
         <ArrowLeftRight className="h-3.5 w-3.5" />
@@ -539,6 +544,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
         className="min-w-0 flex items-center gap-2 p-1"
         style={selected ? { backgroundColor: "var(--badge-open-bg)" } : undefined}
       >
+        <SwapPickButton team={team} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
             {team.seed != null && (
@@ -557,7 +563,6 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
             <p className="text-xs opacity-50 truncate mt-0.5">{entry.sub}</p>
           )}
         </div>
-        <SwapPickButton team={team} />
       </div>
     );
   };
@@ -568,10 +573,6 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
     if (!r1.length) return null;
     return (
       <div style={{ border: "1px solid var(--color-table-border)" }}>
-        <div className="px-4 py-2 font-bold text-xs uppercase tracking-wide"
-          style={{ backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" }}>
-          Round 1 Matchups
-        </div>
         <table className="trs-table" style={{ tableLayout: "fixed", width: "100%" }}>
           <thead>
             <tr>
@@ -600,7 +601,12 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <p className="font-bold text-sm">Preview Draw</p>
+          <p className="font-bold text-sm">
+            Preview Draw
+            {bracket.matches.length > 0 && (
+              <span className="ml-2 opacity-50 font-semibold">/ Round 1 Matchups</span>
+            )}
+          </p>
           <p className="text-xs opacity-50">Swap positions if needed, then confirm to save.</p>
         </div>
       </div>
@@ -704,40 +710,8 @@ export function FixtureWizard({ participants, sbaRankings, isBadminton, onComple
     setSaving(false);
   };
 
-  // Step indicator
-  const steps = ["Configure", "Preview"];
-
   return (
     <div>
-      {/* Step indicator */}
-      <div className="flex items-center gap-2 mb-6">
-        {steps.map((label, i) => {
-          const n = i + 1;
-          const done = screen > n, active = screen === n;
-          return (
-            <React.Fragment key={n}>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <div className="w-6 h-6 flex items-center justify-center text-xs font-bold"
-                  style={{
-                    backgroundColor: active || done ? "var(--color-primary)" : "var(--color-table-border)",
-                    color: active || done ? "var(--color-hero-text)" : "var(--color-body-text)",
-                    opacity: done ? 0.6 : 1,
-                  }}>
-                  {done ? "✓" : n}
-                </div>
-                <span className="text-xs font-semibold hidden sm:block"
-                  style={{ color: active ? "var(--color-primary)" : undefined, opacity: active ? 1 : done ? 0.4 : 0.3 }}>
-                  {label}
-                </span>
-              </div>
-              {i < steps.length - 1 && (
-                <div className="flex-1 h-px" style={{ backgroundColor: "var(--color-table-border)" }} />
-              )}
-            </React.Fragment>
-          );
-        })}
-      </div>
-
       {screen === 1 && (
         <ScreenConfigure
           participants={participants}

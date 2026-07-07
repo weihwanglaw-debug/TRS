@@ -366,6 +366,76 @@ export async function apiCancelRegistrationWithRefunds(
   return ok(await res.json());
 }
 
+export type CancellationRefundMode = "none" | "refundPaidItems";
+
+export interface CancellationResponse {
+  registration: Registration;
+  errors: string[];
+  fixtureImpact?: Array<{
+    programId: number;
+    isLocked: boolean;
+    severity: string;
+    message: string;
+  }>;
+}
+
+async function postCancellation(
+  url: string,
+  reason: string,
+  refundMode: CancellationRefundMode,
+): Promise<ApiResult<CancellationResponse>> {
+  await delay();
+
+  const res = await apiFetch(url, {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify({ reason, refundMode }),
+  });
+  if (!res.ok) {
+    const e = await parseError(res);
+    return err(e.code, e.message);
+  }
+  return ok(await res.json());
+}
+
+export async function apiCancelRegistration(
+  registrationId: string,
+  reason: string,
+  refundMode: CancellationRefundMode,
+): Promise<ApiResult<CancellationResponse>> {
+  return postCancellation(
+    `${API_BASE}/api/registrations/${registrationId}/cancel`,
+    reason,
+    refundMode,
+  );
+}
+
+export async function apiCancelRegistrationGroup(
+  registrationId: string,
+  groupId: string,
+  reason: string,
+  refundMode: CancellationRefundMode,
+): Promise<ApiResult<CancellationResponse>> {
+  return postCancellation(
+    `${API_BASE}/api/registrations/${registrationId}/groups/${groupId}/cancel`,
+    reason,
+    refundMode,
+  );
+}
+
+export async function apiCancelRegistrationParticipant(
+  registrationId: string,
+  participantId: string,
+  reason: string,
+  refundMode: CancellationRefundMode,
+): Promise<ApiResult<CancellationResponse>> {
+  return postCancellation(
+    `${API_BASE}/api/registrations/${registrationId}/participants/${participantId}/cancel`,
+    reason,
+    refundMode,
+  );
+}
+
 
 
 /**

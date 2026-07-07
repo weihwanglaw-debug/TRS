@@ -25,6 +25,7 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
     private const string WebhookSecret = "whsec_test_secret";
     private readonly string _runId = $"TRS_INT_{Guid.NewGuid():N}";
     private readonly TestStripeClient _stripe;
+    private readonly ConcurrentQueue<string> _logs = new();
     private ServiceProvider _services = null!;
 
     public PaymentRefundIntegrationTests()
@@ -51,11 +52,12 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
 
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(config);
-        services.AddLogging();
+        services.AddLogging(builder => builder.AddProvider(new TestLogProvider(_logs)));
         services.AddDbContext<TRSDbContext>(options => options.UseSqlServer(ConnectionString));
         services.AddSingleton<IBackgroundJobQueue, NoopBackgroundJobQueue>();
         services.AddScoped<RegistrationWorkflowService>();
         services.AddScoped<PaymentFinalizationService>();
+        services.AddScoped<PaymentAttemptService>();
         services.AddScoped<ReceiptService>();
         services.AddScoped<EmailService>();
         _services = services.BuildServiceProvider();
@@ -536,7 +538,14 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
         };
 
         var result = await CreatePaymentController().CreateCheckoutSession(request);
-        var ok = Assert.IsType<OkObjectResult>(result);
+        if (result is not OkObjectResult ok)
+        {
+            var details = result is ObjectResult obj
+                ? JsonSerializer.Serialize(obj.Value)
+                : result.GetType().FullName;
+            throw new Xunit.Sdk.XunitException(
+                $"Expected checkout creation to return OkObjectResult. Actual: {details}. Logs: {string.Join(" | ", _logs.TakeLast(5))}");
+        }
 
         return new CheckoutResult(
             ReadString(ok.Value!, "gatewaySessionId"),
@@ -725,7 +734,8 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             scope.ServiceProvider.GetRequiredService<IBackgroundJobQueue>(),
             _services.GetRequiredService<IServiceScopeFactory>(),
             scope.ServiceProvider.GetRequiredService<RegistrationWorkflowService>(),
-            scope.ServiceProvider.GetRequiredService<PaymentFinalizationService>());
+            scope.ServiceProvider.GetRequiredService<PaymentFinalizationService>(),
+            scope.ServiceProvider.GetRequiredService<PaymentAttemptService>());
         controller.ControllerContext = ControllerContextFor("payment-admin");
         return controller;
     }
@@ -736,6 +746,7 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
         var controller = new RegistrationsController(
             scope.ServiceProvider.GetRequiredService<TRSDbContext>(),
             scope.ServiceProvider.GetRequiredService<ILogger<RegistrationsController>>(),
+            null!,
             null!,
             scope.ServiceProvider.GetRequiredService<IBackgroundJobQueue>(),
             _services.GetRequiredService<IServiceScopeFactory>(),
@@ -753,7 +764,8 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             scope.ServiceProvider.GetRequiredService<TRSDbContext>(),
             scope.ServiceProvider.GetRequiredService<IBackgroundJobQueue>(),
             _services.GetRequiredService<IServiceScopeFactory>(),
-            scope.ServiceProvider.GetRequiredService<PaymentFinalizationService>());
+            scope.ServiceProvider.GetRequiredService<PaymentFinalizationService>(),
+            scope.ServiceProvider.GetRequiredService<PaymentAttemptService>());
     }
 
     private StripeWebhookController CreateStripeWebhookController(TRSDbContext db)
@@ -767,6 +779,12 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             db,
             registrationWorkflow,
             _services.GetRequiredService<ILogger<PaymentFinalizationService>>());
+        var paymentAttempts = new PaymentAttemptService(
+            db,
+            registrationWorkflow,
+            _services.GetRequiredService<EmailService>(),
+            _services.GetRequiredService<IConfiguration>(),
+            _services.GetRequiredService<ILogger<PaymentAttemptService>>());
 
         return new StripeWebhookController(
             _services.GetRequiredService<ILogger<StripeWebhookController>>(),
@@ -774,7 +792,8 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             db,
             _services.GetRequiredService<IBackgroundJobQueue>(),
             _services.GetRequiredService<IServiceScopeFactory>(),
-            paymentFinalization);
+            paymentFinalization,
+            paymentAttempts);
     }
 
     private AdminPaymentReconciliationController CreateAdminPaymentReconciliationController()
@@ -908,6 +927,40 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
         public ValueTask EnqueueAsync(Func<CancellationToken, Task> job) => ValueTask.CompletedTask;
         public ValueTask<Func<CancellationToken, Task>> DequeueAsync(CancellationToken ct) =>
             throw new NotSupportedException("Integration tests do not execute queued background jobs.");
+    }
+
+    private sealed class TestLogProvider : ILoggerProvider
+    {
+        private readonly ConcurrentQueue<string> _logs;
+
+        public TestLogProvider(ConcurrentQueue<string> logs) => _logs = logs;
+
+        public ILogger CreateLogger(string categoryName) => new TestLogger(categoryName, _logs);
+        public void Dispose() { }
+    }
+
+    private sealed class TestLogger : ILogger
+    {
+        private readonly string _categoryName;
+        private readonly ConcurrentQueue<string> _logs;
+
+        public TestLogger(string categoryName, ConcurrentQueue<string> logs)
+            => (_categoryName, _logs) = (categoryName, logs);
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (!IsEnabled(logLevel)) return;
+            _logs.Enqueue($"{logLevel} {_categoryName}: {formatter(state, exception)} {exception}");
+            while (_logs.Count > 20 && _logs.TryDequeue(out _)) { }
+        }
     }
 
     private sealed class TestStripeClient : IStripeClient

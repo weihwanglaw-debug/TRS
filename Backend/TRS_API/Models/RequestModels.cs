@@ -196,6 +196,8 @@ public class InitiateRefundRequest
 public class CancelRegistrationRequest
 {
     [Required] public string Reason { get; set; } = null!;
+    public string? RefundMode { get; set; } = "none"; // none | refundPaidItems
+    public bool ConfirmFixtureImpact { get; set; }
 }
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────

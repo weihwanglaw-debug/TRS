@@ -11,7 +11,7 @@ public partial class PaymentItem
     public string? Description { get; set; }
     public string? PlayerName { get; set; }
     public decimal Amount { get; set; }
-    public string ItemStatus { get; set; } = "P";   // P|S|R
+    public string ItemStatus { get; set; } = "P";   // P|S|R|X
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public virtual Payment Payment { get; set; } = null!;

@@ -17,6 +17,7 @@ public partial class Participant
     public string? GuardianContact { get; set; }
     public string? DocumentUrl { get; set; }
     public string? Remark { get; set; }
+    public string ParticipantStatus { get; set; } = "Active";
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public virtual ParticipantGroup Group { get; set; } = null!;

@@ -27,9 +27,10 @@ import type { Registration, ParticipantGroup, Payment, PaymentItem, Refund, Paym
 import { totalFee, PAYMENT_STATUS_LABEL, PAYMENT_METHOD_LABEL } from "@/types/registration";
 import {
   apiGetEvents, apiGetRegistration, apiGetRegistrations,
-  apiUpdateRegistrationStatus, apiUpdatePayment,
-  apiGetRefunds, apiGetPaymentAudit, apiInitiateRefund, apiCancelRegistrationWithRefunds, apiConfirmRegistration, assetUrl,
+  apiUpdatePayment,
+  apiGetRefunds, apiGetPaymentAudit, apiInitiateRefund, apiCancelRegistration, apiConfirmRegistration, assetUrl,
 } from "@/lib/api";
+import type { CancellationRefundMode } from "@/lib/api/registrationsApi";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Pagination } from "@/components/ui/TableControls";
 import { Switch } from "@/components/ui/switch";
@@ -38,7 +39,7 @@ import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type RegStatus = "Pending" | "Confirmed" | "Cancelled";
+type RegStatus = "Pending" | "Confirmed" | "CancelPending" | "RefundFailed" | "Cancelled";
 
 type SortState<T> = { key: keyof T | null; dir: "asc" | "desc" };
 function useSort<T>(data: T[]) {
@@ -138,19 +139,31 @@ function programEntrySummary(groups: ParticipantGroup[]) {
 
 function formatDate(value?: string): string {
   if (!value) return "—";
-  const date = new Date(value);
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
+  const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("en-SG", { day: "2-digit", month: "short", year: "numeric" });
 }
 
 function formatDateTime(value?: string): string {
   if (!value) return "—";
-  const date = new Date(value);
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
+  const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("en-SG", {
-    day: "2-digit", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Singapore",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date).reduce<Record<string, string>>((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -158,9 +171,24 @@ function formatDateTime(value?: string): string {
 /** Sum of Success refunds for a registration/payment item list. */
 function calcRefunded(refunds: Refund[], items: PaymentItem[]): number {
   return items.reduce((sum, item) => {
-    const r = refunds.find(r => r.paymentItemId === item.id && r.refundStatus === "S");
-    return sum + (r?.refundAmount ?? 0);
+    const itemRefunded = refunds
+      .filter(r => r.paymentItemId === item.id && r.refundStatus === "S")
+      .reduce((itemSum, r) => itemSum + r.refundAmount, 0);
+    return sum + itemRefunded;
   }, 0);
+}
+
+function refundableItems(payment: Payment | null | undefined, refunds: Refund[]): PaymentItem[] {
+  if (!payment || !(payment.paymentStatus === "S" || payment.paymentStatus === "PR")) return [];
+  if (!["Stripe", "Manual", "PayNow"].includes(payment.gateway)) return [];
+  return payment.items.filter(item => {
+    if (item.itemStatus !== "S") return false;
+    const refunded = refunds
+      .filter(r => r.paymentItemId === item.id && r.refundStatus === "S")
+      .reduce((sum, r) => sum + r.refundAmount, 0);
+    const pending = refunds.some(r => r.paymentItemId === item.id && r.refundStatus === "P");
+    return !pending && item.amount - refunded > 0;
+  });
 }
 
 // ── Payment Log helpers ───────────────────────────────────────────────────────
@@ -240,6 +268,8 @@ interface TimelineEntry {
   amount:        number;          // positive for payment, positive for refund amount
   status:        string;          // PaymentStatus or RefundStatus code
   gatewayRef?:   string;          // gateway refund ID or charge ID
+  transactionId?: string;         // payment intent/session for payments, refund ID for refunds
+  paymentMethod?: string;
 }
 
 function buildTimeline(
@@ -255,8 +285,10 @@ function buildTimeline(
     label:       "Payment confirmed",
     description: payment.adminNote ?? undefined,
     amount:      payment.amount,
-    status:      payment.paymentStatus,
+    status:      "S",
     gatewayRef:  payment.gatewayChargeId ?? payment.gatewayPaymentId ?? undefined,
+    transactionId: payment.gatewayPaymentId ?? payment.gatewaySessionId ?? undefined,
+    paymentMethod: payment.method ? (PAYMENT_METHOD_LABEL[payment.method] ?? payment.method) : undefined,
   });
 
   // Refund entries — all statuses
@@ -270,6 +302,8 @@ function buildTimeline(
       amount:      r.refundAmount,
       status:      r.refundStatus,
       gatewayRef:  r.gatewayRefundId ?? undefined,
+      transactionId: r.gatewayRefundId ?? undefined,
+      paymentMethod: payment.method ? (PAYMENT_METHOD_LABEL[payment.method] ?? payment.method) : undefined,
     });
   }
 
@@ -315,8 +349,8 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
       <DialogContent
         className="p-0"
         style={{
-          maxWidth: "1100px",
-          width: "96vw",
+          maxWidth: "1280px",
+          width: "98vw",
           maxHeight: "92vh",
           backgroundColor: "var(--color-page-bg)",
           border: "1px solid var(--color-table-border)",
@@ -343,82 +377,25 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
         <div className="overflow-y-auto flex-1">
           <div className="p-7 space-y-7">
 
-            {/* ── SECTION 1: Payment summary (3-col meta grid) ── */}
+            {/* Payment summary */}
             <div
               className="grid gap-4 text-sm"
               style={{
-                gridTemplateColumns: "repeat(3, 1fr)",
+                gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
                 padding: "16px",
                 border: "1px solid var(--color-table-border)",
                 backgroundColor: "var(--color-row-hover)",
               }}
             >
-              {/* Col 1: Contact */}
-              <div className="space-y-3">
-                <MetaField label="Contact" value={reg.contactName} />
-                <MetaField label="Email" value={reg.contactEmail} mono />
-                <MetaField label="Phone" value={reg.contactPhone || "—"} />
-              </div>
-              {/* Col 2: Payment */}
-              <div className="space-y-3">
-                <MetaField label="Receipt No." value={payment?.receiptNo || "—"} mono bold />
-                <MetaField label="Method" value={payment?.method ? (PAYMENT_METHOD_LABEL[payment.method] ?? payment.method) : "—"} />
-                <MetaField label="Date Paid" value={formatDate(payment?.paidAt)} />
-                <div>
-                  <p className="text-xs opacity-50 mb-1">Status</p>
-                  {payment ? <PayBadge status={payment.paymentStatus} /> : <span className="opacity-40 text-xs">No payment</span>}
-                </div>
-              </div>
-              {/* Col 3: Amounts */}
-              <div className="space-y-3">
-                <div>
-                  <p className="text-xs opacity-50 mb-1">Amount Paid</p>
-                  <p className="font-bold text-base" style={{ color: "var(--color-primary)" }}>
-                    SGD {totalPaid.toFixed(2)}
-                  </p>
-                </div>
-                {totalRefunded > 0 && (
-                  <div>
-                    <p className="text-xs opacity-50 mb-1">Total Refunded</p>
-                    <p className="font-semibold text-sm" style={{ color: "var(--badge-open-text)" }}>
-                      − SGD {totalRefunded.toFixed(2)}
-                    </p>
-                  </div>
-                )}
-                {totalRefunded > 0 && (
-                  <div>
-                    <p className="text-xs opacity-50 mb-1">Net Amount</p>
-                    <p className="font-bold text-sm" style={{ color: "var(--color-primary)" }}>
-                      SGD {netAmount.toFixed(2)}
-                    </p>
-                  </div>
-                )}
+              <MetaField label="Payer" value={reg.contactName} />
+              <MetaField label="Payer Email" value={reg.contactEmail} mono />
+              <MetaField label="Payer Contact" value={reg.contactPhone || "—"} />
+              <MetaField label="Payment Method" value={payment?.method ? (PAYMENT_METHOD_LABEL[payment.method] ?? payment.method) : "—"} />
+              <div>
+                <p className="text-xs opacity-50 mb-1">Payment Status</p>
+                {payment ? <PayBadge status={payment.paymentStatus} /> : <span className="opacity-40 text-xs">No payment</span>}
               </div>
             </div>
-
-            {/* Gateway IDs — collapsed row, mono small */}
-            {payment && (payment.gatewaySessionId || payment.gatewayPaymentId || payment.gatewayChargeId) && (
-              <div
-                className="grid gap-x-6 gap-y-2 text-xs"
-                style={{
-                  gridTemplateColumns: "repeat(3, 1fr)",
-                  padding: "10px 14px",
-                  border: "1px solid var(--color-table-border)",
-                  backgroundColor: "var(--color-row-hover)",
-                }}
-              >
-                {payment.gatewaySessionId && (
-                  <GatewayRef label="Session ID" value={payment.gatewaySessionId} />
-                )}
-                {payment.gatewayPaymentId && (
-                  <GatewayRef label="Payment ID" value={payment.gatewayPaymentId} />
-                )}
-                {payment.gatewayChargeId && (
-                  <GatewayRef label="Charge ID" value={payment.gatewayChargeId} />
-                )}
-              </div>
-            )}
-
             {/* ── SECTION 2: Programs breakdown ── */}
             <div>
               <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">
@@ -555,11 +532,27 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
               {/* Programs total row */}
               {payment && (
                 <div
-                  className="flex items-center justify-between px-4 py-3 mt-1 font-semibold text-sm"
+                  className="px-4 py-3 mt-1 font-semibold text-sm"
                   style={{ borderTop: "2px solid var(--color-table-border)" }}
                 >
-                  <span>Total</span>
-                  <span style={{ color: "var(--color-primary)" }}>SGD {totalFee(reg).toFixed(2)}</span>
+                  <div className="flex items-center justify-between">
+                    <span>Original Total</span>
+                    <span style={{ color: "var(--color-primary)" }}>SGD {totalPaid.toFixed(2)}</span>
+                  </div>
+                  {totalRefunded > 0 && (
+                    <>
+                      <div className="flex items-center justify-between mt-2">
+                        <span>Total Refunded</span>
+                        <span style={{ color: "var(--badge-open-text)" }}>- SGD {totalRefunded.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between mt-2 pt-2" style={{ borderTop: "1px solid var(--color-table-border)" }}>
+                        <span>Net Total</span>
+                        <span style={{ color: netAmount <= 0 ? "var(--badge-open-text)" : "var(--color-primary)" }}>
+                          SGD {netAmount.toFixed(2)}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -584,7 +577,7 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
                 <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">
                   Audit Trail
                 </p>
-                <table className="trs-table w-full" style={{ border: "1px solid var(--color-table-border)" }}>
+                <table className="trs-table w-full" style={{ border: "1px solid var(--color-table-border)", tableLayout: "fixed" }}>
                   <thead>
                     <tr>
                       <th style={{ width: 160 }}>Date / Time</th>
@@ -622,14 +615,15 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
                 <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">
                   Transaction Timeline
                 </p>
-                <table className="trs-table w-full" style={{ border: "1px solid var(--color-table-border)" }}>
+                <table className="trs-table w-full" style={{ border: "1px solid var(--color-table-border)", tableLayout: "fixed" }}>
                   <thead>
                     <tr>
-                      <th style={{ width: 160 }}>Date / Time</th>
-                      <th>Description</th>
-                      <th style={{ width: 220 }}>Reference</th>
-                      <th style={{ width: 90, textAlign: "right" }}>Amount</th>
-                      <th style={{ width: 110 }}>Status</th>
+                      <th style={{ width: 176 }}>Date / Time</th>
+                      <th style={{ width: 220 }}>Description</th>
+                      <th style={{ width: 330 }}>Transaction ID</th>
+                      <th style={{ width: 110, textAlign: "right" }}>Amount</th>
+                      <th style={{ width: 120, whiteSpace: "normal", lineHeight: 1.25 }}>Payment Status</th>
+                      <th style={{ width: 120, whiteSpace: "normal", lineHeight: 1.25 }}>Payment Method</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -644,8 +638,8 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
                             <p className="text-xs opacity-50 mt-0.5">{entry.description}</p>
                           )}
                         </td>
-                        <td className="font-mono text-xs opacity-50" style={{ wordBreak: "break-all" }}>
-                          {entry.gatewayRef ?? "—"}
+                        <td className="font-mono text-xs opacity-60 whitespace-nowrap">
+                          {entry.transactionId ?? entry.gatewayRef ?? "—"}
                         </td>
                         <td className="text-right font-semibold text-sm whitespace-nowrap">
                           {entry.type === "refund" && (
@@ -663,6 +657,9 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
                           {entry.type === "payment"
                             ? <PayBadge status={entry.status as PaymentStatus} />
                             : <RefundStatusBadge status={entry.status} />}
+                        </td>
+                        <td className="text-xs font-medium">
+                          {entry.paymentMethod ?? "—"}
                         </td>
                       </tr>
                     ))}
@@ -861,34 +858,29 @@ export default function AdminRegistrations() {
     }
   };
 
-  const handleCancel = async () => {
+  const handleCancel = async (refundMode: CancellationRefundMode) => {
     if (!cancelModal || !cancelReason.trim()) return;
-    const payment = getPayment(cancelModal);
-    const hasRefundableItems = (payment?.items ?? []).some(item => item.itemStatus === "S");
     setSavingCancel(true);
     try {
-      if (payment && hasRefundableItems) {
-        const cancelR = await apiCancelRegistrationWithRefunds(cancelModal.id, cancelReason);
-        if (cancelR.error) { setApiError(cancelR.error.message); return; }
-        if (cancelR.data?.registration) {
-          setRegs(prev => prev.map(reg => reg.id === cancelR.data!.registration.id ? cancelR.data!.registration : reg));
-        }
-        const refR = await apiGetRefunds(cancelModal.id);
-        if (refR.data) {
-          setRefundsByReg(prev => ({ ...prev, [cancelModal.id]: refR.data! }));
-        }
-        if ((cancelR.data?.errors ?? []).length > 0) {
-          setApiError(`Cancellation is pending; some refunds failed: ${cancelR.data!.errors.join(" | ")}`);
-          return;
-        }
-        setCancelModal(null);
-        setCancelReason("");
+      const cancelR = await apiCancelRegistration(
+        cancelModal.id,
+        cancelReason,
+        refundMode,
+      );
+      if (cancelR.error) {
+        setApiError(cancelR.error.message);
         return;
       }
-      const r = await apiUpdateRegistrationStatus(cancelModal.id, "Cancelled");
-      if (r.error) { setApiError(r.error.message); return; }
-      if (r.data) {
-        setRegs(prev => prev.map(reg => reg.id === r.data!.id ? r.data! : reg));
+      if (cancelR.data?.registration) {
+        setRegs(prev => prev.map(reg => reg.id === cancelR.data!.registration.id ? cancelR.data!.registration : reg));
+      }
+      const refR = await apiGetRefunds(cancelModal.id);
+      if (refR.data) {
+        setRefundsByReg(prev => ({ ...prev, [cancelModal.id]: refR.data! }));
+      }
+      if ((cancelR.data?.errors ?? []).length > 0) {
+        setApiError(`Cancellation is pending; some refunds failed: ${cancelR.data!.errors.join(" | ")}`);
+        return;
       }
       setCancelModal(null);
       setCancelReason("");
@@ -1328,11 +1320,22 @@ export default function AdminRegistrations() {
             <DialogTitle className="font-bold text-lg">Cancel Registration</DialogTitle>
           </DialogHeader>
           <div className="p-7 space-y-4">
-            {getPayment(cancelModal as Registration)?.paymentStatus === "S" && (
-              <div className="p-3 text-sm" style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
-                ⚠ This registration has been paid. A full refund will be triggered for all items.
-              </div>
-            )}
+            {(() => {
+              const payment = getPayment(cancelModal as Registration);
+              const refunds = cancelModal ? (refundsByReg[cancelModal.id] ?? []) : [];
+              const count = refundableItems(payment, refunds).length;
+              return count > 0 ? (
+                <div className="p-3 text-sm" style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
+                  This registration has {count} paid item{count !== 1 ? "s" : ""} eligible for refund. Use "Cancel + Refund" to refund them.
+                </div>
+              ) : null;
+            })()}
+            <div className="p-3 text-xs leading-relaxed" style={{ backgroundColor: "var(--color-row-hover)", color: "var(--color-body-text)" }}>
+              Per-entry doubles/team player withdrawal is handled as a roster edit or participant replacement, not a player cancellation/refund.
+            </div>
+            <div className="p-3 text-xs leading-relaxed" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
+              If a fixture has already been generated for the affected program, cancellation cannot be completed. Remove the fixture first, then try again.
+            </div>
             <FG label="Reason *">
               <textarea className="field-input" rows={3} value={cancelReason}
                 onChange={e => setCancelReason(e.target.value)}
@@ -1340,12 +1343,23 @@ export default function AdminRegistrations() {
             </FG>
           </div>
           <DialogFooter className="p-7 pt-0">
-            <button onClick={() => setCancelModal(null)} className="btn-outline px-5 py-2.5 text-sm">Close</button>
-            <button onClick={handleCancel} disabled={!cancelReason.trim() || savingCancel}
+            <button onClick={() => { setCancelModal(null); setCancelReason(""); }} className="btn-outline px-5 py-2.5 text-sm">Close</button>
+            <button onClick={() => handleCancel("none")} disabled={!cancelReason.trim() || savingCancel}
               className="px-5 py-2.5 text-sm font-semibold disabled:opacity-40"
               style={{ backgroundColor: "var(--badge-closed-text)", color: "white" }}>
-              {savingCancel ? "Cancelling..." : "Confirm Cancel"}
+              {savingCancel ? "Cancelling..." : "Cancel Only"}
             </button>
+            {(() => {
+              const payment = getPayment(cancelModal as Registration);
+              const refunds = cancelModal ? (refundsByReg[cancelModal.id] ?? []) : [];
+              const canRefund = refundableItems(payment, refunds).length > 0;
+              return canRefund ? (
+                <button onClick={() => handleCancel("refundPaidItems")} disabled={!cancelReason.trim() || savingCancel}
+                  className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
+                  {savingCancel ? "Processing..." : "Cancel + Refund"}
+                </button>
+              ) : null;
+            })()}
           </DialogFooter>
         </DialogContent>
       </Dialog>

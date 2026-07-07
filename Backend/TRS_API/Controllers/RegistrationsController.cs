@@ -25,17 +25,19 @@ public class RegistrationsController : ControllerBase
     private readonly ILogger<RegistrationsController> _log;
     private readonly IBackgroundJobQueue _jobQueue;
     private readonly ReceiptService _receipt;
+    private readonly EmailService _email;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly RegistrationWorkflowService _registrationWorkflow;
     public RegistrationsController(
         TRSDbContext db,
         ILogger<RegistrationsController> log,
         ReceiptService receipt,
+        EmailService email,
         IBackgroundJobQueue jobQueue,
         IServiceScopeFactory serviceScopeFactory,
         RegistrationWorkflowService registrationWorkflow)
-        => (_db, _log, _receipt, _jobQueue, _serviceScopeFactory, _registrationWorkflow) =
-            (db, log, receipt, jobQueue, serviceScopeFactory, registrationWorkflow);
+        => (_db, _log, _receipt, _email, _jobQueue, _serviceScopeFactory, _registrationWorkflow) =
+            (db, log, receipt, email, jobQueue, serviceScopeFactory, registrationWorkflow);
 
     // -- GET /api/registrations  -- admin, paged + filtered -----------------
     [HttpGet, Authorize(Roles = "superadmin,eventadmin")]
@@ -336,55 +338,49 @@ public class RegistrationsController : ControllerBase
     [HttpPost("{id:int}/cancel-with-refunds"), Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> CancelWithRefunds(int id, [FromBody] CancelRegistrationRequest req)
     {
-        if (string.IsNullOrWhiteSpace(req.Reason))
-            return BadRequest(new { code = "REASON_REQUIRED", message = "Cancellation reason is required." });
+        req.RefundMode = "refundPaidItems";
+        return await CancelRegistration(id, req);
+    }
 
-        var reg = await _db.EventRegistrations
-            .Include(r => r.ParticipantGroups)
-            .FirstOrDefaultAsync(r => r.RegistrationId == id);
+    [HttpPost("{id:int}/cancel"), Authorize(Roles = "superadmin,eventadmin")]
+    public async Task<IActionResult> CancelRegistration(int id, [FromBody] CancelRegistrationRequest req)
+    {
+        var reg = await LoadCancellationRegistration(id);
         if (reg == null) return NotFound(new { code = "NOT_FOUND", message = "Registration not found." });
+        return await CancelScopeAsync(reg, req, reg.ParticipantGroups.ToList(), null, "registration");
+    }
 
-        var payment = await _db.Payments.Include(p => p.Items)
-            .FirstOrDefaultAsync(p => p.RegistrationId == id);
+    [HttpPost("{id:int}/groups/{groupId:int}/cancel"), Authorize(Roles = "superadmin,eventadmin")]
+    public async Task<IActionResult> CancelGroup(int id, int groupId, [FromBody] CancelRegistrationRequest req)
+    {
+        var reg = await LoadCancellationRegistration(id);
+        if (reg == null) return NotFound(new { code = "NOT_FOUND", message = "Registration not found." });
+        var group = reg.ParticipantGroups.FirstOrDefault(g => g.GroupId == groupId);
+        if (group == null) return NotFound(new { code = "NOT_FOUND", message = "Participant group not found." });
+        return await CancelScopeAsync(reg, req, new List<ParticipantGroup> { group }, null, "entry");
+    }
 
-        if (payment == null || payment.Items.All(i => i.ItemStatus != "S"))
+    [HttpPost("{id:int}/participants/{participantId:int}/cancel"), Authorize(Roles = "superadmin,eventadmin")]
+    public async Task<IActionResult> CancelParticipant(int id, int participantId, [FromBody] CancelRegistrationRequest req)
+    {
+        var reg = await LoadCancellationRegistration(id);
+        if (reg == null) return NotFound(new { code = "NOT_FOUND", message = "Registration not found." });
+        var participant = reg.ParticipantGroups.SelectMany(g => g.Participants)
+            .FirstOrDefault(p => p.ParticipantId == participantId);
+        if (participant == null) return NotFound(new { code = "NOT_FOUND", message = "Participant not found." });
+
+        var payment = reg.Payments.FirstOrDefault();
+        var playerItem = payment?.Items.FirstOrDefault(i => i.ParticipantId == participantId);
+        if (playerItem == null)
         {
-            ApplyRegistrationStatus(reg, "Cancelled");
-            await _db.SaveChangesAsync();
-            var cancelled = await LoadReg(id);
-            return Ok(new { registration = MapReg(cancelled!), errors = Array.Empty<string>() });
+            return BadRequest(new
+            {
+                code = "PLAYER_CANCEL_NOT_ALLOWED",
+                message = "This participant does not have a player-level payment item. Cancel the whole entry instead."
+            });
         }
 
-        ApplyRegistrationStatus(reg, "CancelPending");
-        await _db.SaveChangesAsync();
-
-        var errors = new List<string>();
-        foreach (var item in payment.Items.Where(i => i.ItemStatus == "S").ToList())
-        {
-            var alreadyRefunded = await _db.Refunds
-                .Where(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == "S")
-                .SumAsync(r => (decimal?)r.RefundAmount) ?? 0m;
-            var remainingRefundAmount = item.Amount - alreadyRefunded;
-            if (remainingRefundAmount <= 0)
-                continue;
-
-            var refund = await ProcessRefundItemAsync(
-                id,
-                payment,
-                item,
-                remainingRefundAmount,
-                $"Cancelled: {req.Reason}");
-
-            if (!refund.Success)
-                errors.Add($"{item.ProgramName}: {refund.Message}");
-        }
-
-        var hasRemainingRefundableItems = payment.Items.Any(i => i.ItemStatus == "S");
-        ApplyRegistrationStatus(reg, errors.Count == 0 && !hasRemainingRefundableItems ? "Cancelled" : "RefundFailed");
-        await _db.SaveChangesAsync();
-
-        var updated = await LoadReg(id);
-        return Ok(new { registration = MapReg(updated!), errors });
+        return await CancelScopeAsync(reg, req, new List<ParticipantGroup> { participant.Group }, participant, "participant");
     }
 
     // -- GET /api/registrations/export  -- admin -----------------------------
@@ -476,6 +472,7 @@ public class RegistrationsController : ControllerBase
                     p.ParticipantId != pid &&
                     p.Group.ProgramId == participant.Group.ProgramId &&
                     p.Group.GroupStatus != "Cancelled" &&
+                    p.ParticipantStatus != "Cancelled" &&
                     p.FullName == checkName &&
                     p.DateOfBirth == checkDob)
                 .AnyAsync();
@@ -677,6 +674,186 @@ public class RegistrationsController : ControllerBase
             .Include(r => r.Payments).ThenInclude(p => p.Items)
             .FirstOrDefaultAsync(r => r.RegistrationId == id);
 
+    private Task<EventRegistration?> LoadCancellationRegistration(int id) =>
+        _db.EventRegistrations
+            .Include(r => r.ParticipantGroups).ThenInclude(g => g.Participants)
+            .Include(r => r.Payments).ThenInclude(p => p.Items)
+            .FirstOrDefaultAsync(r => r.RegistrationId == id);
+
+    private async Task<IActionResult> CancelScopeAsync(
+        EventRegistration reg,
+        CancelRegistrationRequest req,
+        List<ParticipantGroup> groups,
+        Participant? participant,
+        string scope)
+    {
+        if (string.IsNullOrWhiteSpace(req.Reason))
+            return BadRequest(new { code = "REASON_REQUIRED", message = "Cancellation reason is required." });
+
+        var refundMode = (req.RefundMode ?? "none").Trim();
+        if (!string.Equals(refundMode, "none", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(refundMode, "refundPaidItems", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { code = "INVALID_REFUND_MODE", message = "Refund mode must be none or refundPaidItems." });
+        }
+
+        var impact = await GetFixtureImpactAsync(groups);
+        if (impact.Any())
+        {
+            return Conflict(new
+            {
+                code = "FIXTURE_EXISTS_CANCEL_BLOCKED",
+                message = "Cancellation cannot be completed because a fixture has already been generated for one or more affected programs. Please remove the fixture first, then try again.",
+                fixtureImpact = impact
+            });
+        }
+
+        var payment = reg.Payments.FirstOrDefault();
+        var affectedItems = payment?.Items
+            .Where(i => participant != null
+                ? i.ParticipantId == participant.ParticipantId
+                : groups.Any(g => g.GroupId == i.GroupId))
+            .ToList() ?? new List<PaymentItem>();
+
+        var shouldRefund = string.Equals(refundMode, "refundPaidItems", StringComparison.OrdinalIgnoreCase);
+        var errors = new List<string>();
+        var refundedAny = false;
+
+        if (shouldRefund && payment != null && affectedItems.Any(i => i.ItemStatus == "S"))
+        {
+            ApplyRegistrationWorkflowStatus(reg, "CancelPending");
+            await _db.SaveChangesAsync();
+        }
+
+        foreach (var item in affectedItems)
+        {
+            if (shouldRefund && payment != null && item.ItemStatus == "S")
+            {
+                var alreadyRefunded = await _db.Refunds
+                    .Where(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == "S")
+                    .SumAsync(r => (decimal?)r.RefundAmount) ?? 0m;
+                var remainingRefundAmount = item.Amount - alreadyRefunded;
+
+                if (remainingRefundAmount > 0)
+                {
+                    var refund = await ProcessRefundItemAsync(
+                        reg.RegistrationId,
+                        payment,
+                        item,
+                        remainingRefundAmount,
+                        $"Cancelled {scope}: {req.Reason}");
+
+                    if (!refund.Success)
+                        errors.Add($"{item.ProgramName}: {refund.Message}");
+                    else
+                        refundedAny = true;
+
+                    continue;
+                }
+            }
+
+            if (item.ItemStatus != "R")
+            {
+                var oldStatus = item.ItemStatus;
+                item.ItemStatus = "X";
+                item.UpdatedAt = DateTime.UtcNow;
+                _db.PaymentAuditLogs.Add(new PaymentAuditLog
+                {
+                    EntityType = "PaymentItem",
+                    EntityId = item.PaymentItemId,
+                    Action = "CancelledWithoutRefund",
+                    OldStatus = oldStatus,
+                    NewStatus = "X",
+                    Reason = req.Reason,
+                    PerformedBy = User.Identity?.Name ?? "admin",
+                    Notes = $"Scope={scope}",
+                    CreatedAt = DateTime.UtcNow,
+                });
+            }
+        }
+
+        if (participant != null)
+        {
+            participant.ParticipantStatus = "Cancelled";
+            participant.UpdatedAt = DateTime.UtcNow;
+            if (participant.Group.Participants.All(p => p.ParticipantStatus == "Cancelled"))
+                CancelGroupOnly(participant.Group);
+        }
+        else
+        {
+            foreach (var group in groups)
+                CancelGroupOnly(group);
+        }
+
+        if (errors.Count > 0)
+        {
+            ApplyRegistrationWorkflowStatus(reg, "RefundFailed");
+        }
+        else if (reg.ParticipantGroups.All(g => g.GroupStatus == "Cancelled"))
+        {
+            ApplyRegistrationStatus(reg, "Cancelled");
+        }
+        else
+        {
+            reg.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await _db.SaveChangesAsync();
+
+        if (errors.Count == 0)
+            await SendCancellationEmailSafeAsync(reg.RegistrationId, scope, req.Reason, refundedAny);
+
+        var updated = await LoadReg(reg.RegistrationId);
+        return Ok(new { registration = MapReg(updated!), errors, fixtureImpact = impact });
+    }
+
+    private static void CancelGroupOnly(ParticipantGroup group)
+    {
+        group.GroupStatus = "Cancelled";
+        group.UpdatedAt = DateTime.UtcNow;
+        foreach (var p in group.Participants)
+        {
+            p.ParticipantStatus = "Cancelled";
+            p.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    private async Task<List<FixtureImpactDto>> GetFixtureImpactAsync(IEnumerable<ParticipantGroup> groups)
+    {
+        var programIds = groups.Select(g => g.ProgramId).Distinct().ToList();
+        if (programIds.Count == 0) return new List<FixtureImpactDto>();
+
+        var fixtures = await _db.Fixtures
+            .Where(f => programIds.Contains(f.ProgramId))
+            .Select(f => new
+            {
+                f.ProgramId,
+                f.IsLocked,
+                Severity = f.IsLocked ? "locked" : "draft",
+                Message = f.IsLocked
+                    ? "A locked fixture exists for this program. Remove the fixture before cancelling."
+                    : "A draft fixture exists for this program. Remove the fixture before cancelling."
+            })
+            .ToListAsync();
+
+        return fixtures.Select(f => new FixtureImpactDto(f.ProgramId, f.IsLocked, f.Severity, f.Message)).ToList();
+    }
+
+    private sealed record FixtureImpactDto(int ProgramId, bool IsLocked, string Severity, string Message);
+
+    private async Task SendCancellationEmailSafeAsync(int registrationId, string scope, string reason, bool attachReceipt)
+    {
+        try
+        {
+            byte[]? receiptPdf = attachReceipt ? await _receipt.GenerateAsync(_db, registrationId) : null;
+            await _email.SendCancellationNotificationAsync(_db, registrationId, scope, reason, attachReceipt, receiptPdf);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Failed to send cancellation email for registration {RegistrationId}", registrationId);
+        }
+    }
+
     // -- Status code translation helpers --------------------------------------
     // DB stores short codes; the frontend TypeScript types use long names.
     // All translation is centralised here so no other file needs to change.
@@ -856,6 +1033,13 @@ public class RegistrationsController : ControllerBase
         }
     }
 
+    private static void ApplyRegistrationWorkflowStatus(EventRegistration reg, string status)
+    {
+        reg.RegStatus = status;
+        reg.RegistrationStatus = status switch { "Confirmed" => "C", "Cancelled" => "X", _ => "P" };
+        reg.UpdatedAt = DateTime.UtcNow;
+    }
+
     private sealed class RefundOperationResult
     {
         public bool Success { get; private init; }
@@ -970,6 +1154,7 @@ public class RegistrationsController : ControllerBase
                     p.GuardianContact,
                     p.DocumentUrl,
                     p.Remark,
+                    participantStatus = p.ParticipantStatus,
                     customFieldValues = MapCustomFieldValues(p.CustomFieldValues),
                 }).ToList()
             }).ToList(),

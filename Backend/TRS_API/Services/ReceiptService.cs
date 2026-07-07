@@ -93,6 +93,20 @@ public class ReceiptService
             _ => payment.PaymentMethod,
         };
 
+        DateTime ToSingaporeTime(DateTime value)
+        {
+            var utc = value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
+                : value.ToUniversalTime();
+            return utc.AddHours(8);
+        }
+
+        string FormatSingaporeTime(DateTime? value) =>
+            value.HasValue ? $"{ToSingaporeTime(value.Value):dd MMM yyyy HH:mm} SGT" : "—";
+
+        string FormatSingaporeDate(DateTime? value) =>
+            value.HasValue ? ToSingaporeTime(value.Value).ToString("dd MMM yyyy") : "";
+
         // ── Build lookup: GroupId → Group ─────────────────────────────────────
         var groupById = reg.ParticipantGroups
             .ToDictionary(g => g.GroupId);
@@ -248,9 +262,6 @@ public class ReceiptService
                                 .FontSize(20).Bold().FontColor(statusColor);
                             c.Item().AlignRight().Text(overallStatus)
                                 .FontSize(9).Bold().FontColor(statusColor);
-                            c.Item().PaddingTop(6).AlignRight()
-                                .Text(payment.ReceiptNumber ?? $"TRS-{reg.RegistrationId:D6}")
-                                .FontSize(9).Bold().FontColor(Colors.Grey.Darken2);
                         });
                     });
 
@@ -261,6 +272,7 @@ public class ReceiptService
                     col.Item().PaddingBottom(14).Table(t =>
                     {
                         t.ColumnsDefinition(cd => {
+                            cd.RelativeColumn(1.4f);
                             cd.RelativeColumn();
                             cd.RelativeColumn();
                             cd.RelativeColumn();
@@ -278,29 +290,41 @@ public class ReceiptService
                             payment.ReceiptNumber ?? $"TRS-{reg.RegistrationId:D6}");
                         Ref("Registration No.",
                             $"TRS-{reg.RegistrationId:D6}");
-                        Ref("Gateway Ref.",
-                            !string.IsNullOrEmpty(payment.GatewayPaymentId)
-                                ? payment.GatewayPaymentId
-                                : payment.GatewaySessionId ?? "—");
+                        t.Cell().ColumnSpan(2).PaddingRight(10).Column(c =>
+                        {
+                            c.Item().Text("Payment ID")
+                                .FontSize(8).Bold().FontColor(Colors.Grey.Medium);
+                            c.Item().PaddingTop(2)
+                                .Text(!string.IsNullOrEmpty(payment.GatewayPaymentId)
+                                    ? payment.GatewayPaymentId
+                                    : payment.GatewaySessionId ?? "—")
+                                .FontSize(10).Bold();
+                        });
                     });
 
                     // ── PAYMENT META (no Billed To — no dedicated contact form) ──
                     col.Item().PaddingBottom(14).Table(t =>
                     {
                         t.ColumnsDefinition(cd => {
-                            cd.ConstantColumn(80); cd.RelativeColumn();
-                            cd.ConstantColumn(80); cd.RelativeColumn();
+                            cd.RelativeColumn(1.4f);
+                            cd.RelativeColumn();
+                            cd.RelativeColumn();
+                            cd.RelativeColumn();
                         });
-                        void M(string lbl, string val)
+                        void Meta(string label, string value)
                         {
-                            t.Cell().Text(lbl).FontSize(9)
-                                .FontColor(Colors.Grey.Darken1);
-                            t.Cell().Text(val).FontSize(9);
+                            t.Cell().PaddingRight(10).Column(c =>
+                            {
+                                c.Item().Text(label)
+                                    .FontSize(8).Bold().FontColor(Colors.Grey.Medium);
+                                c.Item().PaddingTop(2).Text(value)
+                                    .FontSize(9);
+                            });
                         }
-                        M("Event:", reg.EventName);
-                        M("Method:", methodLabel);
-                        M("Date Paid:", payment.PaidAt?.ToString("dd MMM yyyy HH:mm") + " UTC" ?? "—");
-                        M("Status:", overallStatus);
+                        Meta("Event", reg.EventName);
+                        Meta("Payment Method", methodLabel);
+                        Meta("Date Paid", FormatSingaporeTime(payment.PaidAt));
+                        Meta("Payment Status", overallStatus);
                     });
 
                     // ═══════════════════════════════════════════════════════════
@@ -310,8 +334,6 @@ public class ReceiptService
                     {
                         r.RelativeItem().Text("PAYMENT TRANSACTION")
                             .FontSize(8).Bold().FontColor(Colors.Grey.Medium);
-                        r.AutoItem().Text(payment.PaidAt?.ToString("dd MMM yyyy") ?? "")
-                            .FontSize(8).FontColor(Colors.Grey.Medium);
                     });
 
                     col.Item().Table(table =>
@@ -382,14 +404,6 @@ public class ReceiptService
                         r.ConstantItem(80).AlignRight()
                             .Text($"{currency} {totalPaid:F2}").Bold();
                     });
-                    col.Item().PaddingBottom(12).AlignRight().Row(r =>
-                    {
-                        r.ConstantItem(160).AlignRight()
-                            .Text("Payment Method").FontColor(Colors.Grey.Darken1);
-                        r.ConstantItem(80).AlignRight()
-                            .Text(methodLabel).Bold();
-                    });
-
                     // ═══════════════════════════════════════════════════════════
                     // TABLE 2 — REFUND TRANSACTIONS (only when refunds exist)
                     // ═══════════════════════════════════════════════════════════
@@ -433,7 +447,7 @@ public class ReceiptService
                                 table.Cell()
                                     .BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2)
                                     .Padding(6)
-                                    .Text(r.RefundDate.ToString("dd MMM yyyy"))
+                                    .Text(FormatSingaporeDate(r.RefundDate))
                                     .FontSize(9).FontColor(Colors.Grey.Darken1);
 
                                 table.Cell()
@@ -508,7 +522,7 @@ public class ReceiptService
                                 : $"System-generated receipt — {orgName}")
                             .FontSize(8).Italic().FontColor(Colors.Grey.Medium);
                         r.ConstantItem(180).AlignRight()
-                            .Text($"Generated {DateTime.UtcNow:dd MMM yyyy HH:mm} UTC")
+                            .Text($"Generated {ToSingaporeTime(DateTime.UtcNow):dd MMM yyyy HH:mm} SGT")
                             .FontSize(8).Italic().FontColor(Colors.Grey.Medium);
                     });
                     if (!string.IsNullOrEmpty(orgEmail))

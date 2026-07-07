@@ -163,6 +163,99 @@ public class EmailService
             recipients.Length);
     }
 
+    public async Task SendCancellationNotificationAsync(
+        TRSDbContext db,
+        int registrationId,
+        string scope,
+        string reason,
+        bool includesRefund,
+        byte[]? updatedReceiptPdf,
+        CancellationToken ct = default)
+    {
+        var reg = await db.EventRegistrations
+            .Include(r => r.Payments)
+            .FirstOrDefaultAsync(r => r.RegistrationId == registrationId, ct);
+
+        if (reg == null)
+        {
+            _logger.LogWarning("Unable to send cancellation email: registration {RegistrationId} not found", registrationId);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(reg.ContactEmail))
+        {
+            _logger.LogWarning("Unable to send cancellation email: registration {RegistrationId} has no contact email", registrationId);
+            return;
+        }
+
+        var host = _config["Email:Smtp:Host"];
+        var port = _config.GetValue<int?>("Email:Smtp:Port") ?? 587;
+        var username = _config["Email:Smtp:Username"];
+        var password = _config["Email:Smtp:Password"];
+        var fromAddress = _config["Email:FromAddress"] ?? username;
+        var fromName = _config["Email:FromName"] ?? "TRS";
+
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
+        {
+            _logger.LogWarning(
+                "Skipping cancellation email for registration {RegistrationId}: SMTP is not configured",
+                registrationId);
+            return;
+        }
+
+        var receiptNo = reg.Payments.OrderByDescending(p => p.CreatedAt).FirstOrDefault()?.ReceiptNumber
+            ?? $"TRS-{registrationId:D6}";
+        var scopeLabel = scope switch
+        {
+            "participant" => "participant",
+            "entry" => "entry",
+            _ => "registration",
+        };
+
+        using var message = new MailMessage
+        {
+            From = new MailAddress(fromAddress, fromName),
+            Subject = includesRefund
+                ? $"TRS {scopeLabel} cancelled with refund ({receiptNo})"
+                : $"TRS {scopeLabel} cancelled ({receiptNo})",
+            Body =
+                $"Hello {reg.ContactName},\n\n" +
+                $"Your {scopeLabel} for {reg.EventName} has been cancelled.\n" +
+                $"Reason: {reason}\n\n" +
+                (includesRefund
+                    ? "A refund has been processed. Your updated receipt, including refund information, is attached.\n\n"
+                    : "No refund was processed for this cancellation.\n\n") +
+                "Regards,\nTRS",
+            IsBodyHtml = false,
+        };
+        message.To.Add(reg.ContactEmail);
+
+        if (includesRefund && updatedReceiptPdf is { Length: > 0 })
+        {
+            message.Attachments.Add(new Attachment(
+                new MemoryStream(updatedReceiptPdf),
+                $"Receipt-{receiptNo}.pdf",
+                "application/pdf"));
+        }
+
+        using var client = new SmtpClient(host, port)
+        {
+            EnableSsl = _config.GetValue("Email:Smtp:EnableSsl", true),
+            DeliveryMethod = SmtpDeliveryMethod.Network,
+        };
+
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            client.Credentials = new NetworkCredential(username, password);
+        }
+
+        await client.SendMailAsync(message, ct);
+        _logger.LogInformation(
+            "Cancellation email sent for registration {RegistrationId} to {Email}",
+            registrationId,
+            reg.ContactEmail);
+    }
+
     private static bool IsValidEmailAddress(string email)
     {
         try

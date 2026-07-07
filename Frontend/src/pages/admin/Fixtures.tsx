@@ -234,61 +234,80 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, onSeedsSaved, o
           </div>
         </div>
       ) : (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <span className="text-xs font-semibold">{seeds.filter(s => s.seed !== null).length}/{numSeeds} seeds assigned</span>
-            <div className="flex gap-2">
-              <button onClick={autoSeed} className="btn-outline flex items-center gap-1.5 px-3 py-2 text-xs">
-                <Shuffle className="h-3.5 w-3.5" /> Auto-fill
-              </button>
-              <button onClick={() => setSeeding(false)} className="btn-outline px-3 py-2 text-xs">Change seed count</button>
-            </div>
-          </div>
-          {(hasDups || outRange) && (
-            <p className="text-xs px-3 py-2 font-semibold" style={{ backgroundColor: 'var(--badge-closed-bg)', color: 'var(--badge-closed-text)' }}>
-              {hasDups ? 'Duplicate seed numbers.' : ''}
-              {outRange ? `${hasDups ? ' ' : ''}Seeds must be between 1 and ${numSeeds}.` : ''}
-            </p>
-          )}
-          <div className="overflow-auto" style={{ border: '1px solid var(--color-table-border)', maxHeight: 360 }}>
-            <table className="trs-table">
-              <thead style={{ position: 'sticky', top: 0 }}>
-                <tr><th>Entry</th>{isBadminton && <th>SBA ID</th>}{isBadminton && <th>SBA Score</th>}<th style={{ width: 120 }}>Seed</th></tr>
-              </thead>
-              <tbody>
-                {seeds.map(s => {
-                  const sba = getSba(s); const isDup = s.seed !== null && seeds.filter(x => x.seed === s.seed).length > 1;
-                  const entry = entryDisplay(s);
-                  return (
-                    <tr key={s.id} style={isDup ? { backgroundColor: 'var(--badge-closed-bg)' } : undefined}>
-                      <td>
-                        <span className="font-medium text-sm">{entry.main}</span>
-                        {entry.sub && <div className="text-xs opacity-50">{entry.sub}</div>}
-                      </td>
-                      {isBadminton && <td className="font-mono text-xs">{s.sbaId || <span className="opacity-25 italic">No SBA ID</span>}</td>}
-                      {isBadminton && <td className="text-right font-mono text-xs">{sba ? <span style={{ color: 'var(--color-primary)', fontWeight: 600 }}>{sba.accumulatedScore.toLocaleString()}</span> : <span className="opacity-25">-</span>}</td>}
-                      <td>
-                        <div className="flex items-center gap-1">
-                          <input type="number" min={1} max={numSeeds} className="field-input py-1 text-sm text-center"
-                            style={{ width: '4rem', borderColor: isDup ? 'var(--badge-closed-text)' : undefined }}
-                            value={s.seed ?? ''} placeholder="-" onChange={e => setSeedVal(s.id, e.target.value)} />
-                          {s.seed !== null && <button onClick={() => setSeedVal(s.id, '')} className="text-xs opacity-30 hover:opacity-70">x</button>}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex flex-wrap gap-3">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <span className="text-xs font-semibold">{seeds.filter(s => s.seed !== null).length}/{numSeeds} seeds assigned</span>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={autoSeed} className="btn-outline flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold">
+              <Shuffle className="h-3.5 w-3.5" /> Auto-fill
+            </button>
+            <button onClick={() => setSeeding(false)} className="btn-outline px-4 py-2.5 text-sm font-semibold">Change seed count</button>
             <button disabled={hasDups || outRange || saving || !hasChange} onClick={() => persistSeeds(false)}
-              className="btn-outline px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
+              className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
               {saving ? 'Saving...' : 'Save Seeds'}
             </button>
           </div>
         </div>
       )}
+
+      <div className="space-y-4">
+        {seeding && (
+          <>
+            {(hasDups || outRange) && (
+              <p className="text-xs px-3 py-2 font-semibold" style={{ backgroundColor: 'var(--badge-closed-bg)', color: 'var(--badge-closed-text)' }}>
+                {hasDups ? 'Duplicate seed numbers.' : ''}
+                {outRange ? `${hasDups ? ' ' : ''}Seeds must be between 1 and ${numSeeds}.` : ''}
+              </p>
+            )}
+          </>
+        )}
+        <div className="overflow-auto" style={{ border: '1px solid var(--color-table-border)', maxHeight: 360 }}>
+          <table className="trs-table" style={{ tableLayout: 'fixed', minWidth: isBadminton ? 760 : 520 }}>
+            <thead style={{ position: 'sticky', top: 0 }}>
+              <tr>
+                <th>Entry</th>
+                {isBadminton && <th style={{ width: 110 }}>SBA ID</th>}
+                {isBadminton && <th style={{ width: 110 }}>SBA Score</th>}
+                <th style={{ width: 96, textAlign: 'center' }}>Seed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {seeds.map(s => {
+                const sba = getSba(s); const isDup = seeding && s.seed !== null && seeds.filter(x => x.seed === s.seed).length > 1;
+                const entry = entryDisplay(s);
+                return (
+                  <tr key={s.id} style={isDup ? { backgroundColor: 'var(--badge-closed-bg)' } : undefined}>
+                    <td>
+                      <span className="font-medium text-sm">{entry.main}</span>
+                      {entry.sub && <div className="text-xs opacity-50">{entry.sub}</div>}
+                    </td>
+                    {isBadminton && <td className="font-mono text-xs whitespace-nowrap">{s.sbaId || <span className="opacity-45 italic">No SBA ID</span>}</td>}
+                    {isBadminton && <td className="text-right font-mono text-xs whitespace-nowrap">{sba ? <span style={{ color: 'var(--color-primary)', fontWeight: 600 }}>{sba.accumulatedScore.toLocaleString()}</span> : <span className="opacity-45">-</span>}</td>}
+                    <td>
+                      {seeding ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <input type="number" min={1} max={numSeeds} className="field-input py-1 text-sm text-center"
+                            style={{
+                              width: '4rem',
+                              minHeight: '2.25rem',
+                              backgroundColor: 'var(--color-card-bg)',
+                              borderColor: isDup ? 'var(--badge-closed-text)' : 'var(--color-primary)',
+                              color: 'var(--color-body-text)',
+                              fontWeight: 700,
+                            }}
+                            value={s.seed ?? ''} placeholder="-" onChange={e => setSeedVal(s.id, e.target.value)} />
+                          {s.seed !== null && <button onClick={() => setSeedVal(s.id, '')} className="text-xs opacity-30 hover:opacity-70">x</button>}
+                        </div>
+                      ) : (
+                        <span className="block text-center text-xs opacity-45">-</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        </div>
     </div>
   );
 }
@@ -993,5 +1012,3 @@ export default function AdminFixtures() {
     </div>
   );
 }
-
-

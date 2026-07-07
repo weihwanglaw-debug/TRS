@@ -31,6 +31,7 @@
  *     "Pending"           → 'P'   Item in cart, payment not confirmed
  *     "Success"           → 'S'   Payment confirmed by webhook
  *     "Refunded"          → 'R'   Refund confirmed by gateway
+ *     "Cancelled"         → 'X'   Cancelled without refund
  *
  *   RefundStatus   (Refund.refundStatus)          DB column: Refunds.RefundStatus CHAR(1)
  *     "Pending"           → 'P'   Refund initiated, awaiting gateway
@@ -41,6 +42,7 @@
  *   PaymentStatus:  Pending → Success | Failed | Cancelled
  *                   Success → PartiallyRefunded → FullyRefunded
  *   ItemStatus:     Pending → Success → Refunded
+ *                              Success → Cancelled
  *   RefundStatus:   Pending → Success | Failed
  *
  *   After any PaymentItem → Refunded:
@@ -67,7 +69,12 @@ export type PaymentStatus =
 export type ItemStatus =
   | "P"
   | "S"
-  | "R";
+  | "R"
+  | "X";
+
+export type ParticipantStatus =
+  | "Active"
+  | "Cancelled";
 
 export type RefundStatus =
   | "P"
@@ -103,6 +110,7 @@ export const ITEM_STATUS_LABEL: Record<ItemStatus, string> = {
   P: "Pending",
   S: "Paid",
   R: "Refunded",
+  X: "Cancelled",
 };
 
 export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
@@ -132,6 +140,7 @@ export interface RegistrationParticipant {
   guardianContact?:    string;
   remark?:             string;
   documentUrl?:        string;
+  participantStatus?:  ParticipantStatus;
   customFieldValues:   Record<string, string>;
 }
 
@@ -311,16 +320,19 @@ export interface OrphanRefundHistory {
 export function groupsToSeedEntries(groups: ParticipantGroup[]) {
   return groups
     .filter(g => g.groupStatus !== "Cancelled")
-      .map(g => ({
+      .map(g => {
+        const activeParticipants = g.participants.filter(p => p.participantStatus !== "Cancelled");
+        return {
         id:           g.id,          // ParticipantGroup.id IS the SeedEntry.id
         club:         g.clubDisplay,
-        participants: g.participants.map(p => p.fullName),
+        participants: activeParticipants.map(p => p.fullName),
         seed:         g.seed,
-        sbaId:        g.participants[0]?.sbaId,
-        sbaIds:       g.participants.map(p => p.sbaId).filter((id): id is string => !!id),
+        sbaId:        activeParticipants[0]?.sbaId,
+        sbaIds:       activeParticipants.map(p => p.sbaId).filter((id): id is string => !!id),
         registrationId: g.registrationId,
         groupId:        g.id,
-      }));
+      };
+    });
 }
 
 /** Total fee for a registration */
@@ -337,7 +349,9 @@ export function totalRefunded(refunds: Refund[]): number {
 
 /** All participant names across all groups in a registration */
 export function allParticipantNames(reg: Registration): string[] {
-  return reg.groups.flatMap(g => g.participants.map(p => p.fullName));
+  return reg.groups.flatMap(g => g.participants
+    .filter(p => p.participantStatus !== "Cancelled")
+    .map(p => p.fullName));
 }
 
 /** Whether a PaymentItem can have a new refund initiated */

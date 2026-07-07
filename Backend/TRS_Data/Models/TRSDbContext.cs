@@ -239,6 +239,7 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.GuardianName).HasMaxLength(200);
             e.Property(x => x.GuardianContact).HasMaxLength(30).IsUnicode(false);
             e.Property(x => x.DocumentUrl).HasMaxLength(1000);
+            e.Property(x => x.ParticipantStatus).HasMaxLength(15).IsUnicode(false).HasDefaultValue("Active");
             e.Property(x => x.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
             e.HasOne(x => x.Group).WithMany(x => x.Participants)
              .HasForeignKey(x => x.GroupId).OnDelete(DeleteBehavior.Cascade)
@@ -358,6 +359,10 @@ public partial class TRSDbContext : DbContext
              .IsUnique()
              .HasDatabaseName("UX_Refunds_OrphanActive_GatewaySessionId")
              .HasFilter("[PaymentID] IS NULL AND [GatewaySessionId] IS NOT NULL AND [RefundStatus] IN ('P','S')");
+            e.HasIndex(x => x.PaymentItemId)
+             .IsUnique()
+             .HasDatabaseName("UX_Refunds_Pending_PaymentItemID")
+             .HasFilter("[PaymentItemID] IS NOT NULL AND [RefundStatus] = 'P'");
         });
 
         // Fixtures

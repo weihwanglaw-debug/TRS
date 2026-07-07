@@ -357,8 +357,12 @@ export default function ParticipantDetails() {
       }
       setRows(
         regs.flatMap(reg =>
-          reg.groups.flatMap(g =>
-            g.participants.map(p => ({
+          reg.groups
+            .filter(g => g.groupStatus !== "Cancelled")
+            .flatMap(g =>
+            g.participants
+              .filter(p => p.participantStatus !== "Cancelled")
+              .map(p => ({
               participant:    p,
               group:          g,
               registration:   reg,

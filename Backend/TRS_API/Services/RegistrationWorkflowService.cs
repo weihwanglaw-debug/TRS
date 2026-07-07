@@ -62,7 +62,9 @@ public class RegistrationWorkflowService
 
         var existingParticipants = await _db.ParticipantGroups
             .Where(g => programIds.Contains(g.ProgramId) && g.GroupStatus != "Cancelled")
-            .SelectMany(g => g.Participants.Select(p => new ExistingParticipantIdentity
+            .SelectMany(g => g.Participants
+                .Where(p => p.ParticipantStatus != "Cancelled")
+                .Select(p => new ExistingParticipantIdentity
             {
                 ProgramId = g.ProgramId,
                 FullName = p.FullName,
@@ -380,7 +382,9 @@ public class RegistrationWorkflowService
             .Where(g =>
                 g.ProgramId == programId &&
                 g.GroupStatus != "Cancelled")
-            .SelectMany(g => g.Participants.Select(p => new
+            .SelectMany(g => g.Participants
+                .Where(p => p.ParticipantStatus != "Cancelled")
+                .Select(p => new
             {
                 p.FullName,
                 p.DateOfBirth
