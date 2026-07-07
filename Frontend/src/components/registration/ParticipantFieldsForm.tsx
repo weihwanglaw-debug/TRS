@@ -34,7 +34,8 @@ export const MONTHS = [
 export const DAYS  = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0"));
 export const YEARS = Array.from({ length: 100 }, (_, i) => String(new Date().getFullYear() - i));
 export const TSHIRT_SIZES = ["XS","S","M","L","XL","XXL","3XL"];
-const CLUB_NA_VALUE = "NA";
+const CLUB_NO_CLUB_VALUE = "* No Club";
+const LEGACY_CLUB_NA_VALUE = "NA";
 const CLUB_OTHERS_VALUE = "__others__";
 const ALLOWED_DOCUMENT_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -366,9 +367,12 @@ export default function ParticipantFieldsForm({
       return;
     }
 
-    if (savedClub === CLUB_NA_VALUE) {
-      setClubSelectValue(CLUB_NA_VALUE);
+    if (savedClub === CLUB_NO_CLUB_VALUE || savedClub === LEGACY_CLUB_NA_VALUE) {
+      setClubSelectValue(CLUB_NO_CLUB_VALUE);
       setOtherClubName("");
+      if (savedClub !== CLUB_NO_CLUB_VALUE) {
+        set({ clubSchoolCompany: CLUB_NO_CLUB_VALUE });
+      }
       return;
     }
 
@@ -419,7 +423,7 @@ export default function ParticipantFieldsForm({
                 </div>
                 {sbaStatus === "found" && (
                   <p className="text-xs mt-1 flex items-center gap-1"
-                    style={{ color: "var(--badge-open-text)" }}>
+                    style={{ color: "var(--badge-closed-text)" }}>
                     <CheckCircle className="h-3 w-3" />
                     Details auto-filled. Clear the SBA ID to edit manually.
                   </p>
@@ -569,7 +573,7 @@ export default function ParticipantFieldsForm({
                 set({ clubSchoolCompany: next });
               }}>
               <option value="">Select club</option>
-              <option value={CLUB_NA_VALUE}>{CLUB_NA_VALUE}</option>
+              <option value={CLUB_NO_CLUB_VALUE}>{CLUB_NO_CLUB_VALUE}</option>
               {badmintonClubs.map(club => (
                 <option key={club.clubId} value={club.name}>{club.name}</option>
               ))}

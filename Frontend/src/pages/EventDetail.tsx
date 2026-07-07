@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import type { TournamentEvent, Program, Participant, CartEntry } from "@/types/config";
 import { getEventStatus, formatDate } from "@/lib/eventUtils";
-import { apiGetEvent, apiGetSbaMember, apiCreateRegistration, apiCreateEmbeddedPaymentAttempt, apiConfirmRegistration, apiUploadFile, assetUrl } from "@/lib/api";
+import { apiGetEvent, apiGetSbaMember, apiCreateRegistration, apiCreateEmbeddedPaymentAttempt, apiAbandonEmbeddedPaymentAttempt, apiConfirmRegistration, apiUploadFile, assetUrl } from "@/lib/api";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
 import StatusBadge, { getProgramCapacityStatus } from "@/components/events/StatusBadge";
 import { useAuth } from "@/contexts/AuthContext";
@@ -255,6 +255,8 @@ export default function EventDetail() {
   const { isAuthenticated, user } = useAuth();
   const registrationRef = useRef<HTMLDivElement>(null);
   const programsRef = useRef<HTMLDivElement>(null);
+  const cartSectionRef = useRef<HTMLDivElement>(null);
+  const cartItemRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
   const { cfg } = useLiveConfig();
 
@@ -307,6 +309,7 @@ export default function EventDetail() {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [cart, setCart] = useState<CartEntry[]>(savedSession?.cart ?? []);
   const [editingCartIndex, setEditingCartIndex] = useState<number | null>(null);
+  const [pendingCartFocusIndex, setPendingCartFocusIndex] = useState<number | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState("");
   const [consentChecked, setConsentChecked] = useState(false);
@@ -342,6 +345,31 @@ export default function EventDetail() {
   const getCartEntryCount = (programId: string, excludeIndex: number | null = null) =>
     cart.filter((entry, index) => entry.programId === programId && index !== excludeIndex).length;
   const isAdminPaymentBypass = isAuthenticated && cartRequiresPayment;
+
+  const scrollToCartSection = (behavior: ScrollBehavior = "smooth") => {
+    const target = cartSectionRef.current;
+    if (!target) return;
+
+    const top = target.getBoundingClientRect().top + window.scrollY - 96;
+    window.scrollTo({ top: Math.max(0, top), behavior });
+    target.focus({ preventScroll: true });
+  };
+
+  useEffect(() => {
+    if (step !== 3 || pendingCartFocusIndex === null) return;
+
+    const first = window.setTimeout(() => {
+      window.requestAnimationFrame(() => scrollToCartSection("auto"));
+    }, 0);
+    const second = window.setTimeout(() => {
+      scrollToCartSection("smooth");
+    }, 260);
+
+    return () => {
+      window.clearTimeout(first);
+      window.clearTimeout(second);
+    };
+  }, [cart.length, pendingCartFocusIndex, step]);
   const canSubmitCart = isAdminPaymentBypass || consentChecked;
   const registrationContact = isAdminPaymentBypass
     ? {
@@ -615,6 +643,8 @@ export default function EventDetail() {
       participants: [...participants],
     };
 
+    const focusIndex = editingCartIndex ?? cart.length;
+
     if (editingCartIndex !== null) {
       setCart((prev) => prev.map((c, i) => (i === editingCartIndex ? entry : c)));
       setEditingCartIndex(null);
@@ -628,6 +658,7 @@ export default function EventDetail() {
       );
       if (!exists) setExistingParticipants((prev) => [...prev, { ...p }]);
     });
+    setPendingCartFocusIndex(focusIndex);
     setSelectedProgram(null); setParticipants([]); setErrors({}); setFormError(""); setSbaStatus({}); setStep(3);
   };
 
@@ -1119,7 +1150,7 @@ export default function EventDetail() {
                       </button>
                     </div>
                     {formError && (
-                      <div className="flex items-center gap-2 p-4 mb-5 text-sm" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
+                      <div className="flex items-center gap-2 p-4 mb-5 text-sm" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--color-primary)" }}>
                         <AlertCircle className="h-4 w-4 flex-shrink-0" /> {formError}
                       </div>
                     )}
@@ -1203,8 +1234,19 @@ export default function EventDetail() {
                 )}
 
                 {step === 3 && (
-                  <motion.div key="step3" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
-                    <div className="flex items-center gap-2 mb-6">
+                  <motion.div
+                    key="step3"
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    onAnimationComplete={() => {
+                      if (pendingCartFocusIndex !== null) {
+                        scrollToCartSection("smooth");
+                        setPendingCartFocusIndex(null);
+                      }
+                    }}
+                  >
+                    <div ref={cartSectionRef} tabIndex={-1} className="flex items-center gap-2 mb-6">
                       <ShoppingCart className="h-5 w-5" style={{ color: "var(--color-primary)" }} />
                       <h3 className="font-bold text-lg">Your Cart</h3>
                     </div>
@@ -1216,7 +1258,13 @@ export default function EventDetail() {
                     ) : (
                       <>
                         {cart.map((entry, idx) => (
-                          <div key={idx} className="p-5 mb-3 flex items-start justify-between" style={{ border: "1px solid var(--color-table-border)" }}>
+                          <div
+                            key={idx}
+                            ref={node => { cartItemRefs.current[idx] = node; }}
+                            tabIndex={-1}
+                            className="p-5 mb-3 flex items-start justify-between"
+                            style={{ border: "1px solid var(--color-table-border)" }}
+                          >
                             <div>
                               <p className="font-semibold">{entry.programName}</p>
                               <p className="text-sm opacity-70 mt-1">{entry.participants.map((p) => p.fullName).join(", ")}</p>
@@ -1357,10 +1405,12 @@ export default function EventDetail() {
         paymentMethod={paymentMethod}
         summaryItems={buildPaymentSummaryItems()}
         onClose={(phase) => {
+          const attemptToAbandon = phase === "success" ? null : paymentAttempt;
           setPaymentModalOpen(false);
           setPaymentAttempt(null);
-          if (phase === "failed" || phase === "expired" || phase === "review") {
-            paymentAttemptKeyRef.current = null;
+          paymentAttemptKeyRef.current = null;
+          if (attemptToAbandon) {
+            void apiAbandonEmbeddedPaymentAttempt(attemptToAbandon.paymentAttemptId);
           }
         }}
         onConfirmed={handlePaymentConfirmed}

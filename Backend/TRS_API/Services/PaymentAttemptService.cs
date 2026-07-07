@@ -83,11 +83,30 @@ public sealed class PaymentAttemptService
             .FirstOrDefaultAsync(a => a.AttemptKey == attemptKey, ct);
 
         if (existingForKey is { GatewayPaymentIntentId: not null } &&
-            (existingForKey.Status == Created || existingForKey.Status == Submitted))
+            existingForKey.Status == Created)
         {
             var existingIntent = await new PaymentIntentService()
                 .GetAsync(existingForKey.GatewayPaymentIntentId, cancellationToken: ct);
             return PaymentAttemptCreateResult.Ok(existingForKey, existingIntent.ClientSecret, publishableKey);
+        }
+
+        if (existingForKey is { GatewayPaymentIntentId: not null } &&
+            existingForKey.Status == Submitted &&
+            existingForKey.ExpiresAt > now)
+        {
+            var released = await ReleaseSubmittedAttemptIfSafeAsync(
+                existingForKey,
+                now,
+                "Payment attempt was abandoned before confirmation.",
+                ct);
+            if (!released)
+            {
+                return PaymentAttemptCreateResult.Fail(
+                    "PAYMENT_IN_PROGRESS",
+                    "A payment is already being processed. Please wait for confirmation before trying again.");
+            }
+
+            attemptKey = NormalizeAttemptKey(null, payload, dbMethod, amount, payloadJson);
         }
 
         var activeAttempts = await _db.PaymentAttempts
@@ -107,9 +126,18 @@ public sealed class PaymentAttemptService
                     "A previous payment for this registration needs organiser review. Please contact the organiser before trying again.");
 
             if (active.Status == Submitted && active.ExpiresAt > now)
+            {
+                var released = await ReleaseSubmittedAttemptIfSafeAsync(
+                    active,
+                    now,
+                    "Superseded by a new payment attempt.",
+                    ct);
+                if (released) continue;
+
                 return PaymentAttemptCreateResult.Fail(
                     "PAYMENT_IN_PROGRESS",
                     "A payment is already being processed. Please wait for confirmation before trying again.");
+            }
 
             if (active.Status == Created && active.ExpiresAt > now)
             {
@@ -193,6 +221,43 @@ public sealed class PaymentAttemptService
         var attempt = await _db.PaymentAttempts.AsNoTracking()
             .FirstOrDefaultAsync(a => a.PaymentAttemptId == attemptId, ct);
         return attempt == null ? null : PaymentAttemptStatusResult.From(attempt);
+    }
+
+    public async Task<PaymentAttemptAbandonResult> AbandonAsync(int attemptId, CancellationToken ct = default)
+    {
+        var attempt = await _db.PaymentAttempts.FirstOrDefaultAsync(a => a.PaymentAttemptId == attemptId, ct);
+        if (attempt == null)
+            return PaymentAttemptAbandonResult.Fail("NOT_FOUND", "Payment attempt was not found.");
+
+        if (attempt.Status == Succeeded)
+            return PaymentAttemptAbandonResult.Fail("PAYMENT_ALREADY_SUCCEEDED", "Payment has already succeeded.");
+
+        if (attempt.Status == NeedsReconciliation && attempt.ResolvedAt == null)
+            return PaymentAttemptAbandonResult.Fail(
+                "PAYMENT_REVIEW_REQUIRED",
+                "This payment needs organiser review. Please do not try again until it is reviewed.");
+
+        if (attempt.Status == Submitted)
+        {
+            var released = await ReleaseSubmittedAttemptIfSafeAsync(
+                attempt,
+                DateTime.UtcNow,
+                "Payment attempt was closed by the customer before confirmation.",
+                ct);
+            if (!released)
+            {
+                return PaymentAttemptAbandonResult.Fail(
+                    "PAYMENT_IN_PROGRESS",
+                    "Payment is still processing. Please wait for confirmation before trying again.");
+            }
+        }
+        else if (attempt.Status == Created)
+        {
+            await CancelCreatedAttemptAsync(attempt, "Payment attempt was closed by the customer.", ct);
+            await _db.SaveChangesAsync(ct);
+        }
+
+        return PaymentAttemptAbandonResult.Ok(PaymentAttemptStatusResult.From(attempt));
     }
 
     public async Task<bool> MarkSubmittedAsync(int attemptId, CancellationToken ct = default)
@@ -468,6 +533,80 @@ public sealed class PaymentAttemptService
         attempt.ErrorMessage = reason;
     }
 
+    private async Task<bool> ReleaseSubmittedAttemptIfSafeAsync(
+        PaymentAttempt attempt,
+        DateTime now,
+        string reason,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(attempt.GatewayPaymentIntentId))
+        {
+            attempt.Status = Failed;
+            attempt.FailedAt = now;
+            attempt.UpdatedAt = now;
+            attempt.ErrorMessage = "Payment attempt did not have a gateway payment intent.";
+            await _db.SaveChangesAsync(ct);
+            return true;
+        }
+
+        PaymentIntent intent;
+        try
+        {
+            intent = await new PaymentIntentService().GetAsync(
+                attempt.GatewayPaymentIntentId,
+                cancellationToken: ct);
+        }
+        catch (StripeException ex)
+        {
+            _log.LogWarning(ex, "Could not inspect PaymentIntent {PaymentIntentId} before releasing attempt {AttemptId}",
+                attempt.GatewayPaymentIntentId,
+                attempt.PaymentAttemptId);
+            return false;
+        }
+
+        switch (intent.Status)
+        {
+            case "succeeded":
+                await FinalizePaymentIntentAsync(intent, $"attempt_release_{intent.Id}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}", ct);
+                return false;
+            case "processing":
+                return false;
+            case "requires_payment_method":
+            case "requires_action":
+            case "requires_confirmation":
+            case "requires_capture":
+            case "canceled":
+                if (intent.Status != "canceled")
+                {
+                    var canceled = await CancelPaymentIntentIfPossibleAsync(intent.Id, ct);
+                    if (!canceled) return false;
+                }
+
+                attempt.Status = Canceled;
+                attempt.CanceledAt = now;
+                attempt.UpdatedAt = now;
+                attempt.ErrorMessage = reason;
+                await _db.SaveChangesAsync(ct);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private async Task<bool> CancelPaymentIntentIfPossibleAsync(string paymentIntentId, CancellationToken ct)
+    {
+        try
+        {
+            await new PaymentIntentService().CancelAsync(paymentIntentId, cancellationToken: ct);
+            return true;
+        }
+        catch (StripeException ex)
+        {
+            _log.LogWarning(ex, "Could not cancel PaymentIntent {PaymentIntentId}", paymentIntentId);
+            return false;
+        }
+    }
+
     private async Task<PaymentAttempt?> FindAttemptAsync(PaymentIntent intent, CancellationToken ct)
     {
         if (intent.Metadata != null &&
@@ -591,6 +730,27 @@ public sealed class PaymentAttemptCreateResult
     };
 
     public static PaymentAttemptCreateResult Fail(string code, string message) => new()
+    {
+        Success = false,
+        Code = code,
+        Message = message,
+    };
+}
+
+public sealed class PaymentAttemptAbandonResult
+{
+    public bool Success { get; private init; }
+    public string? Code { get; private init; }
+    public string Message { get; private init; } = "";
+    public PaymentAttemptStatusResult? Status { get; private init; }
+
+    public static PaymentAttemptAbandonResult Ok(PaymentAttemptStatusResult status) => new()
+    {
+        Success = true,
+        Status = status,
+    };
+
+    public static PaymentAttemptAbandonResult Fail(string code, string message) => new()
     {
         Success = false,
         Code = code,

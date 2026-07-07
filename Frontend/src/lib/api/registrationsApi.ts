@@ -156,6 +156,22 @@ export async function apiGetEmbeddedPaymentAttemptStatus(
   return ok(await res.json());
 }
 
+export async function apiAbandonEmbeddedPaymentAttempt(
+  paymentAttemptId: number,
+): Promise<ApiResult<EmbeddedPaymentAttemptStatus>> {
+  await delay();
+
+  const res = await apiFetch(`${API_BASE}/api/Payment/embedded-attempt/${paymentAttemptId}/abandon`, {
+    method: "POST",
+    headers: publicHeaders(),
+  });
+  if (!res.ok) {
+    const e = await parseError(res);
+    return err(e.code, e.message);
+  }
+  return ok(await res.json());
+}
+
 
 export async function apiGetRegistration(id: string): Promise<ApiResult<Registration>> {
   await delay();

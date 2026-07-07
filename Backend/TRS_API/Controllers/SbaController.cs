@@ -79,7 +79,7 @@ public class SbaController : ControllerBase
             .Where(x => x.Player1SbaId == normalizedId || x.Player2SbaId == normalizedId)
             .OrderBy(x => x.Ranking)
             .FirstOrDefaultAsync();
-        if (r == null) return NotFound(new { code = "NOT_FOUND", message = "SBA member not found." });
+        if (r == null) return Ok(null);
 
         var isP2 = r.Player2SbaId == normalizedId;
         return Ok(new

@@ -716,10 +716,22 @@ public class RegistrationsController : ControllerBase
             .ToList() ?? new List<PaymentItem>();
 
         var shouldRefund = string.Equals(refundMode, "refundPaidItems", StringComparison.OrdinalIgnoreCase);
+        var selectedGroupIds = groups.Select(g => g.GroupId).ToHashSet();
+        var activeGroupIds = reg.ParticipantGroups
+            .Where(g => g.GroupStatus != "Cancelled")
+            .Select(g => g.GroupId)
+            .ToHashSet();
+        var participantCancelWillCancelGroup = participant == null ||
+            participant.Group.Participants
+                .Where(p => p.ParticipantStatus != "Cancelled")
+                .All(p => p.ParticipantId == participant.ParticipantId);
+        var affectsEntireRegistration = activeGroupIds.Count > 0 &&
+            activeGroupIds.IsSubsetOf(selectedGroupIds) &&
+            participantCancelWillCancelGroup;
         var errors = new List<string>();
         var refundedAny = false;
 
-        if (shouldRefund && payment != null && affectedItems.Any(i => i.ItemStatus == "S"))
+        if (affectsEntireRegistration && shouldRefund && payment != null && affectedItems.Any(i => i.ItemStatus == "S"))
         {
             ApplyRegistrationWorkflowStatus(reg, "CancelPending");
             await _db.SaveChangesAsync();
@@ -787,7 +799,10 @@ public class RegistrationsController : ControllerBase
 
         if (errors.Count > 0)
         {
-            ApplyRegistrationWorkflowStatus(reg, "RefundFailed");
+            if (affectsEntireRegistration)
+                ApplyRegistrationWorkflowStatus(reg, "RefundFailed");
+            else
+                reg.UpdatedAt = DateTime.UtcNow;
         }
         else if (reg.ParticipantGroups.All(g => g.GroupStatus == "Cancelled"))
         {

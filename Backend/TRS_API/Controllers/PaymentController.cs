@@ -87,6 +87,25 @@ namespace TRS_API.Controllers
         }
 
         [EnableRateLimiting("payment")]
+        [HttpPost("embedded-attempt/{attemptId:int}/abandon")]
+        public async Task<IActionResult> AbandonEmbeddedAttempt(int attemptId)
+        {
+            var result = await _paymentAttempts.AbandonAsync(attemptId, HttpContext.RequestAborted);
+            if (!result.Success)
+            {
+                var status = result.Code switch
+                {
+                    "NOT_FOUND" => StatusCodes.Status404NotFound,
+                    "PAYMENT_IN_PROGRESS" or "PAYMENT_ALREADY_SUCCEEDED" or "PAYMENT_REVIEW_REQUIRED" => StatusCodes.Status409Conflict,
+                    _ => StatusCodes.Status400BadRequest,
+                };
+                return StatusCode(status, new { code = result.Code, message = result.Message });
+            }
+
+            return Ok(result.Status);
+        }
+
+        [EnableRateLimiting("payment")]
         [HttpGet("embedded-attempt/{attemptId:int}/status")]
         public async Task<IActionResult> GetEmbeddedAttemptStatus(int attemptId)
         {

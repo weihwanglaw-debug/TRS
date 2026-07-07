@@ -51,6 +51,8 @@ function secondsLeft(expiresAt: string) {
   return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000));
 }
 
+const PAYMENT_OPEN_PATIENCE_MS = 20000;
+
 export default function EmbeddedPaymentModal(props: EmbeddedPaymentModalProps) {
   const { open, attempt } = props;
   const [closeLocked, setCloseLocked] = useState(false);
@@ -136,8 +138,8 @@ function EmbeddedPaymentBody({
 
   useEffect(() => {
     onPhaseChange(phase);
-    onCloseLockChange(phase === "submitting" || phase === "waiting");
-  }, [onCloseLockChange, onPhaseChange, phase]);
+    onCloseLockChange(phase === "waiting" && !patienceReached);
+  }, [onCloseLockChange, onPhaseChange, patienceReached, phase]);
 
   useEffect(() => {
     if (!attempt || submitted) return;
@@ -155,7 +157,10 @@ function EmbeddedPaymentBody({
 
   useEffect(() => {
     if (!attempt || (phase !== "waiting" && phase !== "submitting")) return;
-    const patienceTimer = window.setTimeout(() => setPatienceReached(true), 30000);
+    const patienceTimer = window.setTimeout(
+      () => setPatienceReached(true),
+      phase === "submitting" ? PAYMENT_OPEN_PATIENCE_MS : 30000,
+    );
     const pollTimer = window.setInterval(async () => {
       const status = await apiGetEmbeddedPaymentAttemptStatus(attempt.paymentAttemptId);
       if (status.error || !status.data) return;
@@ -199,7 +204,9 @@ function EmbeddedPaymentBody({
   const handlePay = async () => {
     if (!stripe || !elements || controlsDisabled || phase === "expired") return;
     setPhase("submitting");
-    setMessage("");
+    setMessage(paymentMethod === "paynow"
+      ? "Opening PayNow QR code..."
+      : "Opening secure card payment...");
     setPatienceReached(false);
 
     const elementSubmit = await elements.submit();
@@ -258,7 +265,9 @@ function EmbeddedPaymentBody({
           <XCircle className="h-5 w-5 flex-shrink-0" />
           <div>
             <p className="font-semibold">{phase === "expired" ? "Payment session expired." : "Payment not completed."}</p>
-            <p className="text-sm opacity-80">{message}</p>
+            <p className="text-sm opacity-80">
+              {message} Please close this window and start payment again. Your cart will be kept.
+            </p>
           </div>
         </div>
       );
@@ -280,10 +289,12 @@ function EmbeddedPaymentBody({
         <div className="p-4 flex gap-3" style={{ backgroundColor: "var(--color-row-hover)", color: "var(--color-body-text)" }}>
           <Loader2 className="h-5 w-5 animate-spin flex-shrink-0" />
           <div>
-            <p className="font-semibold">Still confirming.</p>
+            <p className="font-semibold">{phase === "submitting" ? "Payment screen is taking longer than expected." : "Still confirming."}</p>
             <p className="text-sm opacity-70">
-              {paymentMethod === "paynow"
-                ? "PayNow can sometimes take a little longer. If you have approved payment in your banking app, please do not pay again."
+              {phase === "submitting"
+                ? "If the payment screen has not appeared, close this window and try again. Your cart will be kept."
+                : paymentMethod === "paynow"
+                ? "If you have not approved payment in your banking app, close this window and start again. If you have approved it, please do not pay again."
                 : "Please keep this window open. If payment was completed, please do not pay again."}
             </p>
           </div>
@@ -336,9 +347,16 @@ function EmbeddedPaymentBody({
       </aside>
       <section className="p-6 space-y-5">
         {statusPanel}
-        {(phase === "ready" || phase === "failed" || phase === "submitting") && (
+        {(phase === "ready" || phase === "submitting") && (
           <div className={`space-y-4 ${phase === "submitting" ? "pointer-events-none opacity-60" : ""}`}>
-            <PaymentElement options={{ layout: "tabs" }} />
+            <PaymentElement
+              options={{
+                layout: "tabs",
+                wallets: {
+                  link: "never",
+                },
+              }}
+            />
             <button
               type="button"
               className="btn-primary w-full py-3 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
@@ -354,7 +372,7 @@ function EmbeddedPaymentBody({
             Close
           </button>
         )}
-        {(phase === "expired" || phase === "failed" || phase === "review") && (
+        {(phase === "expired" || phase === "failed" || phase === "review" || ((phase === "submitting" || phase === "waiting") && patienceReached)) && (
           <button type="button" className="btn-outline w-full py-3 font-semibold" onClick={() => onClose(phase)}>
             Close
           </button>

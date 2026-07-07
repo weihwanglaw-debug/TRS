@@ -44,7 +44,7 @@ export async function apiGetSbaRankingTypes(): Promise<ApiResult<SbaRankingType[
   return ok(await res.json());
 }
 
-export async function apiGetSbaMember(sbaId: string, type?: string): Promise<ApiResult<SbaMember>> {
+export async function apiGetSbaMember(sbaId: string, type?: string): Promise<ApiResult<SbaMember | null>> {
   await delay();
 
   const normalizedSbaId = sbaId.trim().toUpperCase();
@@ -53,7 +53,7 @@ export async function apiGetSbaMember(sbaId: string, type?: string): Promise<Api
   const res = await apiFetch(`${API_BASE}/api/sba/members/${encodeURIComponent(normalizedSbaId)}?${params}`, {
     headers: publicHeaders(),
   });
-  if (!res.ok) return err("NOT_FOUND", "SBA member not found.");
+  if (!res.ok) return err("LOOKUP_FAILED", "SBA member lookup failed.");
   return ok(await res.json());
 }
 
