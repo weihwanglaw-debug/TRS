@@ -360,7 +360,7 @@ function EmbeddedPaymentBody({
             <button
               type="button"
               className="btn-primary w-full py-3 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={!stripe || !elements || controlsDisabled || phase === "expired"}
+              disabled={!stripe || !elements || controlsDisabled}
               onClick={handlePay}
             >
               Pay {formatMoney(attempt.amount, attempt.currency)}
