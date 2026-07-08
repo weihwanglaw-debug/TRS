@@ -192,11 +192,19 @@ public class InitiateRefundRequest
     [Required] public int PaymentItemId { get; set; }
     [Required, Range(0.01, double.MaxValue)] public decimal RefundAmount { get; set; }
     public string? RefundReason { get; set; }
+    public string? RefundSource { get; set; }
+    public string? RefundMethod { get; set; }
+    public string? RefundReference { get; set; }
+    public string? AdminNote { get; set; }
 }
 public class CancelRegistrationRequest
 {
     [Required] public string Reason { get; set; } = null!;
     public string? RefundMode { get; set; } = "none"; // none | refundPaidItems
+    public string? RefundSource { get; set; }
+    public string? RefundMethod { get; set; }
+    public string? RefundReference { get; set; }
+    public string? AdminNote { get; set; }
     public bool ConfirmFixtureImpact { get; set; }
 }
 

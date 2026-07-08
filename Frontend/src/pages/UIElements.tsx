@@ -24,7 +24,7 @@ export default function UIElements() {
       <main className="flex-1 pt-20 pb-16 px-8" style={{ backgroundColor: "var(--color-page-bg)" }}>
         <div className="max-w-5xl mx-auto">
           <h1 className="font-bold text-3xl mb-2">UI Elements Reference</h1>
-          <p className="text-sm opacity-60 mb-12">All available components and design tokens for the TRS application.</p>
+          <p className="text-sm opacity-60 mb-12">All available components and design tokens for the application.</p>
 
           {/* ── Colors ── */}
           <Section title="Color Palette">

@@ -134,7 +134,7 @@ namespace TRS_API.Controllers
                 _db.WebhookLogs.Add(new WebhookLog
                 {
                     PaymentGateway   = "stripe",
-                    GatewayEventId   = "unknown",
+                    GatewayEventId   = await CreateUniqueGatewayEventIdAsync("unknown_signature"),
                     EventType        = "signature_verification_failed",
                     PayloadJson      = json,
                     ProcessingStatus = "F",
@@ -244,6 +244,15 @@ namespace TRS_API.Controllers
 
                     session.Metadata.TryGetValue("payment_method", out var paymentMethodMeta);
                     var paymentMethod = paymentMethodMeta ?? "CreditCard";
+                    var receiptProgramId = await _db.PaymentItems
+                        .Where(pi => pi.GroupId != 0 &&
+                               _db.ParticipantGroups
+                                  .Where(g => g.RegistrationId == registrationId)
+                                  .Select(g => g.GroupId)
+                                  .Contains(pi.GroupId))
+                        .Select(pi => (int?)pi.ProgramId)
+                        .OrderBy(pid => pid)
+                        .FirstOrDefaultAsync();
 
                     var payment = new Payment
                     {
@@ -258,7 +267,7 @@ namespace TRS_API.Controllers
                         GatewayPaymentId = session.PaymentIntentId,
                         PaidAt           = DateTime.UtcNow,
                         CreatedAt        = DateTime.UtcNow,
-                        ReceiptNumber    = $"TRS-{DateTime.UtcNow:yyyyMMdd}-{Random.Shared.Next(10000, 99999):D5}",
+                        ReceiptNumber    = ReceiptNumberGenerator.Generate(registration.EventId, receiptProgramId),
                     };
 
                     _db.Payments.Add(payment);
@@ -414,6 +423,10 @@ namespace TRS_API.Controllers
                 _logger.LogWarning(
                     "Refund webhook received for unknown charge/payment intent {ChargeId}/{PaymentIntentId}",
                     charge.Id, charge.PaymentIntentId);
+                await LogChargeRefundReconciliationFailureAsync(
+                    eventId,
+                    charge,
+                    $"Refund webhook received for unknown charge/payment intent {charge.Id}/{charge.PaymentIntentId}");
                 return;
             }
 
@@ -421,7 +434,18 @@ namespace TRS_API.Controllers
             foreach (var stripeRefund in charge.Refunds?.Data ?? Enumerable.Empty<Stripe.Refund>())
             {
                 var localRefund = await _db.Refunds.FirstOrDefaultAsync(r => r.GatewayRefundId == stripeRefund.Id);
-                if (localRefund == null) continue;
+                if (localRefund == null)
+                {
+                    _logger.LogWarning(
+                        "Refund webhook {EventId} references Stripe refund {RefundId}, but no local refund row exists",
+                        eventId,
+                        stripeRefund.Id);
+                    await LogChargeRefundReconciliationFailureAsync(
+                        $"{eventId}_{stripeRefund.Id}",
+                        charge,
+                        $"Stripe refund {stripeRefund.Id} has no matching local refund row.");
+                    continue;
+                }
 
                 var newStatus = stripeRefund.Status switch
                 {
@@ -458,6 +482,32 @@ namespace TRS_API.Controllers
 
         private static bool IsRetryableFinalizationFailure(string? code) =>
             string.Equals(code, "CREATE_FAILED", StringComparison.Ordinal);
+
+        private async Task LogChargeRefundReconciliationFailureAsync(
+            string eventId,
+            Charge charge,
+            string errorMessage)
+        {
+            var gatewayReference = !string.IsNullOrWhiteSpace(charge.PaymentIntentId)
+                ? charge.PaymentIntentId
+                : charge.Id;
+
+            _db.WebhookLogs.Add(new WebhookLog
+            {
+                PaymentGateway = "stripe",
+                GatewayEventId = await CreateUniqueGatewayEventIdAsync(eventId),
+                GatewaySessionId = gatewayReference,
+                EventType = "charge.refunded",
+                PayloadJson = System.Text.Json.JsonSerializer.Serialize(charge),
+                ProcessingStatus = "F",
+                ErrorMessage = errorMessage,
+                ReceivedAt = DateTime.UtcNow,
+                ProcessedAt = DateTime.UtcNow,
+                Amount = charge.AmountRefunded > 0 ? charge.AmountRefunded / 100m : null,
+                Currency = charge.Currency?.ToUpperInvariant(),
+            });
+            await _db.SaveChangesAsync();
+        }
 
         // ── CHANGED: optional session parameter added to capture payer metadata ──
         // When session is provided (checkout.session.completed events), the log row
@@ -549,11 +599,29 @@ namespace TRS_API.Controllers
             }
 
             await UpsertWebhookLogAsync(
-                string.IsNullOrWhiteSpace(eventId) ? "unknown" : eventId,
+                string.IsNullOrWhiteSpace(eventId) ? await CreateUniqueGatewayEventIdAsync("unknown_processing") : eventId,
                 "processing_error",
                 payloadJson,
                 "F",
                 errorMessage);
+        }
+
+        private async Task<string> CreateUniqueGatewayEventIdAsync(string prefix)
+        {
+            var baseId = $"{prefix}_{DateTime.UtcNow:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}"[..Math.Min(255, prefix.Length + 1 + 17 + 1 + 32)];
+            var candidate = baseId;
+            var suffix = 0;
+
+            while (await _db.WebhookLogs.AnyAsync(w => w.GatewayEventId == candidate))
+            {
+                suffix++;
+                var suffixText = $"_{suffix}";
+                candidate = baseId.Length + suffixText.Length <= 255
+                    ? $"{baseId}{suffixText}"
+                    : $"{baseId[..(255 - suffixText.Length)]}{suffixText}";
+            }
+
+            return candidate;
         }
     }
 }

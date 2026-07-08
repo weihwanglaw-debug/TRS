@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { PageLoader } from "@/components/ui/LoadingSpinner";
 import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 import {
   apiGetEvent, apiCreateEvent, apiUpdateEvent, apiDeleteEvent,
   apiAddProgram, apiUpdateProgram, apiDeleteProgram, apiUpdateProgramStatus,
@@ -128,7 +129,14 @@ export default function EventEdit() {
   const [event,    setEvent]   = useState<TournamentEvent | null>(null);
   const [loading,  setLoading] = useState(!isNew);
   const [saving,   setSaving]  = useState(false);
-  const [apiError, setApiError] = useState("");
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
+  const showError = (title: string, description: string) =>
+    setFeedback({ open: true, variant: "error", title, description });
 
   // ── Form state ──────────────────────────────────────────────────────────────
   const [form, setForm] = useState({
@@ -175,7 +183,7 @@ export default function EventEdit() {
   useEffect(() => {
     if (isNew) return;
     apiGetEvent(eventId!, { admin: true }).then(r => {
-      if (r.error) { setApiError(r.error.message); return; }
+      if (r.error) { showError("Failed to load event", r.error.message); return; }
       const ev = r.data!;
       setEvent(ev);
       setPrograms(ev.programs);
@@ -335,27 +343,27 @@ export default function EventEdit() {
   const handleSave = async () => {
     if (!validate()) return;
     setSaving(true);
-    setApiError("");
     try {
       const payload = { ...form, galleryUrls: gallery, programs };
       if (isNew) {
         const r = await apiCreateEvent(payload);
-        if (r.error) { setApiError(r.error.message); return; }
+        if (r.error) { showError("Event could not be created", r.error.message); return; }
         const newId = r.data!.id;
         for (const prog of programs) {
           const { id: _id, currentParticipants: _cp, participantSeeds: _ps, ...progPayload } = prog;
           void _id; void _cp; void _ps;
           const pr = await apiAddProgram(newId, progPayload);
-          if (pr.error) { setApiError(`Event created but failed to save program "${prog.name}": ${pr.error.message}`); return; }
+          if (pr.error) { showError("Event partially saved", `Event created but failed to save program "${prog.name}": ${pr.error.message}`); return; }
         }
         await saveDocuments(newId, docs);
         navigate("/admin/events");
       } else {
         const r = await apiUpdateEvent(eventId!, payload);
-        if (r.error) { setApiError(r.error.message); return; }
+        if (r.error) { showError("Event could not be saved", r.error.message); return; }
         await saveDocuments(eventId!, docs);
         setEvent(r.data!);
         setEditing(false);
+        setFeedback({ open: true, variant: "success", title: "Event saved", description: "The event details have been updated." });
       }
     } finally {
       setSaving(false);
@@ -367,7 +375,7 @@ export default function EventEdit() {
     setSaving(true);
     const r = await apiDeleteEvent(eventId);
     setSaving(false);
-    if (r.error) { setApiError(r.error.message); return; }
+    if (r.error) { showError("Event could not be deleted", r.error.message); return; }
     navigate("/admin/events");
   };
 
@@ -384,6 +392,13 @@ export default function EventEdit() {
 
   return (
     <div>
+      <ActionFeedbackDialog
+        open={feedback.open}
+        variant={feedback.variant}
+        title={feedback.title}
+        description={feedback.description}
+        onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
+      />
       {/* ── Sticky Header ── */}
       <div className="sticky-header px-2 md:px-4" style={panelStyle}>
         <div className="flex items-center justify-between mb-6">
@@ -429,13 +444,6 @@ export default function EventEdit() {
           </div>
         </div>
       </div>
-
-      {apiError && (
-        <div className="mb-6 px-4 py-3 text-sm font-medium"
-          style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)", border: "1px solid var(--badge-closed-text)" }}>
-          {apiError}
-        </div>
-      )}
 
       {/* ── Event Details ── */}
       <div className="mb-8 p-8" style={panelStyle}>

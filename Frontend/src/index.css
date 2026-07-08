@@ -23,6 +23,14 @@
   --badge-soon-text: #c05621;
   --badge-closed-bg: #e2e8f0;
   --badge-closed-text: #718096;
+  --feedback-success: var(--color-primary); 
+  --feedback-success-bg: #dcece2;
+  --feedback-error: var(--badge-open-text);
+  --feedback-error-bg: #fed7d7;   /* same as --badge-open-bg */
+  --feedback-warning: #e99400;    /* sits between --badge-soon-text and --color-primary */
+  --feedback-warning-bg: #f7e3c9;
+  --feedback-info: var(--color-primary);      /* derived from --color-hero-bg, lightened for text use */
+  --feedback-info-bg: #dde4ea;    /* cool tint echoing --color-page-bg */
 
   /* shadcn mapping */
   --background: 216 33% 97%;
@@ -77,6 +85,17 @@
   --badge-soon-text: #fbbf24;
   --badge-closed-bg: rgba(255,255,255,0.05);
   --badge-closed-text: #52525b;
+--feedback-success: #6ee7b7;
+--feedback-success-bg: rgba(110, 231, 183, 0.14);
+
+--feedback-error: var(--badge-open-text);
+--feedback-error-bg: var(--badge-open-bg);
+
+--feedback-warning: #fbbf24;
+--feedback-warning-bg: rgba(251, 191, 36, 0.13);
+
+--feedback-info: #93b4d8;
+--feedback-info-bg: rgba(147, 180, 216, 0.14);
 
   /* shadcn mapping */
   --background: 240 7% 8%;
@@ -1710,7 +1729,7 @@
 }
 
 
-/* ── Quill Snow theme — integrates with TRS theme variables ── */
+/* Quill Snow theme - integrates with application theme variables */
 .ql-toolbar.ql-snow {
   background:    var(--color-background-secondary);
   border-color:  var(--color-table-border) !important;

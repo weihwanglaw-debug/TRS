@@ -8,6 +8,7 @@ import {
   apiUpdateBadmintonClub,
 } from "@/lib/api";
 import type { BadmintonClub, BadmintonClubInput } from "@/types/config";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 
 type ModalMode = "create" | "edit" | null;
 
@@ -23,7 +24,12 @@ export default function BadmintonClubs() {
   const [clubs, setClubs] = useState<BadmintonClub[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [apiError, setApiError] = useState("");
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<ModalMode>(null);
   const [target, setTarget] = useState<BadmintonClub | null>(null);
@@ -35,7 +41,7 @@ export default function BadmintonClubs() {
     setLoading(true);
     const r = await apiGetBadmintonClubs();
     if (r.data) setClubs(r.data);
-    if (r.error) setApiError(r.error.message);
+    if (r.error) setFeedback({ open: true, variant: "error", title: "Failed to load clubs", description: r.error.message });
     setLoading(false);
   };
 
@@ -57,7 +63,6 @@ export default function BadmintonClubs() {
     setTarget(null);
     setForm(emptyForm);
     setErrors({});
-    setApiError("");
     setModal("create");
   };
 
@@ -71,7 +76,6 @@ export default function BadmintonClubs() {
       country: club.country ?? "",
     });
     setErrors({});
-    setApiError("");
     setModal("edit");
   };
 
@@ -99,51 +103,47 @@ export default function BadmintonClubs() {
   const saveClub = async () => {
     if (!validate()) return;
     setSaving(true);
-    setApiError("");
     const r = modal === "edit" && target
       ? await apiUpdateBadmintonClub(target.clubId, clean())
       : await apiCreateBadmintonClub(clean());
     setSaving(false);
 
     if (r.error) {
-      setApiError(r.error.message);
+      setFeedback({ open: true, variant: "error", title: "Club could not be saved", description: r.error.message });
       return;
     }
 
+    const wasEdit = modal === "edit";
     setModal(null);
     await loadClubs();
+    setFeedback({ open: true, variant: "success", title: wasEdit ? "Club updated" : "Club added", description: "The club list has been updated." });
   };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setSaving(true);
-    setApiError("");
     const r = await apiDeleteBadmintonClub(deleteTarget.clubId);
     setSaving(false);
 
     if (r.error) {
-      setApiError(r.error.message);
+      setFeedback({ open: true, variant: "error", title: "Club could not be deleted", description: r.error.message });
       return;
     }
 
     setDeleteTarget(null);
     await loadClubs();
+    setFeedback({ open: true, variant: "success", title: "Club deleted", description: "The club has been removed from the master list." });
   };
 
   return (
     <div>
-      {apiError && (
-        <div
-          className="mb-4 px-4 py-3 text-sm font-medium"
-          style={{
-            backgroundColor: "var(--badge-closed-bg)",
-            color: "var(--badge-closed-text)",
-            border: "1px solid var(--badge-closed-text)",
-          }}
-        >
-          {apiError}
-        </div>
-      )}
+      <ActionFeedbackDialog
+        open={feedback.open}
+        variant={feedback.variant}
+        title={feedback.title}
+        description={feedback.description}
+        onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
+      />
 
       <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
         <div>

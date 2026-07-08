@@ -81,6 +81,9 @@ export type RefundStatus =
   | "S"
   | "F";
 
+export type RefundSource = "System" | "External";
+export type RefundMethod = "Gateway" | "GatewayDashboard" | "PayNow" | "BankTransfer" | "Cash" | "Other";
+
 export type PaymentMethod =
   | "CreditCard"    // DB: 'CreditCard'
   | "PayNow"        // DB: 'PayNow'
@@ -190,6 +193,8 @@ export interface Refund {
   paymentId:        string;        // FK → Payment.id
   paymentItemId:    string;        // FK → PaymentItem.id
   gateway:          PaymentGateway;
+  refundSource?:    RefundSource | null;
+  refundMethod?:    RefundMethod | null;
   gatewayRefundId?: string;        // Stripe: re_xxxx — populated when Success
   refundAmount:     number;        // May be ≤ PaymentItem.amount
   refundReason?:    string;        // e.g. "Withdrawal from program"
@@ -220,7 +225,7 @@ export interface Payment {
   currency:              string;          // DB: Payments.Currency (default: "SGD")
   paymentStatus:         PaymentStatus;   // DB: Payments.PaymentStatus
   // Receipt
-  receiptNo?:            string;          // "TRS-YYYYMMDD-XXXXX" — generated on Success
+  receiptNo?:            string;          // Generated on Success
   adminNote?:            string;          // admin remark stored on manual confirm/waive
   // Timestamps
   createdAt:             string;
@@ -286,6 +291,7 @@ export interface RegistrationStats {
 export interface WebhookFailure {
   webhookLogId:     number;
   gatewaySessionId: string;
+  eventType:         string;
   errorMessage:     string | null;
   receivedAt:       string;
   retryCount:       number;
@@ -301,6 +307,8 @@ export interface OrphanRefundHistory {
   webhookLogId:     number | null;
   gatewaySessionId: string | null;
   gatewayRefundId:  string | null;
+  refundSource:     RefundSource | null;
+  refundMethod:     RefundMethod | null;
   refundAmount:     number;
   currency:         string;
   refundReason:     string | null;

@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, KeyRound } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiChangePassword } from "@/lib/api";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 
 export default function ChangePassword() {
   const { user, logout } = useAuth();
@@ -24,8 +25,13 @@ export default function ChangePassword() {
   const [showPw,    setShowPw]    = useState(false);
   const [saving,    setSaving]    = useState(false);
   const [errors,    setErrors]    = useState<Record<string, string>>({});
-  const [apiError,  setApiError]  = useState("");
-  const [success,   setSuccess]   = useState(false);
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
+  const [logoutPending, setLogoutPending] = useState(false);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -42,22 +48,34 @@ export default function ChangePassword() {
     e.preventDefault();
     if (!validate() || !user) return;
     setSaving(true);
-    setApiError("");
     const r = await apiChangePassword(currentPw, newPw);
     setSaving(false);
-    if (r.error) { setApiError(r.error.message); return; }
-    setSuccess(true);
+    if (r.error) {
+      setFeedback({ open: true, variant: "error", title: "Password could not be changed", description: r.error.message });
+      return;
+    }
+    setLogoutPending(true);
+    setFeedback({ open: true, variant: "success", title: "Password changed", description: "Please log in again with your new password." });
     // Force full logout so mustChangePassword flag is cleared from the session.
     // navigate("/admin") alone keeps the stale user object in AuthContext state —
     // only apiGetMe() on boot re-reads the flag, so we must go through login again.
-    setTimeout(async () => {
-      await logout();
-      navigate("/login", { replace: true });
-    }, 2000);
   };
 
   return (
     <div className="max-w-md mx-auto py-12 px-4">
+      <ActionFeedbackDialog
+        open={feedback.open}
+        variant={feedback.variant}
+        title={feedback.title}
+        description={feedback.description}
+        onOpenChange={async open => {
+          setFeedback(prev => ({ ...prev, open }));
+          if (!open && logoutPending) {
+            await logout();
+            navigate("/login", { replace: true });
+          }
+        }}
+      />
       <div className="flex items-center gap-3 mb-8">
         <KeyRound className="h-6 w-6" style={{ color: "var(--color-primary)" }} />
         <h1 className="font-bold text-2xl">Change Password</h1>
@@ -70,20 +88,7 @@ export default function ChangePassword() {
         </div>
       )}
 
-      {success ? (
-        <div className="p-4 text-sm"
-          style={{ backgroundColor: "var(--badge-open-bg)", color: "var(--badge-open-text)" }}>
-          Password changed successfully. Please log in again…
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {apiError && (
-            <div className="p-3 text-sm"
-              style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
-              {apiError}
-            </div>
-          )}
-
+      <form onSubmit={handleSubmit} className="space-y-5">
           <FF label="Current Password" error={errors.currentPw}>
             <div className="relative">
               <input type={showPw ? "text" : "password"} className="field-input pr-10"
@@ -121,8 +126,7 @@ export default function ChangePassword() {
               {saving ? "Saving…" : "Change Password"}
             </button>
           </div>
-        </form>
-      )}
+      </form>
     </div>
   );
 }

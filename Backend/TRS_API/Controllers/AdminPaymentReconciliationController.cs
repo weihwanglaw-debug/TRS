@@ -11,9 +11,9 @@ namespace TRS_API.Controllers;
 
 /// <summary>
 /// Endpoints that serve the Payment Reconciliation page:
-///   GET  /api/admin/payment-reconciliation/stats          â€” dashboard card count
-///   GET  /api/admin/payment-reconciliation/webhook-failures â€” Case-C row list
-///   POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund â€” orphan refund
+///   GET  /api/admin/payment-reconciliation/stats          - dashboard card count
+///   GET  /api/admin/payment-reconciliation/webhook-failures - Case-C row list
+///   POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund - orphan refund
 /// </summary>
 [ApiController]
 [Route("api/admin/payment-reconciliation")]
@@ -33,7 +33,7 @@ public class AdminPaymentReconciliationController : ControllerBase
         _config = config;
     }
 
-    // â”€â”€ GET /api/admin/payment-reconciliation/stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // GET /api/admin/payment-reconciliation/stats
     // Returns the combined count for the Dashboard "Payment Reconciliation" card.
     // caseA: RegStatus=Confirmed, PaymentStatus=P
     // caseB: RegStatus=Pending,   PaymentStatus=S
@@ -66,6 +66,15 @@ public class AdminPaymentReconciliationController : ControllerBase
             .Select(w => w.GatewaySessionId!)
             .ToListAsync();
 
+        var refundDiscrepancies = await _db.WebhookLogs
+            .Where(w =>
+                w.ProcessingStatus == "F" &&
+                w.EventType == "charge.refunded" &&
+                w.GatewaySessionId != null)
+            .Select(w => w.GatewaySessionId!)
+            .Distinct()
+            .CountAsync();
+
         var matchedSessionIds = await _db.Payments
             .Where(p => (p.GatewaySessionId != null && failedSessionIds.Contains(p.GatewaySessionId!)) ||
                         (p.GatewayPaymentId != null && failedSessionIds.Contains(p.GatewayPaymentId!)))
@@ -74,7 +83,7 @@ public class AdminPaymentReconciliationController : ControllerBase
 
         var caseC = failedSessionIds
             .Except(matchedSessionIds)
-            .Count();
+            .Count() + refundDiscrepancies;
 
         return Ok(new
         {
@@ -85,7 +94,7 @@ public class AdminPaymentReconciliationController : ControllerBase
         });
     }
 
-    // â”€â”€ GET /api/admin/payment-reconciliation/webhook-failures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // GET /api/admin/payment-reconciliation/webhook-failures
     // Returns all unresolved Case-C rows for the "Unmatched Stripe Payments" tab.
     // Filters out any row where a Payment was subsequently written for that session
     // (self-healed race condition).
@@ -97,6 +106,7 @@ public class AdminPaymentReconciliationController : ControllerBase
                 w.ProcessingStatus == "F" &&
                 (w.EventType == "checkout.session.completed" ||
                  w.EventType == "payment_intent.succeeded" ||
+                 w.EventType == "charge.refunded" ||
                  w.EventType == "processing_error") &&
                 w.GatewaySessionId != null)
             .OrderByDescending(w => w.ReceivedAt)
@@ -118,7 +128,7 @@ public class AdminPaymentReconciliationController : ControllerBase
         var healed = healedList.ToHashSet();
 
         // Also get retry counts from the log (each webhook retry creates its own row
-        // with the same GatewaySessionId but a different GatewayEventId suffix â€”
+        // with the same GatewaySessionId but a different GatewayEventId suffix -
         // Stripe re-uses the same event ID on retries, so count by GatewaySessionId).
         var retryCounts = failures
             .GroupBy(f => f.GatewaySessionId!)
@@ -128,13 +138,14 @@ public class AdminPaymentReconciliationController : ControllerBase
         var deduped = failures
             .GroupBy(f => f.GatewaySessionId!)
             .Select(g => g.OrderByDescending(f => f.ReceivedAt).First())
-            .Where(f => !healed.Contains(f.GatewaySessionId!))
+            .Where(f => f.EventType == "charge.refunded" || !healed.Contains(f.GatewaySessionId!))
             .ToList();
 
         var result = deduped.Select(w => new
         {
             webhookLogId   = w.WebhookLogId,
             gatewaySessionId = w.GatewaySessionId,
+            eventType      = w.EventType,
             errorMessage   = w.ErrorMessage,
             receivedAt     = w.ReceivedAt,
             retryCount     = retryCounts.GetValueOrDefault(w.GatewaySessionId!, 1),
@@ -162,6 +173,8 @@ public class AdminPaymentReconciliationController : ControllerBase
                 webhookLogId = r.WebhookLogId,
                 gatewaySessionId = r.GatewaySessionId,
                 gatewayRefundId = r.GatewayRefundId,
+                refundSource = r.RefundSource,
+                refundMethod = r.RefundMethod,
                 refundAmount = r.RefundAmount,
                 currency = r.WebhookLog != null ? (r.WebhookLog.Currency ?? "SGD") : "SGD",
                 refundReason = r.RefundReason,
@@ -179,12 +192,167 @@ public class AdminPaymentReconciliationController : ControllerBase
         return Ok(rows);
     }
 
-    // â”€â”€ POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund â”€â”€â”€
+    [HttpPatch("webhook-failures/{webhookLogId:int}/reviewed")]
+    public async Task<IActionResult> MarkRefundWebhookReviewed(
+        int webhookLogId,
+        [FromBody] ReconciliationReviewRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Note))
+            return BadRequest(new { code = "NOTE_REQUIRED", message = "Review note is required." });
+
+        var log = await _db.WebhookLogs.FindAsync(webhookLogId);
+        if (log == null)
+            return NotFound(new { code = "NOT_FOUND" });
+
+        if (log.EventType != "charge.refunded")
+            return BadRequest(new { code = "INVALID_EVENT_TYPE", message = "Only refund webhook discrepancies can be marked reviewed." });
+
+        if (string.IsNullOrWhiteSpace(log.GatewaySessionId))
+            return BadRequest(new { code = "NO_GATEWAY_REFERENCE", message = "Cannot mark reviewed because the Stripe reference is missing." });
+
+        if (log.ProcessingStatus != "F")
+            return Conflict(new { code = "ALREADY_RESOLVED", message = "This reconciliation row is already resolved." });
+
+        var now = DateTime.UtcNow;
+        var relatedLogs = await _db.WebhookLogs
+            .Where(w =>
+                w.ProcessingStatus == "F" &&
+                w.EventType == "charge.refunded" &&
+                w.GatewaySessionId == log.GatewaySessionId)
+            .ToListAsync();
+
+        foreach (var related in relatedLogs)
+        {
+            related.ProcessingStatus = "I";
+            related.ProcessedAt = now;
+        }
+
+        _db.PaymentAuditLogs.Add(new PaymentAuditLog
+        {
+            EntityType = "WebhookLog",
+            EntityId = webhookLogId,
+            Action = "WebhookFailureReviewed",
+            Reason = req.Note,
+            PerformedBy = User.Identity?.Name ?? "admin",
+            Notes = $"GatewayReference={log.GatewaySessionId} ReviewedRows={relatedLogs.Count}",
+            CreatedAt = now,
+        });
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            webhookLogId,
+            gatewaySessionId = log.GatewaySessionId,
+            reviewedCount = relatedLogs.Count,
+        });
+    }
+
+    [HttpPost("webhook-failures/{webhookLogId:int}/external-refund")]
+    [Authorize(Roles = "superadmin")]
+    public async Task<IActionResult> RecordExternalOrphanRefund(
+        int webhookLogId,
+        [FromBody] ExternalOrphanRefundRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Reason))
+            return BadRequest(new { code = "REASON_REQUIRED", message = "Reason is required." });
+
+        var method = NormalizeExternalRefundMethod(req.RefundMethod);
+        if (method == null)
+            return BadRequest(new { code = "REFUND_METHOD_REQUIRED", message = "Refund method is required." });
+
+        var reference = req.RefundReference?.Trim();
+        if (RequiresExternalRefundReference(method) && string.IsNullOrWhiteSpace(reference))
+            return BadRequest(new { code = "REFUND_REFERENCE_REQUIRED", message = "Refund reference / ID is required for this refund method." });
+
+        var log = await _db.WebhookLogs.FindAsync(webhookLogId);
+        if (log == null)
+            return NotFound(new { code = "NOT_FOUND" });
+
+        if (log.EventType == "charge.refunded")
+            return BadRequest(new { code = "REVIEW_REQUIRED", message = "Use Mark Reviewed for refund webhook discrepancies that do not need a refund record." });
+
+        if (log.ProcessingStatus != "F")
+            return Conflict(new { code = "ALREADY_RESOLVED", message = "This webhook failure is already resolved." });
+
+        if (string.IsNullOrWhiteSpace(log.GatewaySessionId))
+            return BadRequest(new { code = "NO_SESSION_ID", message = "Cannot record refund because the payment reference is missing." });
+
+        var refundAmount = req.Amount ?? log.Amount;
+        if (refundAmount is null or <= 0m)
+            return BadRequest(new { code = "AMOUNT_REQUIRED", message = "Refund amount is required." });
+
+        await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+
+        log = await _db.WebhookLogs
+            .FromSqlInterpolated($"SELECT * FROM WebhookLogs WITH (UPDLOCK, HOLDLOCK) WHERE WebhookLogID = {webhookLogId}")
+            .SingleOrDefaultAsync();
+        if (log == null)
+            return NotFound(new { code = "NOT_FOUND" });
+        if (log.ProcessingStatus != "F")
+            return Conflict(new { code = "ALREADY_RESOLVED", message = "This webhook failure is already resolved." });
+
+        var existing = await _db.Refunds
+            .FirstOrDefaultAsync(r =>
+                r.GatewaySessionId == log.GatewaySessionId &&
+                (r.RefundStatus == "P" || r.RefundStatus == "S"));
+
+        if (existing != null)
+            return Conflict(new { code = "ALREADY_REFUNDED", message = "A refund is already recorded for this payment reference." });
+
+        var now = DateTime.UtcNow;
+        var refund = new TRS_Data.Models.Refund
+        {
+            PaymentId = null,
+            PaymentItemId = null,
+            GatewaySessionId = log.GatewaySessionId,
+            WebhookLogId = webhookLogId,
+            PaymentGateway = "External",
+            RefundSource = "External",
+            RefundMethod = method,
+            GatewayRefundId = reference,
+            RefundAmount = refundAmount.Value,
+            RefundReason = req.Reason,
+            RefundStatus = "S",
+            RequestedBy = User.Identity?.Name ?? "admin",
+            CreatedAt = now,
+            ProcessedAt = now,
+        };
+        _db.Refunds.Add(refund);
+
+        log.ProcessingStatus = "S";
+        log.ProcessedAt = now;
+
+        await _db.SaveChangesAsync();
+
+        _db.PaymentAuditLogs.Add(new PaymentAuditLog
+        {
+            EntityType = "Refund",
+            EntityId = refund.RefundId,
+            Action = "ExternalRefundRecorded",
+            Reason = req.Reason,
+            PerformedBy = User.Identity?.Name ?? "admin",
+            Notes = $"WebhookLogId={webhookLogId} SessionId={log.GatewaySessionId} Amount={refund.RefundAmount} Method={method} Reference={reference} AdminNote={req.AdminNote}",
+            CreatedAt = now,
+        });
+        await _db.SaveChangesAsync();
+        await tx.CommitAsync();
+
+        return Ok(new
+        {
+            refundId = refund.RefundId,
+            refundStatus = refund.RefundStatus,
+            refundAmount = refund.RefundAmount,
+            gatewayRefundId = refund.GatewayRefundId,
+        });
+    }
+
+    // POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund
     // Issues a Stripe refund for an orphan payment (Case C).
     // Reuses the same RefundService().CreateAsync() call as the normal refund flow,
     // but writes a Refund row with PaymentId=null and marks the WebhookLog resolved.
     [HttpPost("webhook-failures/{webhookLogId:int}/refund")]
-    [Authorize(Roles = "superadmin")]   // restrict to superadmin â€” irreversible
+    [Authorize(Roles = "superadmin")]   // restrict to superadmin - irreversible
     public async Task<IActionResult> RefundOrphanedPayment(
         int webhookLogId,
         [FromBody] OrphanRefundRequest req)
@@ -199,8 +367,11 @@ public class AdminPaymentReconciliationController : ControllerBase
         if (log.ProcessingStatus != "F")
             return Conflict(new { code = "ALREADY_RESOLVED", message = "This webhook failure is already resolved." });
 
+        if (log.EventType == "charge.refunded")
+            return BadRequest(new { code = "REFUND_REVIEW_REQUIRED", message = "This row is a refund webhook discrepancy. Review it in the payment provider dashboard and the system before taking manual action." });
+
         if (string.IsNullOrEmpty(log.GatewaySessionId))
-            return BadRequest(new { code = "NO_SESSION_ID", message = "Cannot refund â€” session ID not recorded on this webhook." });
+            return BadRequest(new { code = "NO_SESSION_ID", message = "Cannot refund - session ID not recorded on this webhook." });
 
         // Retrieve the Stripe reference to get the PaymentIntent ID and amount.
         // Hosted checkout orphan rows store cs_..., embedded attempts store pi_...
@@ -269,11 +440,13 @@ public class AdminPaymentReconciliationController : ControllerBase
             {
                 refund = new TRS_Data.Models.Refund
         {
-            PaymentId       = null,           // orphan â€” no Payment row
-            PaymentItemId   = null,           // orphan â€” no PaymentItem row
+            PaymentId       = null,           // orphan - no Payment row
+            PaymentItemId   = null,           // orphan - no PaymentItem row
             GatewaySessionId = log.GatewaySessionId,
             WebhookLogId    = webhookLogId,
             PaymentGateway  = "Stripe",
+            RefundSource    = "System",
+            RefundMethod    = "Gateway",
             RefundAmount    = amountCents / 100m,
             RefundReason    = req.Reason,
             RefundStatus    = "P",
@@ -313,6 +486,8 @@ public class AdminPaymentReconciliationController : ControllerBase
                 new RequestOptions { IdempotencyKey = $"orphan_refund_{log.GatewaySessionId}" });
 
             refund.GatewayRefundId = stripeRefund.Id;
+            refund.RefundSource     = "System";
+            refund.RefundMethod     = "Gateway";
             refund.RefundStatus    = stripeRefund.Status == "failed" ? "F" : "S";
             refund.ProcessedAt     = DateTime.UtcNow;
 
@@ -387,11 +562,42 @@ public class AdminPaymentReconciliationController : ControllerBase
             return StatusCode(502, new { code = ex.StripeError?.Code ?? "REFUND_FAILED", message = ex.StripeError?.Message ?? ex.Message });
         }
     }
+
+    private static string? NormalizeExternalRefundMethod(string? method)
+    {
+        if (string.IsNullOrWhiteSpace(method)) return null;
+        return method.Trim() switch
+        {
+            "GatewayDashboard" => "GatewayDashboard",
+            "PayNow" => "PayNow",
+            "BankTransfer" => "BankTransfer",
+            "Cash" => "Cash",
+            "Other" => "Other",
+            _ => null,
+        };
+    }
+
+    private static bool RequiresExternalRefundReference(string method) =>
+        method is "GatewayDashboard" or "PayNow" or "BankTransfer" or "Other";
 }
 
-// â”€â”€ Request model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Request models
 public class OrphanRefundRequest
 {
     public string  Reason    { get; set; } = null!;
+    public string? AdminNote { get; set; }
+}
+
+public class ReconciliationReviewRequest
+{
+    public string Note { get; set; } = null!;
+}
+
+public class ExternalOrphanRefundRequest
+{
+    public decimal? Amount { get; set; }
+    public string RefundMethod { get; set; } = null!;
+    public string? RefundReference { get; set; }
+    public string Reason { get; set; } = null!;
     public string? AdminNote { get; set; }
 }

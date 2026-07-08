@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { loadStripe, StripeElementsOptions } from "@stripe/stripe-js";
 import { AlertCircle, CheckCircle2, Loader2, XCircle } from "lucide-react";
@@ -52,6 +52,12 @@ function secondsLeft(expiresAt: string) {
 }
 
 const PAYMENT_OPEN_PATIENCE_MS = 20000;
+const STRIPE_LOAD_TIMEOUT_MS = 10000;
+const PAYMENT_STATUS_POLL_FAILURE_LIMIT = 5;
+
+function isTerminalPhase(phase: PaymentModalPhase) {
+  return phase === "success" || phase === "failed" || phase === "expired" || phase === "review";
+}
 
 export default function EmbeddedPaymentModal(props: EmbeddedPaymentModalProps) {
   const { open, attempt } = props;
@@ -131,14 +137,49 @@ function EmbeddedPaymentBody({
   const [remaining, setRemaining] = useState(attempt ? secondsLeft(attempt.expiresAt) : 0);
   const [confirmedRegistrationId, setConfirmedRegistrationId] = useState<string | null>(null);
   const [patienceReached, setPatienceReached] = useState(false);
+  const [stripeLoadTimedOut, setStripeLoadTimedOut] = useState(false);
+  const settledRef = useRef(false);
+  const mountedRef = useRef(true);
+  const pollFailureCountRef = useRef(0);
 
   const submitted = phase === "submitting" || phase === "waiting" || phase === "success" || phase === "review";
   const controlsDisabled = phase === "submitting" || phase === "waiting" || phase === "success" || phase === "review";
   const total = summaryItems.reduce((sum, item) => sum + item.amount, 0);
 
+  const setNonTerminalPhase = (nextPhase: PaymentModalPhase, nextMessage?: string) => {
+    if (!mountedRef.current || settledRef.current) return false;
+    setPhase(nextPhase);
+    if (nextMessage !== undefined) setMessage(nextMessage);
+    return true;
+  };
+
+  const setTerminalPhase = (nextPhase: PaymentModalPhase, nextMessage: string) => {
+    if (!mountedRef.current || settledRef.current) return false;
+    settledRef.current = true;
+    setPhase(nextPhase);
+    setMessage(nextMessage);
+    return true;
+  };
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    settledRef.current = false;
+    pollFailureCountRef.current = 0;
+    setStripeLoadTimedOut(false);
+  }, [attempt?.paymentAttemptId]);
+
+  useEffect(() => {
+    if (isTerminalPhase(phase)) settledRef.current = true;
+  }, [phase]);
+
   useEffect(() => {
     onPhaseChange(phase);
-    onCloseLockChange(phase === "waiting" && !patienceReached);
+    onCloseLockChange((phase === "submitting" || phase === "waiting") && !patienceReached);
   }, [onCloseLockChange, onPhaseChange, patienceReached, phase]);
 
   useEffect(() => {
@@ -147,13 +188,24 @@ function EmbeddedPaymentBody({
       const left = secondsLeft(attempt.expiresAt);
       setRemaining(left);
       if (left <= 0) {
-        setPhase("expired");
-        setMessage("Payment session has expired. Please close this window and try again.");
+        setTerminalPhase("expired", "Payment session has expired. Please close this window and try again.");
         window.clearInterval(timer);
       }
     }, 1000);
     return () => window.clearInterval(timer);
   }, [attempt?.expiresAt, submitted]);
+
+  useEffect(() => {
+    if (phase !== "ready" || stripeLoadTimedOut || (stripe && elements)) return;
+    const timer = window.setTimeout(() => {
+      if (!stripe || !elements) setStripeLoadTimedOut(true);
+    }, STRIPE_LOAD_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [elements, phase, stripe, stripeLoadTimedOut]);
+
+  useEffect(() => {
+    if (stripe && elements) setStripeLoadTimedOut(false);
+  }, [elements, stripe]);
 
   useEffect(() => {
     if (!attempt || (phase !== "waiting" && phase !== "submitting")) return;
@@ -162,34 +214,53 @@ function EmbeddedPaymentBody({
       phase === "submitting" ? PAYMENT_OPEN_PATIENCE_MS : 30000,
     );
     const pollTimer = window.setInterval(async () => {
-      const status = await apiGetEmbeddedPaymentAttemptStatus(attempt.paymentAttemptId);
-      if (status.error || !status.data) return;
+      let status;
+      try {
+        status = await apiGetEmbeddedPaymentAttemptStatus(attempt.paymentAttemptId);
+      } catch {
+        status = { error: { code: "NETWORK_ERROR", message: "Payment status check failed." }, data: undefined };
+      }
+
+      if (settledRef.current) {
+        window.clearInterval(pollTimer);
+        return;
+      }
+
+      if (status.error || !status.data) {
+        pollFailureCountRef.current += 1;
+        if (pollFailureCountRef.current >= PAYMENT_STATUS_POLL_FAILURE_LIMIT) {
+          setTerminalPhase(
+            "review",
+            "We're having trouble checking your payment status. If you approved payment, please do not pay again. Contact the organiser with the reference below.",
+          );
+          window.clearInterval(pollTimer);
+        }
+        return;
+      }
+
+      pollFailureCountRef.current = 0;
 
       if (status.data.status === "Succeeded" && status.data.registrationId) {
         setConfirmedRegistrationId(String(status.data.registrationId));
-        setPhase("success");
-        setMessage("Your registration has been confirmed.");
+        setTerminalPhase("success", "Your registration has been confirmed.");
         window.clearInterval(pollTimer);
         return;
       }
 
       if (status.data.status === "Failed" || status.data.status === "Canceled") {
-        setPhase("failed");
-        setMessage(status.data.errorMessage || "Payment was not completed. Your cart has been kept.");
+        setTerminalPhase("failed", status.data.errorMessage || "Payment was not completed. Your cart has been kept.");
         window.clearInterval(pollTimer);
         return;
       }
 
       if (status.data.status === "Expired") {
-        setPhase("expired");
-        setMessage("Payment session has expired. Your cart has been kept.");
+        setTerminalPhase("expired", "Payment session has expired. Your cart has been kept.");
         window.clearInterval(pollTimer);
         return;
       }
 
       if (status.data.status === "NeedsReconciliation") {
-        setPhase("review");
-        setMessage(status.data.errorMessage || "Payment needs organiser review. Please do not pay again if payment was deducted.");
+        setTerminalPhase("review", status.data.errorMessage || "Payment needs organiser review. Please do not pay again if payment was deducted.");
         window.clearInterval(pollTimer);
       }
     }, 3000);
@@ -203,44 +274,49 @@ function EmbeddedPaymentBody({
 
   const handlePay = async () => {
     if (!stripe || !elements || controlsDisabled || phase === "expired") return;
-    setPhase("submitting");
-    setMessage(paymentMethod === "paynow"
+    setNonTerminalPhase("submitting", paymentMethod === "paynow"
       ? "Opening PayNow QR code..."
       : "Opening secure card payment...");
     setPatienceReached(false);
 
-    const elementSubmit = await elements.submit();
-    if (elementSubmit.error) {
-      setPhase("failed");
-      setMessage(elementSubmit.error.message || "Payment details are incomplete. Please check and try again.");
-      return;
+    try {
+      const elementSubmit = await elements.submit();
+      if (settledRef.current) return;
+      if (elementSubmit.error) {
+        setTerminalPhase("failed", elementSubmit.error.message || "Payment details are incomplete. Please check and try again.");
+        return;
+      }
+
+      const submittedResult = await apiSubmitEmbeddedPaymentAttempt(attempt.paymentAttemptId);
+      if (settledRef.current) return;
+      if (submittedResult.error) {
+        setTerminalPhase("failed", submittedResult.error.message);
+        return;
+      }
+
+      const result = await stripe.confirmPayment({
+        elements,
+        redirect: "if_required",
+        confirmParams: {
+          return_url: window.location.href,
+        },
+      });
+
+      if (settledRef.current) return;
+      if (result.error) {
+        setTerminalPhase("failed", result.error.message || "Payment was not completed. Your cart has been kept.");
+        return;
+      }
+
+      setNonTerminalPhase("waiting", paymentMethod === "paynow"
+        ? "Waiting for PayNow confirmation..."
+        : "Finalising your registration...");
+    } catch {
+      setTerminalPhase(
+        "failed",
+        "We couldn't reach the payment server. Please check your connection and try again. Your cart has been kept.",
+      );
     }
-
-    const submittedResult = await apiSubmitEmbeddedPaymentAttempt(attempt.paymentAttemptId);
-    if (submittedResult.error) {
-      setPhase("failed");
-      setMessage(submittedResult.error.message);
-      return;
-    }
-
-    const result = await stripe.confirmPayment({
-      elements,
-      redirect: "if_required",
-      confirmParams: {
-        return_url: window.location.href,
-      },
-    });
-
-    if (result.error) {
-      setPhase("failed");
-      setMessage(result.error.message || "Payment was not completed. Your cart has been kept.");
-      return;
-    }
-
-    setPhase("waiting");
-    setMessage(paymentMethod === "paynow"
-      ? "Waiting for PayNow confirmation..."
-      : "Finalising your registration...");
   };
 
   const closeAfterSuccess = () => {
@@ -280,6 +356,17 @@ function EmbeddedPaymentBody({
             <p className="font-semibold">Organiser review required.</p>
             <p className="text-sm opacity-80">{message}</p>
             <p className="text-xs mt-2 opacity-70">Reference: {attempt.paymentIntentId}</p>
+          </div>
+        </div>
+      );
+    }
+    if (stripeLoadTimedOut && phase === "ready") {
+      return (
+        <div className="p-4 flex gap-3" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
+          <AlertCircle className="h-5 w-5 flex-shrink-0" />
+          <div>
+            <p className="font-semibold">Payment form failed to load.</p>
+            <p className="text-sm opacity-80">This can happen with ad blockers or a slow connection. Please refresh and try again.</p>
           </div>
         </div>
       );

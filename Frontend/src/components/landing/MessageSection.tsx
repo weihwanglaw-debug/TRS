@@ -27,7 +27,8 @@ export default function MessageSection() {
   const submitMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const subject = encodeURIComponent(`[TRS] ${topic}`);
+    const appName = cfg.appName?.trim() || "System";
+    const subject = encodeURIComponent(`[${appName}] ${topic}`);
     const body = encodeURIComponent(
       [
         `Name: ${name}`,

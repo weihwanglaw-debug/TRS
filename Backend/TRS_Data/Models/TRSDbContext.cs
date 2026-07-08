@@ -340,6 +340,8 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.WebhookLogId).HasColumnName("WebhookLogId");
             e.Property(x => x.PaymentGateway).HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.GatewayRefundId).HasMaxLength(255).IsUnicode(false).HasColumnName("GatewayRefundID");
+            e.Property(x => x.RefundSource).HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.RefundMethod).HasMaxLength(50).IsUnicode(false);
             e.Property(x => x.RefundAmount).HasColumnType("decimal(10,2)");
             e.Property(x => x.RefundReason).HasMaxLength(500);
             e.Property(x => x.RefundStatus).HasMaxLength(1).IsUnicode(false).IsFixedLength().HasDefaultValue("P");

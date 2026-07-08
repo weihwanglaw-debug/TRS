@@ -23,7 +23,7 @@ import {
   Clock, AlertCircle, Download,
 } from "lucide-react";
 import type { TournamentEvent } from "@/types/config";
-import type { Registration, ParticipantGroup, Payment, PaymentItem, Refund, PaymentMethod, PaymentStatus, PaymentAuditEntry } from "@/types/registration";
+import type { Registration, ParticipantGroup, Payment, PaymentItem, Refund, PaymentMethod, PaymentStatus, PaymentAuditEntry, RefundMethod, RefundSource } from "@/types/registration";
 import { totalFee, PAYMENT_STATUS_LABEL, PAYMENT_METHOD_LABEL } from "@/types/registration";
 import {
   apiGetEvents, apiGetRegistration, apiGetRegistrations,
@@ -33,6 +33,7 @@ import {
 import type { CancellationRefundMode } from "@/lib/api/registrationsApi";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Pagination } from "@/components/ui/TableControls";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 import { Switch } from "@/components/ui/switch";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
@@ -110,7 +111,7 @@ function MethodIcon({ method }: { method: PaymentMethod }) {
 }
 
 function FG({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="block text-xs font-semibold mb-1.5 opacity-60">{label}</label>{children}</div>;
+  return <div><label className="block text-xs font-semibold mb-1.5">{label}</label>{children}</div>;
 }
 
 function getPayment(reg: Registration | null | undefined): Payment | null {
@@ -187,8 +188,20 @@ function refundableItems(payment: Payment | null | undefined, refunds: Refund[])
       .filter(r => r.paymentItemId === item.id && r.refundStatus === "S")
       .reduce((sum, r) => sum + r.refundAmount, 0);
     const pending = refunds.some(r => r.paymentItemId === item.id && r.refundStatus === "P");
-    return !pending && item.amount - refunded > 0;
+  return !pending && item.amount - refunded > 0;
   });
+}
+
+const EXTERNAL_REFUND_METHODS: Array<{ value: RefundMethod; label: string }> = [
+  { value: "GatewayDashboard", label: "Payment gateway dashboard" },
+  { value: "PayNow", label: "PayNow" },
+  { value: "BankTransfer", label: "Bank transfer" },
+  { value: "Cash", label: "Cash" },
+  { value: "Other", label: "Other" },
+];
+
+function requiresRefundReference(method: RefundMethod): boolean {
+  return method !== "Cash";
 }
 
 // ── Payment Log helpers ───────────────────────────────────────────────────────
@@ -758,6 +771,14 @@ export default function AdminRegistrations() {
   const [refundsByReg, setRefundsByReg] = useState<Record<string, Refund[]>>({});
   const [loadingRegs, setLoadingRegs] = useState(true);
   const [apiError,    setApiError]    = useState("");
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
+  const showSuccess = (title: string, description?: string) =>
+    setFeedback({ open: true, variant: "success", title, description });
   const [confirmRegModal,  setConfirmRegModal]  = useState<Registration | null>(null);
   const [confirmRegNote,   setConfirmRegNote]   = useState("");
   const [savingConfirmReg, setSavingConfirmReg] = useState(false);
@@ -832,6 +853,15 @@ export default function AdminRegistrations() {
   const [markPaidRemark,  setMarkPaidRemark]  = useState("");
   const [cancelReason,    setCancelReason]    = useState("");
   const [refundSel,       setRefundSel]       = useState<Record<string, { checked: boolean; reason: string }>>({});
+  const [cancelRefundAction, setCancelRefundAction] = useState<"none" | RefundSource>("none");
+  const [cancelRefundSource, setCancelRefundSource] = useState<RefundSource>("System");
+  const [cancelRefundMethod, setCancelRefundMethod] = useState<RefundMethod>("GatewayDashboard");
+  const [cancelRefundReference, setCancelRefundReference] = useState("");
+  const [cancelRefundNote, setCancelRefundNote] = useState("");
+  const [refundSource, setRefundSource] = useState<RefundSource>("System");
+  const [refundMethod, setRefundMethod] = useState<RefundMethod>("GatewayDashboard");
+  const [refundReference, setRefundReference] = useState("");
+  const [refundAdminNote, setRefundAdminNote] = useState("");
   const [savingMarkPaid,  setSavingMarkPaid]  = useState(false);
   const [savingCancel,    setSavingCancel]    = useState(false);
   const [savingRefund,    setSavingRefund]    = useState(false);
@@ -853,6 +883,7 @@ export default function AdminRegistrations() {
       setMarkPaidModal(null);
       setMarkPaidRemark("");
       setMarkPaidMethod("PayNow");
+      showSuccess("Payment marked paid", "The registration payment status has been updated.");
     } finally {
       setSavingMarkPaid(false);
     }
@@ -860,12 +891,29 @@ export default function AdminRegistrations() {
 
   const handleCancel = async (refundMode: CancellationRefundMode) => {
     if (!cancelModal || !cancelReason.trim()) return;
+    if (
+      refundMode === "refundPaidItems" &&
+      cancelRefundAction === "External" &&
+      requiresRefundReference(cancelRefundMethod) &&
+      !cancelRefundReference.trim()
+    ) {
+      setApiError("Refund reference / ID is required for this external refund method.");
+      return;
+    }
     setSavingCancel(true);
     try {
       const cancelR = await apiCancelRegistration(
         cancelModal.id,
         cancelReason,
         refundMode,
+        refundMode === "refundPaidItems" && cancelRefundAction === "External"
+          ? {
+              refundSource: "External",
+              refundMethod: cancelRefundMethod,
+              refundReference: cancelRefundReference,
+              adminNote: cancelRefundNote,
+            }
+          : undefined,
       );
       if (cancelR.error) {
         setApiError(cancelR.error.message);
@@ -884,6 +932,14 @@ export default function AdminRegistrations() {
       }
       setCancelModal(null);
       setCancelReason("");
+      setCancelRefundAction("none");
+      setCancelRefundSource("System");
+      setCancelRefundReference("");
+      setCancelRefundNote("");
+      showSuccess(
+        refundMode === "refundPaidItems" ? "Registration cancelled with refund" : "Registration cancelled",
+        "The registration record has been updated.",
+      );
     } finally {
       setSavingCancel(false);
     }
@@ -912,6 +968,10 @@ export default function AdminRegistrations() {
     if (!refundModal) return;
     const payment = getPayment(refundModal);
     if (!payment) { setApiError("This registration has no payment record to refund."); return; }
+    if (refundSource === "External" && requiresRefundReference(refundMethod) && !refundReference.trim()) {
+      setApiError("Refund reference / ID is required for this external refund method.");
+      return;
+    }
     setSavingRefund(true);
     try {
       const refundErrors: string[] = [];
@@ -920,7 +980,21 @@ export default function AdminRegistrations() {
         if (getGroupMinPlayersWarning(refundModal, itemId)) continue;
         const item = payment.items.find(i => i.id === itemId);
         if (!item) continue;
-        const refundResult = await apiInitiateRefund(refundModal.id, itemId, item.amount, sel.reason, "admin");
+        const refundResult = await apiInitiateRefund(
+          refundModal.id,
+          itemId,
+          item.amount,
+          sel.reason,
+          "admin",
+          refundSource === "External"
+            ? {
+                refundSource: "External",
+                refundMethod,
+                refundReference,
+                adminNote: refundAdminNote,
+              }
+            : undefined,
+        );
         if (refundResult.error) refundErrors.push(`${item.programName}: ${refundResult.error.message}`);
       }
       const [regR, refR] = await Promise.all([
@@ -939,6 +1013,10 @@ export default function AdminRegistrations() {
       }
       setRefundModal(null);
       setRefundSel({});
+      setRefundSource("System");
+      setRefundReference("");
+      setRefundAdminNote("");
+      showSuccess(refundSource === "External" ? "External refund recorded" : "Refund executed", "The registration refund record has been updated.");
     } finally {
       setSavingRefund(false);
     }
@@ -958,6 +1036,7 @@ export default function AdminRegistrations() {
       }
       setConfirmRegModal(null);
       setConfirmRegNote("");
+      showSuccess("Registration confirmed", "The registration has been confirmed.");
     } finally {
       setSavingConfirmReg(false);
     }
@@ -968,15 +1047,20 @@ export default function AdminRegistrations() {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div>
+      <ActionFeedbackDialog
+        open={feedback.open || !!apiError}
+        variant={apiError ? "error" : feedback.variant}
+        title={apiError ? "Action could not be completed" : feedback.title}
+        description={apiError || feedback.description}
+        onOpenChange={open => {
+          if (!open) {
+            setApiError("");
+            setFeedback(prev => ({ ...prev, open: false }));
+          }
+        }}
+      />
       <div className="sticky-header">
         <div className="admin-page-title"><h1>Registrations &amp; Payments</h1></div>
-        {apiError && (
-          <div className="mb-4 px-4 py-3 text-sm font-medium flex items-center justify-between"
-            style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)", border: "1px solid var(--badge-closed-text)" }}>
-            <span>{apiError}</span>
-            <button onClick={() => setApiError("")} className="ml-4 opacity-60 hover:opacity-100 text-xs font-bold">✕</button>
-          </div>
-        )}
       </div>
 
       {/* ══════════ REGISTRATIONS ══════════ */}
@@ -1314,7 +1398,7 @@ export default function AdminRegistrations() {
       </Dialog>
 
       {/* Cancel */}
-      <Dialog open={!!cancelModal} onOpenChange={v => { if (!v) { setCancelModal(null); setCancelReason(""); } }}>
+      <Dialog open={!!cancelModal} onOpenChange={v => { if (!v) { setCancelModal(null); setCancelReason(""); setCancelRefundAction("none"); setCancelRefundSource("System"); setCancelRefundReference(""); setCancelRefundNote(""); } }}>
         <DialogContent className="max-w-md p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
           <DialogHeader className="p-7 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
             <DialogTitle className="font-bold text-lg">Cancel Registration</DialogTitle>
@@ -1324,18 +1408,41 @@ export default function AdminRegistrations() {
               const payment = getPayment(cancelModal as Registration);
               const refunds = cancelModal ? (refundsByReg[cancelModal.id] ?? []) : [];
               const count = refundableItems(payment, refunds).length;
-              return count > 0 ? (
-                <div className="p-3 text-sm" style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
-                  This registration has {count} paid item{count !== 1 ? "s" : ""} eligible for refund. Use "Cancel + Refund" to refund them.
-                </div>
-              ) : null;
+              return (
+                <>
+                  <FG label="Refund mode">
+                    <select
+                      className="field-input"
+                      value={cancelRefundAction}
+                      onChange={e => {
+                        const value = e.target.value as "none" | RefundSource;
+                        setCancelRefundAction(value);
+                        if (value !== "none") setCancelRefundSource(value);
+                      }}
+                    >
+                      <option value="none">Cancel Without Refund</option>
+                      <option value="System" disabled={count === 0}>Cancel With Internal System Refund</option>
+                      <option value="External" disabled={count === 0}>Cancel With Record External Refund</option>
+                    </select>
+                  </FG>
+                  {cancelRefundAction === "External" && (
+                    <div className="space-y-3">
+                      <FG label="Refund method *">
+                        <select className="field-input" value={cancelRefundMethod} onChange={e => setCancelRefundMethod(e.target.value as RefundMethod)}>
+                          {EXTERNAL_REFUND_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                        </select>
+                      </FG>
+                      <FG label={`Refund reference / ID${requiresRefundReference(cancelRefundMethod) ? " *" : " (optional)"}`}>
+                        <input className="field-input" value={cancelRefundReference} onChange={e => setCancelRefundReference(e.target.value)} />
+                      </FG>
+                      <FG label="Admin note (optional)">
+                        <input className="field-input" value={cancelRefundNote} onChange={e => setCancelRefundNote(e.target.value)} />
+                      </FG>
+                    </div>
+                  )}
+                </>
+              );
             })()}
-            <div className="p-3 text-xs leading-relaxed" style={{ backgroundColor: "var(--color-row-hover)", color: "var(--color-body-text)" }}>
-              Per-entry doubles/team player withdrawal is handled as a roster edit or participant replacement, not a player cancellation/refund.
-            </div>
-            <div className="p-3 text-xs leading-relaxed" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
-              If a fixture has already been generated for the affected program, cancellation cannot be completed. Remove the fixture first, then try again.
-            </div>
             <FG label="Reason *">
               <textarea className="field-input" rows={3} value={cancelReason}
                 onChange={e => setCancelReason(e.target.value)}
@@ -1344,34 +1451,56 @@ export default function AdminRegistrations() {
           </div>
           <DialogFooter className="p-7 pt-0">
             <button onClick={() => { setCancelModal(null); setCancelReason(""); }} className="btn-outline px-5 py-2.5 text-sm">Close</button>
-            <button onClick={() => handleCancel("none")} disabled={!cancelReason.trim() || savingCancel}
-              className="px-5 py-2.5 text-sm font-semibold disabled:opacity-40"
-              style={{ backgroundColor: "var(--badge-closed-text)", color: "white" }}>
-              {savingCancel ? "Cancelling..." : "Cancel Only"}
-            </button>
             {(() => {
               const payment = getPayment(cancelModal as Registration);
               const refunds = cancelModal ? (refundsByReg[cancelModal.id] ?? []) : [];
               const canRefund = refundableItems(payment, refunds).length > 0;
-              return canRefund ? (
-                <button onClick={() => handleCancel("refundPaidItems")} disabled={!cancelReason.trim() || savingCancel}
+              const selectedRefundMode = cancelRefundAction === "none" ? "none" : "refundPaidItems";
+              return (
+                <button
+                  onClick={() => handleCancel(selectedRefundMode)}
+                  disabled={!cancelReason.trim() || savingCancel || (cancelRefundAction !== "none" && !canRefund)}
                   className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
-                  {savingCancel ? "Processing..." : "Cancel + Refund"}
+                  {savingCancel ? "Processing..." : "Proceed"}
                 </button>
-              ) : null;
+              );
             })()}
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Refund */}
-      <Dialog open={!!refundModal} onOpenChange={v => { if (!v) { setRefundModal(null); setRefundSel({}); } }}>
+      <Dialog open={!!refundModal} onOpenChange={v => { if (!v) { setRefundModal(null); setRefundSel({}); setRefundSource("System"); setRefundReference(""); setRefundAdminNote(""); } }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
           <DialogHeader className="p-7 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
             <DialogTitle className="font-bold text-lg">Process Refund</DialogTitle>
-            {refundModal && <p className="text-xs opacity-50 mt-1">{refundModal.id} · {refundModal.contactName}</p>}
+            {refundModal && <p className="text-xs mt-1">{refundModal.id} · {refundModal.contactName}</p>}
           </DialogHeader>
           <div className="p-7 space-y-4">
+            <FG label="Refund mode">
+              <select className="field-input" value={refundSource} onChange={e => setRefundSource(e.target.value as RefundSource)}>
+                <option value="System">Internal System Refund</option>
+                <option value="External">Record External Refund</option>
+              </select>
+            </FG>
+            {refundSource === "External" && (
+              <div className="space-y-3">
+                <div className="px-3 py-2 text-xs" style={{ backgroundColor: "var(--badge-open-bg)", color: "var(--badge-open-text)" }}>
+                  This records a refund completed outside the system. It will not send money through the payment gateway.
+                </div>
+                <FG label="Refund method *">
+                  <select className="field-input" value={refundMethod} onChange={e => setRefundMethod(e.target.value as RefundMethod)}>
+                    {EXTERNAL_REFUND_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                </FG>
+                <FG label={`Refund reference / ID${requiresRefundReference(refundMethod) ? " *" : " (optional)"}`}>
+                  <input className="field-input" value={refundReference} onChange={e => setRefundReference(e.target.value)} />
+                </FG>
+                <FG label="Admin note (optional)">
+                  <input className="field-input" value={refundAdminNote} onChange={e => setRefundAdminNote(e.target.value)} />
+                </FG>
+              </div>
+            )}
             {(getPayment(refundModal as Registration)?.items ?? []).map(item => {
               const alreadyRefunded = item.itemStatus === "R";
               const existingRefund  = (refundModal ? (refundsByReg[refundModal.id] ?? []) : [])
@@ -1432,7 +1561,7 @@ export default function AdminRegistrations() {
                 return true;
               }) || savingRefund}
               className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
-              {savingRefund ? "Processing..." : "Process Refund"}
+              {savingRefund ? "Processing..." : refundSource === "External" ? "Save" : "Execute Refund"}
             </button>
           </DialogFooter>
         </DialogContent>

@@ -14,7 +14,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { toast } from "@/components/ui/sonner";
+import { ActionFeedbackDialog } from "@/components/ui/ActionFeedbackDialog";
 import { apiGetRegistrations, apiUpdateGroupSeed } from "@/lib/api";
 import type { ParticipantGroup } from "@/lib/api";
 
@@ -41,6 +41,7 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
   const [loading,   setLoading]   = useState(false);
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState("");
+  const [savedOpen, setSavedOpen] = useState(false);
 
   // Load participants when modal opens
   useEffect(() => {
@@ -95,8 +96,7 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
           : r
         ));
       }
-      toast.success("Seeding saved.");
-      onClose();
+      setSavedOpen(true);
     } finally {
       setSaving(false);
     }
@@ -105,9 +105,20 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
   const canSave = finalized && !hasDups && !saving && hasChange;
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-lg p-0"
-        style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
+    <>
+      <ActionFeedbackDialog
+        open={savedOpen}
+        variant="success"
+        title="Seeding saved"
+        description="The updated seeding has been saved."
+        onOpenChange={(nextOpen) => {
+          setSavedOpen(nextOpen);
+          if (!nextOpen) onClose();
+        }}
+      />
+      <Dialog open={open && !savedOpen} onOpenChange={(v) => { if (!v) onClose(); }}>
+        <DialogContent className="max-w-lg p-0"
+          style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
         <DialogHeader className="p-8 pb-0">
           <DialogTitle className="font-heading font-bold text-xl">Seeding Configuration</DialogTitle>
         </DialogHeader>
@@ -216,6 +227,7 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
           </button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+    </>
   );
 }

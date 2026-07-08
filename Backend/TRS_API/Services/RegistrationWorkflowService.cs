@@ -312,8 +312,14 @@ public class RegistrationWorkflowService
             }
 
             var isConfirmed = options.PaymentStatus == "S";
+            var receiptProgramId = pendingItems
+                .Select(i => (int?)i.ProgramId)
+                .Where(pid => pid.HasValue)
+                .Distinct()
+                .OrderBy(pid => pid)
+                .FirstOrDefault();
             var receiptNo = isConfirmed
-                ? $"TRS-{DateTime.UtcNow:yyyyMMdd}-{Random.Shared.Next(10000, 99999):D5}"
+                ? ReceiptNumberGenerator.Generate(req.EventId, receiptProgramId)
                 : null;
 
             var payment = new Payment

@@ -26,7 +26,7 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = "Confirm",
+  confirmLabel = "Proceed",
   cancelLabel = "Cancel",
   loading = false,
   destructive = false,
@@ -45,7 +45,7 @@ export function ConfirmDialog({
               className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center"
               style={{
                 backgroundColor: destructive ? "var(--badge-open-bg)" : "var(--badge-soon-bg)",
-                color: destructive ? "var(--badge-open-text)" : "var(--badge-soon-text)",
+                color: destructive ? "var(--feedback-error)" : "var(--feedback-warning)",
               }}
             >
               <AlertTriangle className="h-5 w-5" />
@@ -71,7 +71,7 @@ export function ConfirmDialog({
               e.preventDefault();
               onConfirm();
             }}
-            style={destructive ? { backgroundColor: "var(--badge-open-text)", color: "var(--color-hero-text)" } : undefined}
+            style={destructive ? { backgroundColor: "var(--feedback-error)", color: "var(--color-hero-text)" } : undefined}
           >
             {loading ? "Working..." : confirmLabel}
           </AlertDialogAction>

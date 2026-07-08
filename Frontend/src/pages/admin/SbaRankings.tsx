@@ -11,6 +11,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { FileUp, Loader2, Search, X, ChevronUp, ChevronDown, Users, User } from "lucide-react";
 import { apiGetSbaRankings, apiGetSbaRankingTypes, apiImportSbaRankings } from "@/lib/api";
 import type { SbaRanking, SbaRankingType } from "@/types/config";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,16 +48,6 @@ function fmtDateTime(value?: string) {
 
 // ── Toast (inline, same pattern as other admin pages) ─────────────────────────
 
-function useToast() {
-  const [toasts, setToasts] = useState<{ id: number; msg: string; type: "ok" | "err" }[]>([]);
-  const add = (msg: string, type: "ok" | "err") => {
-    const id = Date.now();
-    setToasts(p => [...p, { id, msg, type }]);
-    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 5000);
-  };
-  return { toasts, ok: (m: string) => add(m, "ok"), err: (m: string) => add(m, "err") };
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SbaRankings() {
@@ -65,6 +56,12 @@ export default function SbaRankings() {
   const [loading,      setLoading]      = useState(true);
   const [importing,    setImporting]    = useState(false);
   const [summary,      setSummary]      = useState<ImportSummary | null>(null);
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
   const typesLoaded = useRef(false);
 
   // Filters
@@ -76,7 +73,8 @@ export default function SbaRankings() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const toast   = useToast();
+  const showFeedback = (variant: ActionFeedbackVariant, title: string, description?: string) =>
+    setFeedback({ open: true, variant, title, description });
 
   // ── Data load ───────────────────────────────────────────────────────────────
 
@@ -85,7 +83,7 @@ export default function SbaRankings() {
     const r = await apiGetSbaRankings(type ? { type } : undefined);
     setLoading(false);
     if (r.data)  setRankings(r.data);
-    if (r.error) toast.err("Failed to load SBA rankings.");
+    if (r.error) showFeedback("error", "Failed to load SBA rankings", r.error.message);
   };
 
   // Load ranking types once on mount — separate from rankings to avoid stale closure
@@ -111,9 +109,9 @@ export default function SbaRankings() {
     const r = await apiImportSbaRankings(file);
     setImporting(false);
     if (fileRef.current) fileRef.current.value = "";
-    if (r.error) { toast.err(r.error.message); return; }
+    if (r.error) { showFeedback("error", "Import failed", r.error.message); return; }
     setSummary(r.data);
-    toast.ok(`Replaced list with ${r.data.importedRows} rows and added ${r.data.addedClubs} clubs.`);
+    showFeedback("success", "Import completed", `Replaced list with ${r.data.importedRows} rows and added ${r.data.addedClubs} clubs.`);
     loadRankings(filterType || undefined);
   };
 
@@ -171,18 +169,13 @@ export default function SbaRankings() {
     <div className="p-6 md:p-10 max-w-screen-xl mx-auto">
 
       {/* ── Toast stack ── */}
-      <div className="fixed top-5 right-5 z-50 space-y-2 pointer-events-none">
-        {toast.toasts.map(t => (
-          <div key={t.id} className="px-4 py-2.5 text-sm font-medium shadow-lg pointer-events-auto"
-            style={{
-              backgroundColor: t.type === "ok" ? "var(--color-primary)" : "var(--badge-closed-text, #e53e3e)",
-              color: "var(--color-hero-text, #fff)",
-              border: "1px solid transparent",
-            }}>
-            {t.msg}
-          </div>
-        ))}
-      </div>
+      <ActionFeedbackDialog
+        open={feedback.open}
+        variant={feedback.variant}
+        title={feedback.title}
+        description={feedback.description}
+        onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
+      />
 
       {/* ── Header ── */}
       <div className="flex flex-wrap items-start justify-between gap-4 mb-8">

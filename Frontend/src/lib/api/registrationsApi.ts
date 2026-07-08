@@ -35,7 +35,7 @@ import { ok, err, delay, paginate, API_BASE, publicHeaders, adminHeaders, parseE
 import type { ApiResult, PageParams, PagedResult } from "./_base";
 import type {
   Registration, ParticipantGroup, Payment, PaymentItem,
-  Refund, PaymentStatus, RegistrationStats,
+  Refund, PaymentStatus, RefundMethod, RefundSource, RegistrationStats,
   WebhookFailure, PaymentAuditEntry, OrphanRefundHistory,
   EmbeddedPaymentAttempt, EmbeddedPaymentAttemptStatus,
 } from "@/types/registration";
@@ -349,13 +349,27 @@ export async function apiInitiateRefund(
   refundAmount:   number,
   refundReason:   string,
   requestedBy:    string,
+  options?: {
+    refundSource?: RefundSource;
+    refundMethod?: RefundMethod;
+    refundReference?: string;
+    adminNote?: string;
+  },
 ): Promise<ApiResult<Refund>> {
   await delay();
 
   const res = await apiFetch(`${API_BASE}/api/registrations/${registrationId}/payment/refunds`, {
     method: "POST",
     headers: adminHeaders(),
-    body: JSON.stringify({ paymentItemId: Number(paymentItemId), refundAmount, refundReason }),
+    body: JSON.stringify({
+      paymentItemId: Number(paymentItemId),
+      refundAmount,
+      refundReason,
+      refundSource: options?.refundSource,
+      refundMethod: options?.refundMethod,
+      refundReference: options?.refundReference,
+      adminNote: options?.adminNote,
+    }),
   });
   if (!res.ok) {
     const e = await parseError(res);
@@ -399,13 +413,26 @@ async function postCancellation(
   url: string,
   reason: string,
   refundMode: CancellationRefundMode,
+  options?: {
+    refundSource?: RefundSource;
+    refundMethod?: RefundMethod;
+    refundReference?: string;
+    adminNote?: string;
+  },
 ): Promise<ApiResult<CancellationResponse>> {
   await delay();
 
   const res = await apiFetch(url, {
     method: "POST",
     headers: adminHeaders(),
-    body: JSON.stringify({ reason, refundMode }),
+    body: JSON.stringify({
+      reason,
+      refundMode,
+      refundSource: options?.refundSource,
+      refundMethod: options?.refundMethod,
+      refundReference: options?.refundReference,
+      adminNote: options?.adminNote,
+    }),
   });
   if (!res.ok) {
     const e = await parseError(res);
@@ -418,11 +445,18 @@ export async function apiCancelRegistration(
   registrationId: string,
   reason: string,
   refundMode: CancellationRefundMode,
+  options?: {
+    refundSource?: RefundSource;
+    refundMethod?: RefundMethod;
+    refundReference?: string;
+    adminNote?: string;
+  },
 ): Promise<ApiResult<CancellationResponse>> {
   return postCancellation(
     `${API_BASE}/api/registrations/${registrationId}/cancel`,
     reason,
     refundMode,
+    options,
   );
 }
 
@@ -431,11 +465,18 @@ export async function apiCancelRegistrationGroup(
   groupId: string,
   reason: string,
   refundMode: CancellationRefundMode,
+  options?: {
+    refundSource?: RefundSource;
+    refundMethod?: RefundMethod;
+    refundReference?: string;
+    adminNote?: string;
+  },
 ): Promise<ApiResult<CancellationResponse>> {
   return postCancellation(
     `${API_BASE}/api/registrations/${registrationId}/groups/${groupId}/cancel`,
     reason,
     refundMode,
+    options,
   );
 }
 
@@ -444,11 +485,18 @@ export async function apiCancelRegistrationParticipant(
   participantId: string,
   reason: string,
   refundMode: CancellationRefundMode,
+  options?: {
+    refundSource?: RefundSource;
+    refundMethod?: RefundMethod;
+    refundReference?: string;
+    adminNote?: string;
+  },
 ): Promise<ApiResult<CancellationResponse>> {
   return postCancellation(
     `${API_BASE}/api/registrations/${registrationId}/participants/${participantId}/cancel`,
     reason,
     refundMode,
+    options,
   );
 }
 
@@ -610,5 +658,41 @@ export async function apiRefundOrphanedPayment(
     },
   );
   if (!res.ok) return err("REFUND_FAILED", (await parseError(res)).message);
+  return ok(await res.json());
+}
+
+export async function apiRecordExternalOrphanRefund(
+  webhookLogId: number,
+  amount: number | null,
+  refundMethod: RefundMethod,
+  refundReference: string,
+  reason: string,
+  adminNote: string,
+): Promise<ApiResult<{ refundId: number; refundStatus: string; refundAmount: number; gatewayRefundId: string | null }>> {
+  const res = await apiFetch(
+    `${API_BASE}/api/admin/payment-reconciliation/webhook-failures/${webhookLogId}/external-refund`,
+    {
+      method:  "POST",
+      headers: { ...adminHeaders(), "Content-Type": "application/json" },
+      body:    JSON.stringify({ amount, refundMethod, refundReference, reason, adminNote }),
+    },
+  );
+  if (!res.ok) return err("EXTERNAL_REFUND_FAILED", (await parseError(res)).message);
+  return ok(await res.json());
+}
+
+export async function apiMarkWebhookFailureReviewed(
+  webhookLogId: number,
+  note: string,
+): Promise<ApiResult<{ webhookLogId: number; gatewaySessionId: string; reviewedCount: number }>> {
+  const res = await apiFetch(
+    `${API_BASE}/api/admin/payment-reconciliation/webhook-failures/${webhookLogId}/reviewed`,
+    {
+      method:  "PATCH",
+      headers: { ...adminHeaders(), "Content-Type": "application/json" },
+      body:    JSON.stringify({ note }),
+    },
+  );
+  if (!res.ok) return err("REVIEW_FAILED", (await parseError(res)).message);
   return ok(await res.json());
 }

@@ -37,7 +37,7 @@ public class ReceiptService
         // ── Branding from SystemConfig ────────────────────────────────────────
         var configs = await db.SystemConfigs.ToListAsync();
         var cfg = configs.ToDictionary(c => c.ConfigKey, c => c.ConfigValue);
-        var orgName = cfg.GetValueOrDefault("appName", "TRS");
+        var orgName = cfg.GetValueOrDefault("appName", "System");
         var orgEmail = cfg.GetValueOrDefault("contactEmail", "");
         var copyright = cfg.GetValueOrDefault("copyrightText", "");
         var logoUrl = cfg.GetValueOrDefault("logoUrl", "");
@@ -287,9 +287,9 @@ public class ReceiptService
                             });
                         }
                         Ref("Receipt No.",
-                            payment.ReceiptNumber ?? $"TRS-{reg.RegistrationId:D6}");
+                            payment.ReceiptNumber ?? ReceiptNumberGenerator.FallbackRegistrationReference(reg.RegistrationId));
                         Ref("Registration No.",
-                            $"TRS-{reg.RegistrationId:D6}");
+                            ReceiptNumberGenerator.FallbackRegistrationReference(reg.RegistrationId));
                         t.Cell().ColumnSpan(2).PaddingRight(10).Column(c =>
                         {
                             c.Item().Text("Payment ID")

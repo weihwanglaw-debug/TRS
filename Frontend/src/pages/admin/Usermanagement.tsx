@@ -8,6 +8,7 @@ import {
   apiDeleteUser, apiResetUserPassword,
 } from "@/lib/api";
 import type { AdminUser } from "@/types/config";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 
 type ModalMode = "create" | "edit" | "reset" | null;
 
@@ -15,10 +16,20 @@ export default function UserManagement() {
   const { user: currentUser } = useAuth();
   const [users,   setUsers]   = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
-  const [apiError, setApiError] = useState("");
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
 
   const loadUsers = () =>
-    apiGetUsers().then(r => { if (r.data) setUsers(r.data); }).finally(() => setLoading(false));
+    apiGetUsers()
+      .then(r => {
+        if (r.data) setUsers(r.data);
+        if (r.error) setFeedback({ open: true, variant: "error", title: "Failed to load users", description: r.error.message });
+      })
+      .finally(() => setLoading(false));
 
   useEffect(() => { loadUsers(); }, []);
 
@@ -60,28 +71,34 @@ export default function UserManagement() {
   const handleSave = async () => {
     if (!validate(modal)) return;
     setSaving(true);
-    setApiError("");
+    let successTitle = "";
     try {
       if (modal === "create") {
         const r = await apiCreateUser({ name: fName, email: fEmail, role: fRole, password: fPass, mustChangePassword: false });
         if (r.error) {
           if (r.error.code === "EMAIL_TAKEN") setErrors(p => ({ ...p, email: "Email already in use" }));
-          else setApiError(r.error.message);
+          else setFeedback({ open: true, variant: "error", title: "User could not be created", description: r.error.message });
           return;
         }
+        successTitle = "User created";
       } else if (modal === "edit" && target) {
         const r = await apiUpdateUser(target.id, { name: fName, email: fEmail, role: fRole });
         if (r.error) {
           if (r.error.code === "EMAIL_TAKEN") setErrors(p => ({ ...p, email: "Email already in use" }));
-          else setApiError(r.error.message);
+          else setFeedback({ open: true, variant: "error", title: "User could not be updated", description: r.error.message });
           return;
         }
+        successTitle = "User updated";
       } else if (modal === "reset" && target) {
         const r = await apiResetUserPassword(target.id, fPass);
-        if (r.error) { setApiError(r.error.message); return; }
+        if (r.error) { setFeedback({ open: true, variant: "error", title: "Password could not be reset", description: r.error.message }); return; }
+        successTitle = "Password reset";
       }
       await loadUsers();
       setModal(null);
+      if (successTitle) {
+        setFeedback({ open: true, variant: "success", title: successTitle, description: "The user list has been updated." });
+      }
     } finally {
       setSaving(false);
     }
@@ -90,8 +107,13 @@ export default function UserManagement() {
   const handleDelete = async () => {
     if (!delConf || !currentUser) return;
     const r = await apiDeleteUser(delConf, currentUser.id);
-    if (r.error) { setApiError(r.error.message); }
-    else { await loadUsers(); }
+    if (r.error) {
+      setFeedback({ open: true, variant: "error", title: "User could not be deleted", description: r.error.message });
+    }
+    else {
+      await loadUsers();
+      setFeedback({ open: true, variant: "success", title: "User deleted", description: "The user has been removed." });
+    }
     setDelConf(null);
   };
 
@@ -105,12 +127,13 @@ export default function UserManagement() {
 
   return (
     <div>
-      {apiError && (
-        <div className="mb-4 px-4 py-3 text-sm font-medium"
-          style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)", border: "1px solid var(--badge-closed-text)" }}>
-          {apiError}
-        </div>
-      )}
+      <ActionFeedbackDialog
+        open={feedback.open}
+        variant={feedback.variant}
+        title={feedback.title}
+        description={feedback.description}
+        onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
+      />
       <div className="flex items-center justify-between mb-8">
         <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>User Management</h1></div>
         <button onClick={openCreate} className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-semibold"><Plus className="h-4 w-4" /> Add User</button>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Check, Edit2, X } from "lucide-react";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
 import type { LiveConfig } from "@/contexts/LiveConfigContext";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 
 export type { LiveConfig };
 
@@ -37,9 +38,14 @@ export default function MasterConfig() {
   const { cfg, update } = useLiveConfig();
   const [editId,      setEditId]      = useState<keyof LiveConfig | null>(null);
   const [editValue,   setEditValue]   = useState("");
-  const [saved,       setSaved]       = useState<string | null>(null);
   const [saving,      setSaving]      = useState(false);
   const [activeGroup, setActiveGroup] = useState("All");
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
 
   const startEdit = (row: ConfigRow) => {
     setEditId(row.id);
@@ -48,11 +54,20 @@ export default function MasterConfig() {
 
   const commitEdit = async (id: keyof LiveConfig) => {
     setSaving(true);
-    await update(id, editValue);
-    setSaving(false);
-    setEditId(null);
-    setSaved(id);
-    setTimeout(() => setSaved(null), 2000);
+    try {
+      await update(id, editValue);
+      setEditId(null);
+      setFeedback({ open: true, variant: "success", title: "Setting saved", description: "The master configuration has been updated." });
+    } catch (error) {
+      setFeedback({
+        open: true,
+        variant: "error",
+        title: "Setting could not be saved",
+        description: error instanceof Error ? error.message : "Please check your connection and try again.",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const cancelEdit = () => setEditId(null);
@@ -63,6 +78,13 @@ export default function MasterConfig() {
 
   return (
     <div>
+      <ActionFeedbackDialog
+        open={feedback.open}
+        variant={feedback.variant}
+        title={feedback.title}
+        description={feedback.description}
+        onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
+      />
       <div className="admin-page-title"><h1>Master Configuration</h1></div>
       <p className="text-xs opacity-50 mb-8 -mt-4">
         Changes are saved immediately via the API.
@@ -142,8 +164,8 @@ export default function MasterConfig() {
                         ) : (
                           <button onClick={() => startEdit(row)} title="Edit"
                             className="p-1.5 transition-opacity hover:opacity-70"
-                            style={{ color: saved === row.id ? "var(--badge-open-text)" : "var(--color-primary)" }}>
-                            {saved === row.id ? <Check className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
+                            style={{ color: "var(--color-primary)" }}>
+                            <Edit2 className="h-4 w-4" />
                           </button>
                         )}
                       </td>
@@ -171,8 +193,8 @@ export default function MasterConfig() {
                       </div>
                     ) : (
                       <button onClick={() => startEdit(row)} className="p-1.5"
-                        style={{ color: saved === row.id ? "var(--badge-open-text)" : "var(--color-primary)" }}>
-                        {saved === row.id ? <Check className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
+                        style={{ color: "var(--color-primary)" }}>
+                        <Edit2 className="h-4 w-4" />
                       </button>
                     )}
                   </div>

@@ -56,7 +56,7 @@ public class RegistrationsController : ControllerBase
         if (programId.HasValue) q = q.Where(r => r.ParticipantGroups.Any(g => g.ProgramId == programId));
         if (!string.IsNullOrEmpty(regStatus)) q = q.Where(r => r.RegStatus == regStatus);
         if (!string.IsNullOrEmpty(payStatus))
-            // Translate long-form frontend code ("Success") â†’ DB short code ("S") before filtering
+            // Translate long-form frontend code ("Success") -> DB short code ("S") before filtering
             q = q.Where(r => r.Payments.Any(p => p.PaymentStatus == PayStatusToDb(payStatus)));
         if (!string.IsNullOrEmpty(search))
             q = q.Where(r => r.ContactName.Contains(search) || r.ContactEmail.Contains(search)
@@ -232,7 +232,7 @@ public class RegistrationsController : ControllerBase
 
         if (req.Method != null) payment.PaymentMethod = req.Method;
 
-        // Translate long-form frontend status ("Success") â†’ DB short code ("S")
+        // Translate long-form frontend status ("Success") -> DB short code ("S")
         // This also prevents truncation errors on the VARCHAR(2) column.
         if (req.PaymentStatus != null)
         {
@@ -254,8 +254,13 @@ public class RegistrationsController : ControllerBase
             payment.PaidAt = DateTime.UtcNow;
             if (string.IsNullOrEmpty(payment.ReceiptNumber))
             {
-                var d = DateTime.UtcNow;
-                payment.ReceiptNumber = $"TRS-{d:yyyyMMdd}-{Random.Shared.Next(10000, 99999)}";
+                var receiptProgramId = payment.Items
+                    .Select(i => (int?)i.ProgramId)
+                    .Where(pid => pid.HasValue)
+                    .Distinct()
+                    .OrderBy(pid => pid)
+                    .FirstOrDefault();
+                payment.ReceiptNumber = ReceiptNumberGenerator.Generate(payment.EventId, receiptProgramId);
             }
             foreach (var item in payment.Items) item.ItemStatus = "S";
 
@@ -301,6 +306,8 @@ public class RegistrationsController : ControllerBase
             paymentItemId = r.PaymentItemId.ToString(),
             gateway = r.PaymentGateway,
             gatewayRefundId = r.GatewayRefundId,
+            refundSource = r.RefundSource,
+            refundMethod = r.RefundMethod,
             r.RefundAmount,
             r.RefundReason,
             refundStatus = r.RefundStatus,
@@ -321,7 +328,17 @@ public class RegistrationsController : ControllerBase
 
         var item = payment.Items.FirstOrDefault(i => i.PaymentItemId == req.PaymentItemId);
         if (item == null) return NotFound(new { code = "NOT_FOUND", message = "Payment item not found." });
-        var result = await ProcessRefundItemAsync(id, payment, item, req.RefundAmount, req.RefundReason);
+        var externalRefund = BuildExternalRefundDetails(
+            req.RefundSource,
+            req.RefundMethod,
+            req.RefundReference,
+            req.AdminNote,
+            req.RefundReason,
+            out var externalValidationError);
+        if (externalValidationError != null)
+            return BadRequest(externalValidationError);
+
+        var result = await ProcessRefundItemAsync(id, payment, item, req.RefundAmount, req.RefundReason, externalRefund);
         if (!result.Success)
             return BadRequest(new { code = result.Code, message = result.Message });
 
@@ -426,7 +443,8 @@ public class RegistrationsController : ControllerBase
             var reg = await _db.EventRegistrations
                 .Include(r => r.Payments)
                 .FirstOrDefaultAsync(r => r.RegistrationId == id);
-            var receiptNo = reg?.Payments.FirstOrDefault()?.ReceiptNumber ?? $"TRS-{id:D6}";
+            var receiptNo = reg?.Payments.FirstOrDefault()?.ReceiptNumber
+                ?? ReceiptNumberGenerator.FallbackRegistrationReference(id);
             return File(bytes, "application/pdf", $"Receipt-{receiptNo}.pdf");
         }
         catch (KeyNotFoundException)
@@ -624,8 +642,13 @@ public class RegistrationsController : ControllerBase
             payment.PaidAt = DateTime.UtcNow;
             if (string.IsNullOrEmpty(payment.ReceiptNumber))
             {
-                var d = DateTime.UtcNow;
-                payment.ReceiptNumber = $"TRS-{d:yyyyMMdd}-{Random.Shared.Next(10000, 99999)}";
+                var receiptProgramId = payment.Items
+                    .Select(i => (int?)i.ProgramId)
+                    .Where(pid => pid.HasValue)
+                    .Distinct()
+                    .OrderBy(pid => pid)
+                    .FirstOrDefault();
+                payment.ReceiptNumber = ReceiptNumberGenerator.Generate(payment.EventId, receiptProgramId);
             }
             foreach (var item in payment.Items) { item.ItemStatus = "S"; item.UpdatedAt = DateTime.UtcNow; }
         }
@@ -716,6 +739,19 @@ public class RegistrationsController : ControllerBase
             .ToList() ?? new List<PaymentItem>();
 
         var shouldRefund = string.Equals(refundMode, "refundPaidItems", StringComparison.OrdinalIgnoreCase);
+        object? externalValidationError = null;
+        var externalRefund = shouldRefund
+            ? BuildExternalRefundDetails(
+                req.RefundSource,
+                req.RefundMethod,
+                req.RefundReference,
+                req.AdminNote,
+                req.Reason,
+                out externalValidationError)
+            : null;
+        if (shouldRefund && externalValidationError != null)
+            return BadRequest(externalValidationError);
+
         var selectedGroupIds = groups.Select(g => g.GroupId).ToHashSet();
         var activeGroupIds = reg.ParticipantGroups
             .Where(g => g.GroupStatus != "Cancelled")
@@ -753,7 +789,8 @@ public class RegistrationsController : ControllerBase
                         payment,
                         item,
                         remainingRefundAmount,
-                        $"Cancelled {scope}: {req.Reason}");
+                        $"Cancelled {scope}: {req.Reason}",
+                        externalRefund);
 
                     if (!refund.Success)
                         errors.Add($"{item.ProgramName}: {refund.Message}");
@@ -878,7 +915,8 @@ public class RegistrationsController : ControllerBase
         Payment payment,
         PaymentItem item,
         decimal refundAmount,
-        string? refundReason)
+        string? refundReason,
+        ExternalRefundDetails? externalRefund = null)
     {
         var successfulRefunds = await _db.Refunds
             .Where(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == "S")
@@ -900,10 +938,14 @@ public class RegistrationsController : ControllerBase
             .FirstOrDefaultAsync(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == "P");
         if (refund != null)
         {
+            if (externalRefund != null)
+                return RefundOperationResult.Fail("REFUND_IN_PROGRESS", "A pending refund already exists for this item.");
             if (!string.IsNullOrEmpty(refund.GatewayRefundId))
                 return RefundOperationResult.Fail("REFUND_IN_PROGRESS", "A refund for this item is already in progress.");
             if (refund.RefundAmount != refundAmount)
                 return RefundOperationResult.Fail("REFUND_IN_PROGRESS", "A pending refund exists for this item with a different amount.");
+            refund.RefundSource ??= externalRefund != null ? "External" : "System";
+            refund.RefundMethod ??= externalRefund?.Method ?? "Gateway";
         }
         else
         {
@@ -912,11 +954,15 @@ public class RegistrationsController : ControllerBase
                 PaymentId = payment.PaymentId,
                 PaymentItemId = item.PaymentItemId,
                 PaymentGateway = payment.PaymentGateway,
+                RefundSource = externalRefund != null ? "External" : "System",
+                RefundMethod = externalRefund?.Method ?? "Gateway",
                 RefundAmount = refundAmount,
                 RefundReason = refundReason,
-                RefundStatus = "P",
+                GatewayRefundId = externalRefund?.Reference,
+                RefundStatus = externalRefund != null ? "S" : "P",
                 RequestedBy = User.Identity?.Name ?? "admin",
                 CreatedAt = DateTime.UtcNow,
+                ProcessedAt = externalRefund != null ? DateTime.UtcNow : null,
             };
             _db.Refunds.Add(refund);
             try
@@ -930,6 +976,16 @@ public class RegistrationsController : ControllerBase
                     item.PaymentItemId);
                 return RefundOperationResult.Fail("REFUND_IN_PROGRESS", "A refund for this item is already in progress.");
             }
+        }
+
+        if (externalRefund != null)
+        {
+            refund.GatewayRefundId = externalRefund.Reference;
+            refund.RefundStatus = "S";
+            refund.ProcessedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+            await ReconcileSuccessfulRefundAsync(payment, item, refund, refundReason, externalRefund);
+            return RefundOperationResult.Ok(refund);
         }
 
         try
@@ -951,12 +1007,16 @@ public class RegistrationsController : ControllerBase
                     new RequestOptions { IdempotencyKey = $"trs_refund_{refund.RefundId}" });
 
                 refund.GatewayRefundId = stripeRefund.Id;
+                refund.RefundSource = "System";
+                refund.RefundMethod = "Gateway";
                 refund.RefundStatus = stripeRefund.Status == "failed" ? "F" : "S";
                 refund.ProcessedAt = DateTime.UtcNow;
                 await _db.SaveChangesAsync();
             }
             else
             {
+                refund.RefundSource = "System";
+                refund.RefundMethod = "Gateway";
                 refund.RefundStatus = "S";
                 refund.ProcessedAt = DateTime.UtcNow;
                 await _db.SaveChangesAsync();
@@ -993,17 +1053,20 @@ public class RegistrationsController : ControllerBase
         Payment payment,
         PaymentItem item,
         TRS_Data.Models.Refund refund,
-        string? refundReason)
+        string? refundReason,
+        ExternalRefundDetails? externalRefund = null)
     {
         await ReconcileRefundedAmountsAsync(payment, item);
         _db.PaymentAuditLogs.Add(new PaymentAuditLog
         {
             EntityType = "Refund",
             EntityId = refund.RefundId,
-            Action = "RefundInitiated",
+            Action = externalRefund != null ? "ExternalRefundRecorded" : "RefundInitiated",
             Reason = refundReason,
             PerformedBy = User.Identity?.Name ?? "admin",
-            Notes = $"PaymentItemId={item.PaymentItemId}, Amount={refund.RefundAmount}",
+            Notes = externalRefund != null
+                ? $"PaymentItemId={item.PaymentItemId}, Amount={refund.RefundAmount}, Method={externalRefund.Method}, Reference={externalRefund.Reference}, AdminNote={externalRefund.AdminNote}"
+                : $"PaymentItemId={item.PaymentItemId}, Amount={refund.RefundAmount}, Reference={refund.GatewayRefundId}",
             CreatedAt = DateTime.UtcNow,
         });
         await _db.SaveChangesAsync();
@@ -1054,6 +1117,60 @@ public class RegistrationsController : ControllerBase
         reg.RegistrationStatus = status switch { "Confirmed" => "C", "Cancelled" => "X", _ => "P" };
         reg.UpdatedAt = DateTime.UtcNow;
     }
+
+    private static ExternalRefundDetails? BuildExternalRefundDetails(
+        string? refundSource,
+        string? refundMethod,
+        string? refundReference,
+        string? adminNote,
+        string? reason,
+        out object? validationError)
+    {
+        validationError = null;
+        if (!string.Equals(refundSource, "External", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            validationError = new { code = "REASON_REQUIRED", message = "Refund reason is required." };
+            return null;
+        }
+
+        var method = NormalizeExternalRefundMethod(refundMethod);
+        if (method == null)
+        {
+            validationError = new { code = "REFUND_METHOD_REQUIRED", message = "Refund method is required." };
+            return null;
+        }
+
+        var reference = refundReference?.Trim();
+        if (RequiresExternalRefundReference(method) && string.IsNullOrWhiteSpace(reference))
+        {
+            validationError = new { code = "REFUND_REFERENCE_REQUIRED", message = "Refund reference / ID is required for this refund method." };
+            return null;
+        }
+
+        return new ExternalRefundDetails(method, reference, adminNote?.Trim());
+    }
+
+    private static string? NormalizeExternalRefundMethod(string? method)
+    {
+        if (string.IsNullOrWhiteSpace(method)) return null;
+        return method.Trim() switch
+        {
+            "GatewayDashboard" => "GatewayDashboard",
+            "PayNow" => "PayNow",
+            "BankTransfer" => "BankTransfer",
+            "Cash" => "Cash",
+            "Other" => "Other",
+            _ => null,
+        };
+    }
+
+    private static bool RequiresExternalRefundReference(string method) =>
+        method is "GatewayDashboard" or "PayNow" or "BankTransfer" or "Other";
+
+    private sealed record ExternalRefundDetails(string Method, string? Reference, string? AdminNote);
 
     private sealed class RefundOperationResult
     {

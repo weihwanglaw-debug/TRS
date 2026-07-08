@@ -319,7 +319,7 @@ public sealed class PaymentAttemptService
             await LogEmbeddedReconciliationAsync(
                 gatewayEventId ?? $"payment_intent_{intent.Id}",
                 intent,
-                "PAYMENT_ATTEMPT_MISSING: Payment succeeded but TRS could not find the payment attempt.",
+                "PAYMENT_ATTEMPT_MISSING: Payment succeeded but the system could not find the payment attempt.",
                 ct);
             return PaymentFinalizationResult.Fail("PAYMENT_ATTEMPT_MISSING", "Payment attempt is missing.");
         }

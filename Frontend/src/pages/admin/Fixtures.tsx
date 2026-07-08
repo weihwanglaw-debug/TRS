@@ -39,6 +39,7 @@ import { ScoreModal }  from "@/components/admin/fixtures/ScoreModal";
 import { HeatsTab }    from "@/components/admin/fixtures/HeatsTab";
 import { FG }          from "@/components/admin/fixtures/shared";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -57,36 +58,6 @@ interface ProgramRow {
   closeDate:   string;
   participants: SeedEntry[];
 }
-
-// ── Toast ─────────────────────────────────────────────────────────────────────
-
-interface Toast { id: number; type: "error" | "success"; message: string }
-let _tseq = 0;
-
-function useToasts() {
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const push = useCallback((type: Toast["type"], msg: string) => {
-    const id = ++_tseq;
-    setToasts(p => [...p, { id, type, message: msg }]);
-    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4000);
-  }, []);
-  const toast = { error: (m: string) => push("error", m), success: (m: string) => push("success", m) };
-  const Toasts = useCallback(() => (
-    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8 }}>
-      {toasts.map(t => (
-        <div key={t.id} style={{
-          padding: "12px 16px", maxWidth: 380, fontSize: 13, fontWeight: 500,
-          border: `1px solid ${t.type === "error" ? "var(--badge-closed-text)" : "var(--badge-open-text)"}`,
-          backgroundColor: t.type === "error" ? "var(--badge-closed-bg)" : "var(--badge-open-bg)",
-          color: t.type === "error" ? "var(--badge-closed-text)" : "var(--badge-open-text)",
-          boxShadow: "0 4px 16px rgba(0,0,0,.15)",
-        }}>{t.message}</div>
-      ))}
-    </div>
-  ), [toasts]);
-  return { toast, Toasts };
-}
-
 // ── Status badges ─────────────────────────────────────────────────────────────
 
 function DrawBadge({ programId, closeDate, mode, fixtureExists }: {
@@ -335,7 +306,19 @@ export default function AdminFixtures() {
       }
     });
   }, []);
-  const { toast, Toasts } = useToasts();
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
+  const showFeedback = useCallback((variant: ActionFeedbackVariant, title: string, description?: string) => {
+    setFeedback({ open: true, variant, title, description });
+  }, []);
+  const feedbackApi = useMemo(() => ({
+    success: (message: string) => showFeedback("success", message),
+    error: (message: string) => showFeedback("error", "Action could not be completed", message),
+  }), [showFeedback]);
 
   // Build flat program rows
   const allRows: ProgramRow[] = useMemo(() =>
@@ -404,7 +387,7 @@ export default function AdminFixtures() {
   const isHeats      = bracketState?.format === "heats";
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  const apiErr = (e: ApiError | null) => { if (e) toast.error(e.message); };
+  const apiErr = (e: ApiError | null) => { if (e) feedbackApi.error(e.message); };
   const withLoading = async <T,>(fn: () => Promise<T>): Promise<T> => {
     setLoading(true); try { return await fn(); } finally { setLoading(false); }
   };
@@ -474,7 +457,7 @@ export default function AdminFixtures() {
     setActiveTab(wizConfig.format === "heats" ? "heats" : "draw");
     setFixtureExists(prev => ({ ...prev, [selRow.programId]: true }));
     refreshTable();
-    toast.success("Fixture saved.");
+    feedbackApi.success("Fixture saved.");
   };
 
   // ── Reset ─────────────────────────────────────────────────────────────────
@@ -482,7 +465,7 @@ export default function AdminFixtures() {
     if (!selRow) return;
     await withLoading(() => apiResetFixture(selRow.eventId, selRow.programId));
     setResetConfirmOpen(false);
-    setBracketState(null); setShowWizard(false); setFixtureExists(prev => ({ ...prev, [selRow.programId]: false })); refreshTable(); toast.success("Fixture reset.");
+    setBracketState(null); setShowWizard(false); setFixtureExists(prev => ({ ...prev, [selRow.programId]: false })); refreshTable(); feedbackApi.success("Fixture reset.");
   };
 
   // ── Next round ────────────────────────────────────────────────────────────
@@ -494,7 +477,7 @@ export default function AdminFixtures() {
     if (result.error) { apiErr(result.error); return; }
     setBracketState(result.data!);
     if (groupsDone) setActiveTab("draw");
-    toast.success(groupsDone ? "Knockout phase generated." : "Next round generated.");
+    feedbackApi.success(groupsDone ? "Knockout phase generated." : "Next round generated.");
   };
 
   const handleResetLatestRound = async () => {
@@ -505,14 +488,14 @@ export default function AdminFixtures() {
     setBracketState(result.data!);
     setActiveTab("draw");
     refreshTable();
-    toast.success("Latest round reset.");
+    feedbackApi.success("Latest round reset.");
   };
 
   // ── Score modal ───────────────────────────────────────────────────────────
   const openScore  = (m: MatchEntry) => {
     const isBye = m.team1.label === "BYE" || m.team2.label === "BYE"
       || m.team1.id.startsWith("bye-") || m.team2.id.startsWith("bye-");
-    if (isBye) { toast.error("BYE match has no score to enter."); return; }
+    if (isBye) { feedbackApi.error("BYE match has no score to enter."); return; }
     setDraft({ ...m, games: m.games.map(g => ({ ...g })) });
     setScoreModal(m);
   };
@@ -551,7 +534,7 @@ export default function AdminFixtures() {
     setBracketState(result.data!);
     refreshTable();
     closeScore();
-    toast.success("Result cleared.");
+    feedbackApi.success("Result cleared.");
   };
 
   // ── Schedule update ───────────────────────────────────────────────────────
@@ -567,7 +550,7 @@ export default function AdminFixtures() {
     if (!selRow) return;
     const result = await apiSwapTeams(selRow.eventId, selRow.programId, idA, idB);
     if (result.error) { apiErr(result.error); return; }
-    setBracketState(result.data!); toast.success("Players swapped.");
+    setBracketState(result.data!); feedbackApi.success("Players swapped.");
   };
 
   // ── Heats handlers ────────────────────────────────────────────────────────
@@ -581,13 +564,13 @@ export default function AdminFixtures() {
     if (!selRow) return;
     const r = await withLoading(() => apiAdvanceHeatsRound(selRow.eventId, selRow.programId, fromRound, advancingIds));
     if (r.error) { apiErr(r.error); return; }
-    setBracketState(r.data!); refreshTable(); toast.success("Round advanced.");
+    setBracketState(r.data!); refreshTable(); feedbackApi.success("Round advanced.");
   };
   const handleAssignPlaces = async (places: Record<string, number>) => {
     if (!selRow) return;
     const r = await withLoading(() => apiAssignHeatPlaces(selRow.eventId, selRow.programId, places));
     if (r.error) { apiErr(r.error); return; }
-    setBracketState(r.data!); refreshTable(); toast.success("Final places saved.");
+    setBracketState(r.data!); refreshTable(); feedbackApi.success("Final places saved.");
   };
 
   const fetchAllEventRegistrations = useCallback(async (eventId: string) => {
@@ -611,7 +594,7 @@ export default function AdminFixtures() {
     if (!selRow) return;
     const event = allEvents.find((item) => item.id === selRow.eventId);
     if (!event) {
-      toast.error("Event not found for export.");
+      feedbackApi.error("Event not found for export.");
       return;
     }
 
@@ -624,11 +607,11 @@ export default function AdminFixtures() {
         if (rankingsResult.error) throw new Error(rankingsResult.error.message);
         await exportTournamentSoftwareWorkbook(event, registrationsResult, rankingsResult.data ?? []);
       });
-      toast.success("TournamentSoftware workbook exported.");
+      feedbackApi.success("TournamentSoftware workbook exported.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to export workbook.");
+      feedbackApi.error(error instanceof Error ? error.message : "Failed to export workbook.");
     }
-  }, [allEvents, fetchAllEventRegistrations, selRow, toast]);
+  }, [allEvents, fetchAllEventRegistrations, selRow, feedbackApi]);
 
   const selectRow = (row: ProgramRow) => {
     setSelRow(row); setBracketState(null); setShowWizard(false); setActiveTab("draw");
@@ -661,7 +644,13 @@ export default function AdminFixtures() {
           </div>
         </div>
       )}
-      <Toasts />
+      <ActionFeedbackDialog
+        open={feedback.open}
+        variant={feedback.variant}
+        title={feedback.title}
+        description={feedback.description}
+        onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
+      />
       <div className="admin-page-title print:hidden"><h1>Fixture Management</h1></div>
 
       {/* ════════════════════════════════════════════════════════════════════
@@ -870,8 +859,8 @@ export default function AdminFixtures() {
               isBadminton={isBadminton}
               onSeedsSaved={() => loadSelectedProgramParticipants(selRow)}
               onExport={handleExportTournamentSoftwareWorkbook}
-              toastSuccess={toast.success}
-              toastError={toast.error}
+              toastSuccess={feedbackApi.success}
+              toastError={feedbackApi.error}
             />
           )}
 

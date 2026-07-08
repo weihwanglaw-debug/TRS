@@ -1,18 +1,19 @@
 
 
-import React, { useState, useEffect } from "react";
-import { AlertCircle, CheckCircle } from "lucide-react";
-import { apiGetWebhookFailures, apiGetOrphanRefundHistory, apiRefundOrphanedPayment } from "@/lib/api";
-import type { OrphanRefundHistory, WebhookFailure } from "@/types/registration";
+import React, { useState, useEffect, useCallback } from "react";
+import { AlertCircle, CheckCircle, RefreshCw } from "lucide-react";
+import { apiGetWebhookFailures, apiGetOrphanRefundHistory, apiMarkWebhookFailureReviewed, apiRecordExternalOrphanRefund, apiRefundOrphanedPayment } from "@/lib/api";
+import type { OrphanRefundHistory, RefundMethod, RefundSource, WebhookFailure } from "@/types/registration";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 
 // ── small helpers ─────────────────────────────────────────────────────────────
 
 function FG({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-xs font-semibold mb-1.5 opacity-60">{label}</label>
+      <label className="block text-xs font-semibold mb-1.5">{label}</label>
       {children}
     </div>
   );
@@ -25,6 +26,18 @@ function formatDateTime(value: string): string {
     day: "2-digit", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   });
+}
+
+const EXTERNAL_REFUND_METHODS: Array<{ value: RefundMethod; label: string }> = [
+  { value: "GatewayDashboard", label: "Payment gateway dashboard" },
+  { value: "PayNow", label: "PayNow" },
+  { value: "BankTransfer", label: "Bank transfer" },
+  { value: "Cash", label: "Cash" },
+  { value: "Other", label: "Other" },
+];
+
+function requiresRefundReference(method: RefundMethod): boolean {
+  return method !== "Cash";
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -50,64 +63,146 @@ export default function PaymentReconciliation() {
   const [loadingC,     setLoadingC]     = useState(true);
   const [loadingH,     setLoadingH]     = useState(true);
   const [apiError,     setApiError]     = useState("");
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
+  const [failuresLoadError, setFailuresLoadError] = useState("");
+  const showSuccess = (title: string, description?: string) =>
+    setFeedback({ open: true, variant: "success", title, description });
 
   // Refund modal state
   const [refundTarget, setRefundTarget] = useState<WebhookFailure | null>(null);
   const [refundReason, setRefundReason] = useState("");
   const [refundNote,   setRefundNote]   = useState("");
   const [savingRefund, setSavingRefund] = useState(false);
+  const [refundSource, setRefundSource] = useState<RefundSource>("System");
+  const [refundMethod, setRefundMethod] = useState<RefundMethod>("GatewayDashboard");
+  const [refundReference, setRefundReference] = useState("");
+  const [reviewTarget, setReviewTarget] = useState<WebhookFailure | null>(null);
+  const [reviewNote,   setReviewNote]   = useState("");
+  const [savingReview, setSavingReview] = useState(false);
 
-  useEffect(() => {
+  const loadFailures = useCallback(() => {
+    setLoadingC(true);
+    setFailuresLoadError("");
+    setApiError("");
     apiGetWebhookFailures()
       .then(r => {
         if (r.data) setFailures(r.data);
-        else if (r.error) setApiError(r.error.message);
+        else if (r.error) {
+          setFailures([]);
+          setFailuresLoadError(r.error.message);
+          setApiError(r.error.message);
+        }
+      })
+      .catch(() => {
+        const message = "Couldn't load unmatched payments. Check your connection and retry.";
+        setFailures([]);
+        setFailuresLoadError(message);
+        setApiError(message);
       })
       .finally(() => setLoadingC(false));
+  }, []);
 
+  const loadHistory = useCallback(() => {
+    setLoadingH(true);
     apiGetOrphanRefundHistory()
       .then(r => {
         if (r.data) setHistory(r.data);
         else if (r.error) setApiError(r.error.message);
       })
+      .catch(() => setApiError("Couldn't load refund history. Check your connection and retry."))
       .finally(() => setLoadingH(false));
   }, []);
 
+  useEffect(() => {
+    loadFailures();
+    loadHistory();
+  }, [loadFailures, loadHistory]);
+
   const handleRefund = async () => {
     if (!refundTarget || !refundReason.trim()) return;
+    if (refundSource === "External" && requiresRefundReference(refundMethod) && !refundReference.trim()) {
+      setApiError("Refund reference / ID is required for this external refund method.");
+      return;
+    }
     setSavingRefund(true);
     try {
-      const r = await apiRefundOrphanedPayment(
-        refundTarget.webhookLogId,
-        refundReason,
-        refundNote,
-      );
+      const r = refundSource === "External"
+        ? await apiRecordExternalOrphanRefund(
+            refundTarget.webhookLogId,
+            refundTarget.amount,
+            refundMethod,
+            refundReference,
+            refundReason,
+            refundNote,
+          )
+        : await apiRefundOrphanedPayment(
+            refundTarget.webhookLogId,
+            refundReason,
+            refundNote,
+          );
       if (r.error) { setApiError(r.error.message); return; }
       setFailures(prev => prev.filter(f => f.webhookLogId !== refundTarget.webhookLogId));
-      apiGetOrphanRefundHistory().then(h => { if (h.data) setHistory(h.data); });
+      loadHistory();
       setRefundTarget(null);
       setRefundReason("");
       setRefundNote("");
+      setRefundSource("System");
+      setRefundReference("");
+      showSuccess(refundSource === "External" ? "External refund recorded" : "Refund executed", "The reconciliation row has been resolved.");
+    } catch {
+      setApiError("Network error - please check whether the refund went through before retrying.");
     } finally {
       setSavingRefund(false);
     }
   };
 
+  const handleMarkReviewed = async () => {
+    if (!reviewTarget || !reviewNote.trim()) return;
+    setSavingReview(true);
+    try {
+      const r = await apiMarkWebhookFailureReviewed(reviewTarget.webhookLogId, reviewNote);
+      if (r.error) { setApiError(r.error.message); return; }
+      setFailures(prev => prev.filter(f => f.gatewaySessionId !== reviewTarget.gatewaySessionId));
+      setReviewTarget(null);
+      setReviewNote("");
+      showSuccess("Marked reviewed", "The refund discrepancy has been removed from the active list.");
+    } catch {
+      setApiError("Couldn't mark the refund discrepancy reviewed. Check your connection and retry.");
+    } finally {
+      setSavingReview(false);
+    }
+  };
+
   return (
     <div>
+      <ActionFeedbackDialog
+        open={feedback.open || !!apiError}
+        variant={apiError ? "error" : feedback.variant}
+        title={apiError ? "Action could not be completed" : feedback.title}
+        description={apiError || feedback.description}
+        onOpenChange={open => {
+          if (!open) {
+            setApiError("");
+            setFeedback(prev => ({ ...prev, open: false }));
+          }
+        }}
+      />
       <div className="sticky-header">
         <div className="admin-page-title"><h1>Payment Reconciliation</h1></div>
-        {apiError && (
-          <div
-            className="mb-4 px-4 py-3 text-sm font-medium flex items-center justify-between"
-            style={{
-              backgroundColor: "var(--badge-closed-bg)",
-              color: "var(--badge-open-text)",
-              border: "1px solid var(--badge-open-text)",
-            }}
-          >
-            <span>{apiError}</span>
-            <button onClick={() => setApiError("")} className="ml-4 opacity-60 hover:opacity-100 text-xs font-bold">✕</button>
+        {failuresLoadError && (
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={loadFailures}
+              className="btn-outline flex items-center gap-1.5 px-4 py-2 text-xs font-semibold"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Retry unmatched payments
+            </button>
           </div>
         )}
       </div>
@@ -116,7 +211,7 @@ export default function PaymentReconciliation() {
 
       <p className="text-sm opacity-60 mb-4">
         Payments where no registration was created — the payer completed checkout but the
-        session was never matched to a TRS registration. Issue a refund directly from here.
+        session was never matched to a registration in the system. Issue a refund directly from here.
       </p>
 
       <div className="tab-bar mb-4">
@@ -174,7 +269,19 @@ export default function PaymentReconciliation() {
                 </td>
               </tr>
             )}
-            {!loadingC && failures.length === 0 && (
+            {!loadingC && failuresLoadError && (
+              <tr>
+                <td colSpan={7} className="text-center py-10">
+                  <div className="flex flex-col items-center gap-3 text-sm">
+                    <span>{failuresLoadError}</span>
+                    <button type="button" onClick={loadFailures} className="btn-outline flex items-center gap-1.5 px-4 py-2 text-xs font-semibold">
+                      <RefreshCw className="h-3.5 w-3.5" /> Retry
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            )}
+            {!loadingC && !failuresLoadError && failures.length === 0 && (
               <tr>
                 <td colSpan={7} className="text-center py-10 opacity-40">
                   <CheckCircle className="h-5 w-5 inline mr-2" />
@@ -204,9 +311,20 @@ export default function PaymentReconciliation() {
                 <td>
                   <button
                     className="btn-outline px-3 py-1.5 text-xs"
-                    onClick={() => { setRefundTarget(f); setRefundReason(""); setRefundNote(""); }}
+                    onClick={() => {
+                      if (f.eventType === "charge.refunded") {
+                        setReviewTarget(f);
+                        setReviewNote("");
+                      } else {
+                        setRefundTarget(f);
+                        setRefundReason("");
+                        setRefundNote("");
+                        setRefundSource("System");
+                        setRefundReference("");
+                      }
+                    }}
                   >
-                    Refund
+                    {f.eventType === "charge.refunded" ? "Mark Reviewed" : "Refund"}
                   </button>
                 </td>
               </tr>
@@ -221,7 +339,15 @@ export default function PaymentReconciliation() {
             <LoadingSpinner size="sm" label="Loading..." />
           </div>
         )}
-        {!loadingC && failures.length === 0 && (
+        {!loadingC && failuresLoadError && (
+          <div className="text-center py-10 text-sm">
+            <p>{failuresLoadError}</p>
+            <button type="button" onClick={loadFailures} className="btn-outline mt-4 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold">
+              <RefreshCw className="h-3.5 w-3.5" /> Retry
+            </button>
+          </div>
+        )}
+        {!loadingC && !failuresLoadError && failures.length === 0 && (
           <div className="text-center py-10 opacity-40 text-sm">
             <CheckCircle className="h-5 w-5 inline mr-2" />
             No unmatched payments - all clear.
@@ -232,6 +358,7 @@ export default function PaymentReconciliation() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-semibold text-sm truncate">{f.contactName ?? "-"}</p>
+                {f.errorMessage && <p className="text-xs opacity-50 truncate" title={f.errorMessage}>{f.errorMessage}</p>}
                 <p className="text-xs opacity-50 truncate">{f.contactEmail ?? "-"}</p>
                 <p className="text-xs opacity-50">{f.contactPhone ?? "-"}</p>
               </div>
@@ -254,9 +381,20 @@ export default function PaymentReconciliation() {
             </p>
             <button
               className="btn-outline mt-4 w-full px-3 py-2 text-xs font-semibold"
-              onClick={() => { setRefundTarget(f); setRefundReason(""); setRefundNote(""); }}
+              onClick={() => {
+                if (f.eventType === "charge.refunded") {
+                  setReviewTarget(f);
+                  setReviewNote("");
+                } else {
+                  setRefundTarget(f);
+                  setRefundReason("");
+                  setRefundNote("");
+                  setRefundSource("System");
+                  setRefundReference("");
+                }
+              }}
             >
-              Refund
+              {f.eventType === "charge.refunded" ? "Mark Reviewed" : "Refund"}
             </button>
           </div>
         ))}
@@ -367,7 +505,57 @@ export default function PaymentReconciliation() {
         </div>
       )}
 
-      <Dialog open={!!refundTarget} onOpenChange={v => { if (!v) setRefundTarget(null); }}>
+      <Dialog open={!!reviewTarget} onOpenChange={v => { if (!v) setReviewTarget(null); }}>
+        <DialogContent
+          className="max-w-md p-0"
+          style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}
+        >
+          <DialogHeader className="p-7 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
+            <DialogTitle className="font-bold text-lg">Mark Refund Discrepancy Reviewed</DialogTitle>
+            {reviewTarget && (
+              <p className="text-xs opacity-50 mt-1 font-mono truncate" title={reviewTarget.gatewaySessionId}>
+                {reviewTarget.gatewaySessionId}
+              </p>
+            )}
+          </DialogHeader>
+
+          {reviewTarget && (
+            <div className="p-7 space-y-4">
+              <div
+                className="px-3 py-2 text-xs"
+                style={{ backgroundColor: "var(--badge-open-bg)", color: "var(--badge-open-text)" }}
+              >
+                This clears matching refund webhook discrepancy rows from Active. It does not issue or change any Stripe refund.
+              </div>
+
+              <FG label="Review note *">
+                <textarea
+                  className="field-input"
+                  rows={3}
+                  value={reviewNote}
+                  onChange={e => setReviewNote(e.target.value)}
+                  placeholder="e.g. Verified provider refund and matching system refund row; no further action required"
+                />
+              </FG>
+            </div>
+          )}
+
+          <DialogFooter className="p-7 pt-0">
+            <button onClick={() => setReviewTarget(null)} className="btn-outline px-5 py-2.5 text-sm">
+              Cancel
+            </button>
+            <button
+              onClick={handleMarkReviewed}
+              disabled={!reviewNote.trim() || savingReview}
+              className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40"
+            >
+              {savingReview ? "Saving..." : "Mark Reviewed"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!refundTarget} onOpenChange={v => { if (!v) { setRefundTarget(null); setRefundSource("System"); setRefundReference(""); } }}>
         <DialogContent
           className="max-w-md p-0"
           style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}
@@ -375,7 +563,7 @@ export default function PaymentReconciliation() {
           <DialogHeader className="p-7 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
             <DialogTitle className="font-bold text-lg">Refund Unmatched Payment</DialogTitle>
             {refundTarget && (
-              <p className="text-xs opacity-50 mt-1">
+              <p className="text-xs mt-1">
                 {refundTarget.currency} {refundTarget.amount?.toFixed(2)} ·{" "}
                 {refundTarget.contactName ?? refundTarget.contactEmail ?? refundTarget.gatewaySessionId}
               </p>
@@ -390,31 +578,59 @@ export default function PaymentReconciliation() {
                 style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}
               >
                 <div className="flex justify-between">
-                  <span className="opacity-50">Name</span>
+                  <span>Name</span>
                   <span className="font-medium">{refundTarget.contactName ?? "—"}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="opacity-50">Email</span>
+                  <span>Email</span>
                   <span className="font-medium font-mono text-xs">{refundTarget.contactEmail ?? "—"}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="opacity-50">Phone</span>
+                  <span>Phone</span>
                   <span className="font-medium">{refundTarget.contactPhone ?? "—"}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="opacity-50">Amount</span>
+                  <span>Amount</span>
                   <span className="font-bold" style={{ color: "var(--color-primary)" }}>
                     {refundTarget.currency} {refundTarget.amount?.toFixed(2)}
                   </span>
                 </div>
               </div>
 
-              <div
-                className="px-3 py-2 text-xs"
-                style={{ backgroundColor: "var(--badge-open-bg)", color: "var(--badge-open-text)" }}
-              >
-                This will issue a full refund via Payment Gateway and record it in TRS. This action cannot be undone.
-              </div>
+              <FG label="Refund mode">
+                <select className="field-input" value={refundSource} onChange={e => setRefundSource(e.target.value as RefundSource)}>
+                  <option value="System">Internal System Refund</option>
+                  <option value="External">Record External Refund</option>
+                </select>
+              </FG>
+
+              {refundSource === "External" && (
+                <div className="space-y-3">
+                  <div
+                    className="px-3 py-2 text-xs"
+                    style={{ backgroundColor: "var(--badge-open-bg)", color: "var(--badge-open-text)" }}
+                  >
+                    This records a refund completed outside the system. It will not send money through the payment gateway.
+                  </div>
+                  <FG label="Refund method *">
+                    <select className="field-input" value={refundMethod} onChange={e => setRefundMethod(e.target.value as RefundMethod)}>
+                      {EXTERNAL_REFUND_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                  </FG>
+                  <FG label={`Refund reference / ID${requiresRefundReference(refundMethod) ? " *" : " (optional)"}`}>
+                    <input className="field-input" value={refundReference} onChange={e => setRefundReference(e.target.value)} />
+                  </FG>
+                </div>
+              )}
+
+              {refundSource === "System" && (
+                <div
+                  className="px-3 py-2 text-xs"
+                  style={{ backgroundColor: "var(--badge-open-bg)", color: "var(--badge-open-text)" }}
+                >
+                  This will issue a full refund through the system and record it. This action cannot be undone.
+                </div>
+              )}
 
               <FG label="Reason *">
                 <textarea
@@ -443,11 +659,11 @@ export default function PaymentReconciliation() {
             </button>
             <button
               onClick={handleRefund}
-              disabled={!refundReason.trim() || savingRefund}
+              disabled={!refundReason.trim() || savingRefund || (refundSource === "External" && requiresRefundReference(refundMethod) && !refundReference.trim())}
               className="px-5 py-2.5 text-sm font-semibold disabled:opacity-40"
               style={{ backgroundColor: "var(--badge-open-text)", color: "white" }}
             >
-              {savingRefund ? "Processing…" : "Confirm Refund"}
+              {savingRefund ? "Processing..." : refundSource === "External" ? "Save" : "Execute Refund"}
             </button>
           </DialogFooter>
         </DialogContent>

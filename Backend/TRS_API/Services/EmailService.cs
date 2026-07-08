@@ -35,8 +35,9 @@ public class EmailService
         var port = _config.GetValue<int?>("Email:Smtp:Port") ?? 587;
         var username = _config["Email:Smtp:Username"];
         var password = _config["Email:Smtp:Password"];
+        var appName = await GetAppNameAsync(db, ct);
         var fromAddress = _config["Email:FromAddress"] ?? username;
-        var fromName = _config["Email:FromName"] ?? "TRS";
+        var fromName = _config["Email:FromName"] ?? appName;
 
         if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
         {
@@ -47,18 +48,18 @@ public class EmailService
         }
 
         var receiptNo = reg.Payments.OrderByDescending(p => p.CreatedAt).FirstOrDefault()?.ReceiptNumber
-            ?? $"TRS-{registrationId:D6}";
+            ?? ReceiptNumberGenerator.FallbackRegistrationReference(registrationId);
 
         using var message = new MailMessage
         {
             From = new MailAddress(fromAddress, fromName),
-            Subject = $"TRS registration confirmed ({receiptNo})",
+            Subject = $"{appName} registration confirmed ({receiptNo})",
             Body =
                 $"Hello {reg.ContactName},\n\n" +
                 $"Your registration for {reg.EventName} has been confirmed.\n" +
                 $"Receipt number: {receiptNo}\n\n" +
                 "Your receipt is attached to this email.\n\n" +
-                "Regards,\nTRS",
+                $"Regards,\n{appName}",
             IsBodyHtml = false,
         };
         message.To.Add(reg.ContactEmail);
@@ -106,8 +107,9 @@ public class EmailService
         var port = _config.GetValue<int?>("Email:Smtp:Port") ?? 587;
         var username = _config["Email:Smtp:Username"];
         var password = _config["Email:Smtp:Password"];
+        var appName = await GetAppNameAsync(db, ct);
         var fromAddress = _config["Email:FromAddress"] ?? username;
-        var fromName = _config["Email:FromName"] ?? "TRS";
+        var fromName = _config["Email:FromName"] ?? appName;
 
         if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
         {
@@ -124,9 +126,9 @@ public class EmailService
         using var message = new MailMessage
         {
             From = new MailAddress(fromAddress, fromName),
-            Subject = $"TRS payment reconciliation required ({log.GatewaySessionId})",
+            Subject = $"{appName} payment reconciliation required ({log.GatewaySessionId})",
             Body =
-                "A payment needs organiser review in TRS.\n\n" +
+                "A payment needs organiser review in the system.\n\n" +
                 $"Reason: {log.ErrorMessage}\n" +
                 $"Gateway: {log.PaymentGateway}\n" +
                 $"Event type: {log.EventType}\n" +
@@ -192,8 +194,9 @@ public class EmailService
         var port = _config.GetValue<int?>("Email:Smtp:Port") ?? 587;
         var username = _config["Email:Smtp:Username"];
         var password = _config["Email:Smtp:Password"];
+        var appName = await GetAppNameAsync(db, ct);
         var fromAddress = _config["Email:FromAddress"] ?? username;
-        var fromName = _config["Email:FromName"] ?? "TRS";
+        var fromName = _config["Email:FromName"] ?? appName;
 
         if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
         {
@@ -204,7 +207,7 @@ public class EmailService
         }
 
         var receiptNo = reg.Payments.OrderByDescending(p => p.CreatedAt).FirstOrDefault()?.ReceiptNumber
-            ?? $"TRS-{registrationId:D6}";
+            ?? ReceiptNumberGenerator.FallbackRegistrationReference(registrationId);
         var scopeLabel = scope switch
         {
             "participant" => "participant",
@@ -216,8 +219,8 @@ public class EmailService
         {
             From = new MailAddress(fromAddress, fromName),
             Subject = includesRefund
-                ? $"TRS {scopeLabel} cancelled with refund ({receiptNo})"
-                : $"TRS {scopeLabel} cancelled ({receiptNo})",
+                ? $"{appName} {scopeLabel} cancelled with refund ({receiptNo})"
+                : $"{appName} {scopeLabel} cancelled ({receiptNo})",
             Body =
                 $"Hello {reg.ContactName},\n\n" +
                 $"Your {scopeLabel} for {reg.EventName} has been cancelled.\n" +
@@ -225,7 +228,7 @@ public class EmailService
                 (includesRefund
                     ? "A refund has been processed. Your updated receipt, including refund information, is attached.\n\n"
                     : "No refund was processed for this cancellation.\n\n") +
-                "Regards,\nTRS",
+                $"Regards,\n{appName}",
             IsBodyHtml = false,
         };
         message.To.Add(reg.ContactEmail);
@@ -267,5 +270,16 @@ public class EmailService
         {
             return false;
         }
+    }
+
+    private static async Task<string> GetAppNameAsync(TRSDbContext db, CancellationToken ct)
+    {
+        var appName = await db.SystemConfigs
+            .AsNoTracking()
+            .Where(c => c.ConfigKey == "appName")
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+
+        return string.IsNullOrWhiteSpace(appName) ? "System" : appName.Trim();
     }
 }
