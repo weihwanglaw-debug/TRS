@@ -86,6 +86,8 @@ public class FixtureGenerationService
         fixture.Phase = state.Phase;
         fixture.IsLocked = state.Locked;
         fixture.UpdatedAt = DateTime.UtcNow;
+        program.Status = "closed";
+        program.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
         return FixtureGenerationResult.Ok(state, stateJson);

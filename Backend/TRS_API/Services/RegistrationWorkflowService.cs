@@ -38,13 +38,17 @@ public class RegistrationWorkflowService
         if (eventEntity == null || !eventEntity.IsActive)
             return RegistrationWorkflowResult<PricingQuote>.Fail("EVENT_NOT_FOUND", "Event not found.");
 
-        if (options.RequireEventOpen && !IsEventOpen(eventEntity))
-            return RegistrationWorkflowResult<PricingQuote>.Fail("EVENT_CLOSED", "This event is not accepting registrations.");
-
         if (req.Groups == null || req.Groups.Count == 0)
             return RegistrationWorkflowResult<PricingQuote>.Fail("INVALID_REGISTRATION", "At least one program is required.");
 
         var programIds = req.Groups.Select(g => g.ProgramId).Distinct().ToList();
+        var activeProgramCount = await _db.Programs
+            .CountAsync(p => p.EventId == req.EventId && p.IsActive, ct);
+        var registrationStatus = ComputeRegistrationStatus(eventEntity, activeProgramCount);
+        var gateFailure = ValidateEventGate(options.RegistrationGateMode, registrationStatus);
+        if (gateFailure != null)
+            return RegistrationWorkflowResult<PricingQuote>.Fail(gateFailure.Value.Code, gateFailure.Value.Message);
+
         var programs = await _db.Programs
             .Include(p => p.Fields)
             .Include(p => p.CustomFields)
@@ -59,6 +63,13 @@ public class RegistrationWorkflowService
             .GroupBy(g => g.ProgramId)
             .Select(g => new { g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+
+        var fixtureProgramIds = await _db.Fixtures
+            .Where(f => programIds.Contains(f.ProgramId))
+            .Select(f => f.ProgramId)
+            .Distinct()
+            .ToListAsync(ct);
+        var fixturePrograms = fixtureProgramIds.ToHashSet();
 
         var existingParticipants = await _db.ParticipantGroups
             .Where(g => programIds.Contains(g.ProgramId) && g.GroupStatus != "Cancelled")
@@ -84,6 +95,9 @@ public class RegistrationWorkflowService
 
             if (!program.IsActive || string.Equals(program.Status, "closed", StringComparison.OrdinalIgnoreCase))
                 return RegistrationWorkflowResult<PricingQuote>.Fail("PROGRAM_CLOSED", $"'{program.Name}' is no longer accepting registrations.");
+
+            if (fixturePrograms.Contains(program.ProgramId))
+                return RegistrationWorkflowResult<PricingQuote>.Fail("PROGRAM_FIXTURE_EXISTS", $"'{program.Name}' already has a fixture generated and is no longer accepting registrations.");
 
             var activeCount = activeCounts.GetValueOrDefault(group.ProgramId);
             var requestedCount = requestedPerProgram[group.ProgramId];
@@ -135,7 +149,7 @@ public class RegistrationWorkflowService
     {
         var pricing = await ValidateAndPriceAsync(req, new RegistrationValidationOptions
         {
-            RequireEventOpen = options.RequireEventOpen,
+            RegistrationGateMode = options.RegistrationGateMode,
             ValidatePricingAgainstCurrentPrograms = options.ValidatePricingAgainstCurrentPrograms,
         }, ct);
 
@@ -194,6 +208,10 @@ public class RegistrationWorkflowService
 
                 if (!program.IsActive || string.Equals(program.Status, "closed", StringComparison.OrdinalIgnoreCase))
                     return await RollbackAndFail(tx, "PROGRAM_CLOSED", $"'{program.Name}' is no longer accepting registrations.");
+
+                var fixtureExists = await _db.Fixtures.AnyAsync(f => f.ProgramId == groupDto.ProgramId, ct);
+                if (fixtureExists)
+                    return await RollbackAndFail(tx, "PROGRAM_FIXTURE_EXISTS", $"'{program.Name}' already has a fixture generated and is no longer accepting registrations.");
 
                 var activeGroupCount = await _db.ParticipantGroups
                     .CountAsync(g => g.ProgramId == groupDto.ProgramId && g.GroupStatus != "Cancelled", ct);
@@ -509,12 +527,41 @@ public class RegistrationWorkflowService
             : null;
     }
 
-    private static bool IsEventOpen(Event eventEntity)
+    public static string ComputeRegistrationStatus(Event eventEntity, int activeProgramCount)
     {
+        if (!eventEntity.IsActive)
+            return "closed";
+        if (activeProgramCount <= 0)
+            return "draft";
+
         var today = TodayInSingapore();
-        return eventEntity.IsActive
-            && eventEntity.OpenDate <= today
-            && eventEntity.CloseDate >= today;
+        if (today < eventEntity.OpenDate)
+            return "upcoming";
+        if (today > eventEntity.CloseDate)
+            return "closed";
+        if (string.Equals(eventEntity.RegistrationStatus, "paused", StringComparison.OrdinalIgnoreCase))
+            return "paused";
+        if (string.Equals(eventEntity.RegistrationStatus, "closed", StringComparison.OrdinalIgnoreCase))
+            return "closed";
+        return "open";
+    }
+
+    private static (string Code, string Message)? ValidateEventGate(
+        EventRegistrationGateMode gateMode,
+        string registrationStatus)
+    {
+        if (gateMode == EventRegistrationGateMode.AlreadyPaidFinalization)
+            return null;
+
+        if (registrationStatus == "draft")
+            return ("EVENT_DRAFT", "Add at least one program before accepting registrations.");
+
+        if (gateMode == EventRegistrationGateMode.AdminAssisted)
+            return null;
+
+        return registrationStatus == "open"
+            ? null
+            : ("EVENT_CLOSED", "This event is not accepting registrations.");
     }
 
     private static DateOnly? ParseDob(string? dob)
@@ -616,13 +663,13 @@ public class RegistrationWorkflowService
 
 public sealed class RegistrationValidationOptions
 {
-    public bool RequireEventOpen { get; init; } = true;
+    public EventRegistrationGateMode RegistrationGateMode { get; init; } = EventRegistrationGateMode.StrictPublic;
     public bool ValidatePricingAgainstCurrentPrograms { get; init; } = true;
 }
 
 public sealed class RegistrationPersistOptions
 {
-    public bool RequireEventOpen { get; init; } = true;
+    public EventRegistrationGateMode RegistrationGateMode { get; init; } = EventRegistrationGateMode.StrictPublic;
     public bool ValidatePricingAgainstCurrentPrograms { get; init; } = true;
     public string PaymentGateway { get; init; } = "Stripe";
     public string PaymentMethod { get; init; } = "CreditCard";
@@ -630,6 +677,13 @@ public sealed class RegistrationPersistOptions
     public decimal? PaymentAmountOverride { get; init; }
     public string? GatewaySessionId { get; init; }
     public string? GatewayPaymentId { get; init; }
+}
+
+public enum EventRegistrationGateMode
+{
+    StrictPublic,
+    AdminAssisted,
+    AlreadyPaidFinalization,
 }
 
 public sealed class PricingQuote

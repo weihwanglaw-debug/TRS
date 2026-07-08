@@ -64,12 +64,13 @@ export interface RegistrationFilters {
  */
 export async function apiCreateRegistration(
   payload: Record<string, unknown>,
+  options?: { admin?: boolean },
 ): Promise<ApiResult<Registration>> {
   await delay();
 
   const res = await apiFetch(`${API_BASE}/api/registrations`, {
     method: "POST",
-    headers: publicHeaders(),
+    headers: options?.admin ? adminHeaders() : publicHeaders(),
     body: JSON.stringify(payload),
   });
   if (!res.ok) return err("CREATE_FAILED", (await parseError(res)).message);

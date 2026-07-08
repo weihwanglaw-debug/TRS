@@ -172,6 +172,10 @@ public class UpdateProgramStatusRequest
 {
     [Required] public string Status { get; set; } = null!;  // "open" | "closed"
 }
+public class UpdateEventRegistrationStatusRequest
+{
+    [Required] public string Status { get; set; } = null!;  // "open" | "paused" | "closed"
+}
 public class UpdateRegStatusRequest
 {
     [Required] public string Status { get; set; } = null!;

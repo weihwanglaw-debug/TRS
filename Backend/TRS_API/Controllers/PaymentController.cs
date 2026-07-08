@@ -195,7 +195,7 @@ namespace TRS_API.Controllers
 
             var pricing = await _registrationWorkflow.ValidateAndPriceAsync(payload, new RegistrationValidationOptions
             {
-                RequireEventOpen = true,
+                RegistrationGateMode = EventRegistrationGateMode.StrictPublic,
                 ValidatePricingAgainstCurrentPrograms = true,
             });
             if (!pricing.Success)

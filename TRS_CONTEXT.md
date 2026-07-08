@@ -32,6 +32,7 @@ The repository is a monorepo:
 2. Uses JWT-backed admin routes under `/admin`.
 3. Manages events, programs, documents, registrations, payments, refunds, fixtures, SBA rankings, badminton club master data, system config, users, and password changes according to role.
 4. When registering players from the public event detail page while logged in, paid carts use admin payment bypass: payer contact is taken from the admin profile, cart payment/consent fields are hidden, and the confirmation modal captures the selected payment outcome.
+5. Admin-assisted registration can be used for upcoming, paused, or closed events, but not draft events, closed/full programs, or programs with fixtures.
 
 ## Frontend Routes
 
@@ -159,7 +160,15 @@ The older hosted Checkout session-first path remains as a legacy fallback throug
 
 Free registrations are created directly through `POST /api/registrations`.
 
-Registration open/close checks, frontend date-only status calculations, and age eligibility checks use Singapore date. Program capacity is enforced per program entry/group; event-level `MaxParticipants` is deprecated and not part of registration validation. Built-in participant fields have separate enabled and required flags in `ProgramFields`.
+Registration availability is backend-computed from `Events.RegistrationStatus`, Singapore date, event activity, and active program count. API responses expose `registrationStatus` and `computedRegistrationStatus`; frontend date-only status logic is fallback only. Program capacity is enforced per program entry/group; event-level `MaxParticipants` is deprecated and not part of registration validation. Built-in participant fields have separate enabled and required flags in `ProgramFields`.
+
+`RegistrationWorkflowService` uses explicit event gate modes:
+
+- `StrictPublic`: public direct registration and new payment attempts.
+- `AdminAssisted`: authenticated admin registration from the event detail page.
+- `AlreadyPaidFinalization`: finalizing payments that have already been collected.
+
+Fixture generation closes the affected program and registration validation blocks programs that already have fixtures.
 
 ## File Uploads
 
@@ -197,5 +206,6 @@ Frontend configuration:
 - Stripe SDK services are instantiated directly in controllers.
 - Some legacy models/tables remain: `EventParticipant`, `BackgroundJob`.
 - Event-level `MaxParticipants` remains in the model but registration capacity is enforced through `Program.MaxParticipants`.
+- Event-level `RegistrationStatus` is stored as `open`, `paused`, or `closed`; `draft` and date-based states are computed.
 - `RegistrationStatus` and `RegStatus` both exist on registrations.
 - Local disk upload storage requires persistent storage in production.

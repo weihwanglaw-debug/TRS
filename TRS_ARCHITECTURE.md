@@ -138,6 +138,8 @@ Events and programs:
 - `ProgramCustomField`
 - `BadmintonClub` mapped to `BadmintonClub`
 
+Events store `RegistrationStatus` as `open`, `paused`, or `closed`. Runtime registration availability is computed by the backend from stored status, Singapore date, event activity, and active program count, producing `draft`, `upcoming`, `open`, `paused`, or `closed`.
+
 Registration:
 
 - `EventRegistration`
@@ -214,6 +216,14 @@ sequenceDiagram
 
 The webhook is the source of truth for final registration creation. The browser polls attempt status and only clears the cart after the backend reports a finalized registration. Late success after attempt expiry and finalization failures are marked for reconciliation rather than auto-registering.
 
+Registration event gating is explicit in `RegistrationWorkflowService`:
+
+- `StrictPublic` for public direct registration and new payment attempts.
+- `AdminAssisted` for logged-in admins registering from the event detail page.
+- `AlreadyPaidFinalization` for payment finalization after money has already moved.
+
+This keeps admin-assisted pre-payment registration separate from already-paid finalization bypasses.
+
 ### Legacy Hosted Checkout Flow
 
 `PaymentController` still supports `create-checkout-session` and `confirm-session` for older hosted Checkout return URLs. That path stores payloads in `PendingCheckouts` and finalizes through `PaymentFinalizationService`.
@@ -263,6 +273,8 @@ Supported formats in current code:
 
 The backend owns generation and mutation; the frontend wizard sends config and seed entries.
 
+Generating a fixture closes the affected program to stop further registrations. Registration validation also blocks programs that already have a fixture row.
+
 ## Architectural Risks
 
 - Public registration and receipt lookup use sequential ids.
@@ -271,5 +283,6 @@ The backend owns generation and mutation; the frontend wizard sends config and s
 - Stripe SDK is not abstracted.
 - Local disk uploads are not horizontally scalable without shared storage.
 - `EventParticipant` and `BackgroundJob` remain as legacy/unused EF surfaces.
-- Dual registration status fields increase consistency risk.
+- Dual registration status fields on registrations increase consistency risk.
+- Event registration availability is partly stored and partly computed; frontend screens should use backend `computedRegistrationStatus` and treat frontend date logic only as fallback.
 - SQL scripts exist but there are no EF migration files in the repository.

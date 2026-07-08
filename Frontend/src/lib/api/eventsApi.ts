@@ -95,6 +95,23 @@ export async function apiUpdateEvent(
   return ok(await res.json());
 }
 
+export async function apiUpdateEventRegistrationStatus(
+  eventId: string,
+  status: "open" | "paused" | "closed",
+): Promise<ApiResult<TournamentEvent>> {
+  await delay();
+  const res = await apiFetch(`${API_BASE}/api/events/${eventId}/registration-status`, {
+    method: "PATCH",
+    headers: adminHeaders(),
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) {
+    const parsed = await parseError(res);
+    return err(parsed.code, parsed.message);
+  }
+  return ok(await res.json());
+}
+
 export async function apiDeleteEvent(eventId: string): Promise<ApiResult<null>> {
   await delay();
   const res = await apiFetch(`${API_BASE}/api/events/${eventId}`, {

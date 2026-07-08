@@ -22,9 +22,13 @@ function parseDateOnly(dateStr: string): Date {
 }
 
 export function getEventStatus(event: TournamentEvent): EventStatus {
+  if (event.computedRegistrationStatus) return event.computedRegistrationStatus;
+  if (!event.programs?.length) return "draft";
   const today = singaporeDateKey();
   if (today < event.openDate) return "upcoming";
   if (today > event.closeDate) return "closed";
+  if (event.registrationStatus === "paused") return "paused";
+  if (event.registrationStatus === "closed") return "closed";
   return "open";
 }
 

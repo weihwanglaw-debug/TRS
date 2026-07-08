@@ -23,6 +23,7 @@ public partial class Event
     public bool      IsSports        { get; set; }
     public string?   SportType       { get; set; }
     public string    FixtureMode     { get; set; } = "internal";
+    public string    RegistrationStatus { get; set; } = "open";
     public bool      IsActive        { get; set; }
     public DateTime  CreatedAt       { get; set; }
     public DateTime? UpdatedAt       { get; set; }

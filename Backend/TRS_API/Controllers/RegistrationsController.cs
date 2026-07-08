@@ -90,14 +90,21 @@ public class RegistrationsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateRegistrationRequest req)
     {
-        var pricing = await _registrationWorkflow.ValidateAndPriceAsync(req);
+        var gateMode = IsAdminUser()
+            ? EventRegistrationGateMode.AdminAssisted
+            : EventRegistrationGateMode.StrictPublic;
+        var pricing = await _registrationWorkflow.ValidateAndPriceAsync(req, new RegistrationValidationOptions
+        {
+            RegistrationGateMode = gateMode,
+            ValidatePricingAgainstCurrentPrograms = true,
+        });
         if (!pricing.Success)
             return BadRequest(new { code = pricing.Code, message = pricing.Message });
 
         var paymentStatus = pricing.Value!.TotalAmount == 0 ? "S" : "P";
         var createResult = await _registrationWorkflow.CreateAsync(req, new RegistrationPersistOptions
         {
-            RequireEventOpen = true,
+            RegistrationGateMode = gateMode,
             ValidatePricingAgainstCurrentPrograms = true,
             PaymentGateway = req.Payment.Gateway,
             PaymentMethod = req.Payment.Method,
@@ -116,6 +123,9 @@ public class RegistrationsController : ControllerBase
         var createdReg = await LoadReg(createResult.Value!.RegistrationId);
         return Ok(MapReg(createdReg!));
     }
+
+    private bool IsAdminUser() =>
+        User.IsInRole("superadmin") || User.IsInRole("eventadmin");
 
     // -- PATCH /api/registrations/:id/status  -- admin ----------------------
     [HttpPatch("{id:int}/status"), Authorize(Roles = "superadmin,eventadmin")]

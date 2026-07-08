@@ -4,7 +4,9 @@ type BadgeStatus = EventStatus | ProgramStatus;
 
 const styles: Record<string, { bg: string; text: string; label: string }> = {
   open:        { bg: "var(--badge-open-bg)",   text: "var(--badge-open-text)",   label: "Open"        },
+  draft:       { bg: "var(--feedback-info-bg)", text: "var(--feedback-info)",     label: "Draft"       },
   upcoming:    { bg: "var(--badge-soon-bg)",   text: "var(--badge-soon-text)",   label: "Upcoming"    },
+  paused:      { bg: "var(--feedback-warning-bg)", text: "var(--feedback-warning)", label: "Paused"    },
   closed:      { bg: "var(--badge-closed-bg)", text: "var(--badge-closed-text)", label: "Closed"      },
   full:        { bg: "var(--badge-closed-bg)", text: "var(--badge-closed-text)", label: "Full"        },
   nearly_full: { bg: "var(--badge-soon-bg)",   text: "var(--badge-soon-text)",   label: "Nearly Full" },

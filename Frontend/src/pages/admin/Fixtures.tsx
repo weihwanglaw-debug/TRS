@@ -366,6 +366,8 @@ export default function AdminFixtures() {
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resetLatestRoundConfirmOpen, setResetLatestRoundConfirmOpen] = useState(false);
   const [clearResultConfirmOpen, setClearResultConfirmOpen] = useState(false);
+  const [generateConfirmOpen, setGenerateConfirmOpen] = useState(false);
+  const [pendingWizardResult, setPendingWizardResult] = useState<WizardResult | null>(null);
 
   // ── Score modal ───────────────────────────────────────────────────────────
   const [scoreModal, setScoreModal] = useState<MatchEntry | null>(null);
@@ -448,16 +450,24 @@ export default function AdminFixtures() {
   }, [allEvents]);
 
   // ── Wizard complete ───────────────────────────────────────────────────────
-  const handleWizardComplete = async ({ config: wizConfig, seeds, bracket: prebuilt }: WizardResult) => {
-    if (!selRow) return;
+  const handleWizardComplete = (result: WizardResult) => {
+    setPendingWizardResult(result);
+    setGenerateConfirmOpen(true);
+  };
+
+  const executeFixtureGeneration = async () => {
+    if (!selRow || !pendingWizardResult) return;
+    const { config: wizConfig, seeds, bracket: prebuilt } = pendingWizardResult;
     const result = await withLoading(() => apiGenerateDraw(selRow.eventId, selRow.programId, seeds, wizConfig, prebuilt));
     if (result.error) { apiErr(result.error); return; }
     setBracketState(result.data!);
     setShowWizard(false);
+    setGenerateConfirmOpen(false);
+    setPendingWizardResult(null);
     setActiveTab(wizConfig.format === "heats" ? "heats" : "draw");
     setFixtureExists(prev => ({ ...prev, [selRow.programId]: true }));
     refreshTable();
-    feedbackApi.success("Fixture saved.");
+    feedbackApi.success("Fixture saved. Program registration is now closed.");
   };
 
   // ── Reset ─────────────────────────────────────────────────────────────────
@@ -968,6 +978,15 @@ export default function AdminFixtures() {
         onClose={closeScore} onSave={saveScore}
         onClear={() => setClearResultConfirmOpen(true)}
         onChangeDraft={patch => setDraft(prev => prev ? { ...prev, ...patch } : prev)} />
+      <ConfirmDialog
+        open={generateConfirmOpen}
+        onOpenChange={setGenerateConfirmOpen}
+        title="Generate Fixture"
+        description="Generating this fixture will close the selected program to stop further registrations."
+        confirmLabel="Proceed"
+        loading={loading}
+        onConfirm={executeFixtureGeneration}
+      />
       <ConfirmDialog
         open={resetConfirmOpen}
         onOpenChange={setResetConfirmOpen}

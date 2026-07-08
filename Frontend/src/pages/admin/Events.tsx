@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import type { TournamentEvent } from "@/types/config";
 import { apiGetEvents } from "@/lib/api";
-import { getEventStatus, formatDate, singaporeDateKey } from "@/lib/eventUtils";
+import { getEventStatus, formatDate } from "@/lib/eventUtils";
 import StatusBadge from "@/components/events/StatusBadge";
 import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
 import { Plus, Eye, Users, MoreVertical } from "lucide-react";
@@ -26,13 +26,7 @@ export default function AdminEvents() {
   // close handled by ActionDropdownPortal
 
   const filtered = useMemo(() => events.filter(ev => {
-    const today = singaporeDateKey();
-    const regStatus =
-      today < ev.openDate
-        ? "upcoming"
-        : today > ev.closeDate
-          ? "closed"
-          : "open";
+    const regStatus = getEventStatus(ev);
     if (filterStatus && getEventStatus(ev) !== filterStatus) return false;
     if (filterRegStatus && regStatus !== filterRegStatus) return false;
     if (filterDateFrom) { const to = ev.eventEndDate || ev.eventStartDate; if (to < filterDateFrom) return false; }
@@ -62,12 +56,12 @@ export default function AdminEvents() {
         <div className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4">
           <FG label="Event Status">
             <select className="field-input w-full md:w-36" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-              <option value="">All</option><option value="open">Open</option><option value="upcoming">Upcoming</option><option value="closed">Closed</option>
+              <option value="">All</option><option value="draft">Draft</option><option value="open">Open</option><option value="paused">Paused</option><option value="upcoming">Upcoming</option><option value="closed">Closed</option>
             </select>
           </FG>
           <FG label="Reg. Status">
             <select className="field-input w-full md:w-36" value={filterRegStatus} onChange={e => setFilterRegStatus(e.target.value)}>
-              <option value="">All</option><option value="open">Open</option><option value="upcoming">Upcoming</option><option value="closed">Closed</option>
+              <option value="">All</option><option value="draft">Draft</option><option value="open">Open</option><option value="paused">Paused</option><option value="upcoming">Upcoming</option><option value="closed">Closed</option>
             </select>
           </FG>
           <FG label="From">

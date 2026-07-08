@@ -16,6 +16,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 import {
   apiGetEvent, apiCreateEvent, apiUpdateEvent, apiDeleteEvent,
+  apiUpdateEventRegistrationStatus,
   apiAddProgram, apiUpdateProgram, apiDeleteProgram, apiUpdateProgramStatus,
   apiAddEventDocument, apiUpdateEventDocument, apiDeleteEventDocument,
   apiUploadFile, assetUrl,
@@ -380,6 +381,20 @@ export default function EventEdit() {
   };
 
   const status = event ? getEventStatus(event) : undefined;
+  const canChangeRegistrationStatus = !!event && programs.length > 0;
+  const handleRegistrationStatusChange = async (nextStatus: "open" | "paused" | "closed") => {
+    if (!eventId || isNew) return;
+    setSaving(true);
+    try {
+      const r = await apiUpdateEventRegistrationStatus(eventId, nextStatus);
+      if (r.error) { showError("Registration status could not be changed", r.error.message); return; }
+      setEvent(r.data!);
+      setPrograms(r.data!.programs);
+      setFeedback({ open: true, variant: "success", title: "Registration status updated" });
+    } finally {
+      setSaving(false);
+    }
+  };
   const panelStyle = {
     border: "1px solid var(--color-table-border)",
     background: "linear-gradient(var(--color-row-hover), var(--color-row-hover)), var(--color-page-bg)",
@@ -410,7 +425,25 @@ export default function EventEdit() {
               <h1 className="font-bold text-2xl">
                 {isNew ? "Create New Event" : event?.name || "Event"}
               </h1>
-              {status && <div className="mt-1"><StatusBadge status={status} /></div>}
+              {status && (
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <StatusBadge status={status} />
+                  {!isNew && event && (
+                    <select
+                      className="field-input text-xs"
+                      value={event.registrationStatus ?? "open"}
+                      disabled={saving || !canChangeRegistrationStatus}
+                      onChange={e => handleRegistrationStatusChange(e.target.value as "open" | "paused" | "closed")}
+                      style={{ width: 180, height: 34 }}
+                      title={canChangeRegistrationStatus ? "Registration status" : "Add at least one program before changing registration status"}
+                    >
+                      <option value="open">Open registration</option>
+                      <option value="paused">Pause registration</option>
+                      <option value="closed">Close registration</option>
+                    </select>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex gap-3">

@@ -78,6 +78,7 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.AdditionalInfo).HasColumnType("nvarchar(max)");
             e.Property(x => x.SportType).HasMaxLength(100);
             e.Property(x => x.FixtureMode).HasMaxLength(15).IsUnicode(false).HasDefaultValue("internal");
+            e.Property(x => x.RegistrationStatus).HasMaxLength(20).IsUnicode(false).HasDefaultValue("open");
             e.Property(x => x.MaxParticipants).HasDefaultValue(100);
             e.Property(x => x.IsSports).HasDefaultValue(true);
             e.Property(x => x.IsActive).HasDefaultValue(true);

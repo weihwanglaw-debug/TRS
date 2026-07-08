@@ -81,7 +81,7 @@ public sealed class PaymentFinalizationService
         {
             var created = await _registrationWorkflow.CreateAsync(createReq, new RegistrationPersistOptions
             {
-                RequireEventOpen = false,
+                RegistrationGateMode = EventRegistrationGateMode.AlreadyPaidFinalization,
                 ValidatePricingAgainstCurrentPrograms = false,
                 PaymentGateway = "Stripe",
                 PaymentMethod = paymentMethod,

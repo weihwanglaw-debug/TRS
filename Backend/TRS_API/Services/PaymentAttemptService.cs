@@ -52,7 +52,7 @@ public sealed class PaymentAttemptService
 
         var pricing = await _registrationWorkflow.ValidateAndPriceAsync(payload, new RegistrationValidationOptions
         {
-            RequireEventOpen = true,
+            RegistrationGateMode = EventRegistrationGateMode.StrictPublic,
             ValidatePricingAgainstCurrentPrograms = true,
         }, ct);
 
@@ -364,7 +364,7 @@ public sealed class PaymentAttemptService
         {
             created = await _registrationWorkflow.CreateAsync(payload, new RegistrationPersistOptions
             {
-                RequireEventOpen = false,
+                RegistrationGateMode = EventRegistrationGateMode.AlreadyPaidFinalization,
                 ValidatePricingAgainstCurrentPrograms = false,
                 PaymentGateway = "Stripe",
                 PaymentMethod = attempt.PaymentMethod,

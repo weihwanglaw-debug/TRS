@@ -161,6 +161,8 @@ export interface TournamentEvent {
   isSports:         boolean;
   sportType:        string;
   fixtureMode:      FixtureMode;
+  registrationStatus?: "open" | "paused" | "closed";
+  computedRegistrationStatus?: EventStatus;
   programs:         Program[];
 }
 
@@ -199,7 +201,7 @@ export interface Config {
   admin: { users: AdminUser[] };
 }
 
-export type EventStatus   = "open" | "upcoming" | "closed";
+export type EventStatus   = "draft" | "upcoming" | "open" | "paused" | "closed";
 export type ProgramStatus = "open" | "upcoming" | "closed" | "full" | "nearly_full";
 
 // ── Match / bracket types ─────────────────────────────────────────────────────

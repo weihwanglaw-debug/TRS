@@ -26,6 +26,7 @@ This document maps the current backend API from controller attributes. JSON resp
 | GET | `/api/events/{id}` | Public/admin-aware | Load event detail with programs, fields, gallery, documents. Public users cannot load active events that have no active programs. |
 | POST | `/api/events` | `superadmin,eventadmin` | Create event and write admin audit log. |
 | PUT | `/api/events/{id}` | `superadmin,eventadmin` | Update event, replace gallery images, and write admin audit log. |
+| PATCH | `/api/events/{id}/registration-status` | `superadmin,eventadmin` | Set stored registration status to `open`, `paused`, or `closed`; rejects draft events with `EVENT_DRAFT`; writes admin audit log. |
 | DELETE | `/api/events/{id}` | `superadmin,eventadmin` | Soft delete event and write admin audit log; blocked when registrations exist. |
 | GET | `/api/events/{id}/documents` | Public | List event documents for active event. |
 | POST | `/api/events/{id}/documents` | `superadmin,eventadmin` | Add event document. |
@@ -54,15 +55,15 @@ EF maps this feature to SQL table `BadmintonClub`.
 |---|---|---|---|
 | GET | `/api/registrations` | `superadmin,eventadmin` | Paged admin list with event/program/status/payment/search filters. |
 | GET | `/api/registrations/{id}` | Public | Load registration detail by id. |
-| POST | `/api/registrations` | Public | Create direct registration, mainly free flow. |
+| POST | `/api/registrations` | Public/admin-aware | Create direct registration, mainly free flow. Authenticated admins use admin-assisted event gating. |
 | PATCH | `/api/registrations/{id}/status` | `superadmin,eventadmin` | Update registration status and cascade to groups. |
 | PATCH | `/api/registrations/{id}/groups/{gid}/status` | `superadmin,eventadmin` | Update one group status. |
 | PATCH | `/api/registrations/{id}/groups/{gid}/seed` | `superadmin,eventadmin` | Set/clear group seed. |
 | GET | `/api/registrations/{id}/payment` | `superadmin,eventadmin` | Load payment with items. |
 | PATCH | `/api/registrations/{id}/payment` | `superadmin,eventadmin` | Manual payment update. |
 | GET | `/api/registrations/{id}/payment/refunds` | `superadmin,eventadmin` | List payment refunds. |
-| POST | `/api/registrations/{id}/payment/refunds` | `superadmin,eventadmin` | Refund one payment item. |
-| POST | `/api/registrations/{id}/cancel-with-refunds` | `superadmin,eventadmin` | Cancel registration and refund paid items. |
+| POST | `/api/registrations/{id}/payment/refunds` | `superadmin,eventadmin` | Refund one payment item through system gateway or record an external refund. |
+| POST | `/api/registrations/{id}/cancel-with-refunds` | `superadmin,eventadmin` | Cancel registration and either issue system refunds or record external refunds for paid items. |
 | GET | `/api/registrations/export` | `superadmin,eventadmin` | Export matching registrations without pagination. |
 | GET | `/api/registrations/stats` | `superadmin,eventadmin` | Registration/payment dashboard stats. |
 | GET | `/api/registrations/{id}/receipt` | Public | Generate/download PDF receipt. |
@@ -166,7 +167,10 @@ Controller-level auth is `superadmin,eventadmin`; orphan refund endpoint is narr
 |---|---|---|---|
 | GET | `/api/admin/payment-reconciliation/stats` | `superadmin,eventadmin` | Count reconciliation cases. |
 | GET | `/api/admin/payment-reconciliation/webhook-failures` | `superadmin,eventadmin` | List unresolved failed paid checkout rows. |
-| POST | `/api/admin/payment-reconciliation/webhook-failures/{webhookLogId}/refund` | `superadmin` | Refund orphan Stripe payment. |
+| GET | `/api/admin/payment-reconciliation/refund-history` | `superadmin,eventadmin` | List orphan refund history. |
+| PATCH | `/api/admin/payment-reconciliation/webhook-failures/{webhookLogId}/reviewed` | `superadmin,eventadmin` | Mark a webhook discrepancy reviewed without creating a refund row. |
+| POST | `/api/admin/payment-reconciliation/webhook-failures/{webhookLogId}/external-refund` | `superadmin,eventadmin` | Record an externally completed orphan refund with method/reference/note. |
+| POST | `/api/admin/payment-reconciliation/webhook-failures/{webhookLogId}/refund` | `superadmin` | Issue internal system refund for an orphan gateway payment. |
 
 ## Frontend/API Mismatches and Notes
 

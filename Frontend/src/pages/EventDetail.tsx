@@ -329,6 +329,8 @@ export default function EventDetail() {
   const [adminConfirmRef, setAdminConfirmRef] = useState("");
 
   const status = event ? getEventStatus(event) : "closed";
+  const isAdminRegistrationMode = isAuthenticated && status !== "open" && status !== "draft";
+  const canShowRegistration = status === "open" || isAdminRegistrationMode;
   const currency = cfg.currency || "SGD";
   const totalPrice = cart.reduce((sum, e) => sum + e.fee, 0);
   // checkout submission state
@@ -398,9 +400,9 @@ export default function EventDetail() {
       ...(event.documents?.length ? [{ id: "event-documents", label: "Docs", icon: FileText }] : []),
       ...(galleryImages.length ? [{ id: "event-gallery", label: "Gallery", icon: Images }] : []),
       { id: "event-categories", label: event.sportType.toLowerCase() === "badminton" ? "Categories" : "Programs", icon: ListChecks },
-      ...(status === "open" ? [{ id: "registration", label: "Register", icon: ClipboardList }] : []),
+      ...(canShowRegistration ? [{ id: "registration", label: isAdminRegistrationMode ? "Admin Register" : "Register", icon: ClipboardList }] : []),
     ];
-  }, [event, galleryImages.length, status]);
+  }, [event, galleryImages.length, status, canShowRegistration, isAdminRegistrationMode]);
 
   // ── Program selection with scroll ──
   // Re-fetches the event before opening the form so that currentParticipants
@@ -1037,6 +1039,12 @@ export default function EventDetail() {
                   Registration opens on {formatDate(event.openDate)}
                 </div>
               )}
+              {status === "paused" && (
+                <div className="p-4 text-sm" style={{ backgroundColor: "var(--feedback-warning-bg)", color: "var(--feedback-warning)" }}>Registration Paused</div>
+              )}
+              {status === "draft" && (
+                <div className="p-4 text-sm" style={{ backgroundColor: "var(--feedback-info-bg)", color: "var(--feedback-info)" }}>Registration is not available yet.</div>
+              )}
               {status === "closed" && (
                 <div className="p-4 text-sm" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>Registration Closed</div>
               )}
@@ -1085,7 +1093,7 @@ export default function EventDetail() {
               });
               const isFull = capStatus === "full";
               const progClosed = prog.status === "closed";
-              const canRegister = status === "open" && !isFull && !progClosed;
+              const canRegister = canShowRegistration && !isFull && !progClosed;
               return (
                 <div key={prog.id} className="event-detail-program-card flex flex-col"
                   style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
@@ -1118,7 +1126,7 @@ export default function EventDetail() {
                     <div className="event-category-action">
                       <button disabled={!canRegister} onClick={() => handleSelectProgram(prog)}
                         className="btn-primary event-category-button disabled:opacity-40 disabled:cursor-not-allowed">
-                        {isFull ? (cartEntryCount > 0 ? "Limit Reached" : "Full") : progClosed ? "Closed" : "Register"}
+                        {isFull ? (cartEntryCount > 0 ? "Limit Reached" : "Full") : progClosed ? "Closed" : isAdminRegistrationMode ? "Admin Register" : "Register"}
                       </button>
                     </div>
                   </div>
@@ -1128,9 +1136,14 @@ export default function EventDetail() {
           </div>
 
           {/* ── Section 3: Registration Steps ── */}
-          {status === "open" && (
+          {canShowRegistration && (
             <div className="event-detail-registration section-anchor" id="registration" ref={registrationRef}>
               <div className="h-px mb-12" style={{ backgroundColor: "var(--color-table-border)" }} />
+              {isAdminRegistrationMode && (
+                <div className="p-4 mb-6 text-sm font-semibold" style={{ backgroundColor: "var(--feedback-info-bg)", color: "var(--feedback-info)" }}>
+                  Admin registration mode
+                </div>
+              )}
               <AnimatePresence mode="wait">
                 {step === 1 && !selectedProgram && (
                   <motion.div key="step1" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
@@ -1500,7 +1513,7 @@ export default function EventDetail() {
                   });
                   if (docUploads2.length) await Promise.all(docUploads2);
                   const payload2 = buildRegistrationPayload(docMap2);
-                  const regResult = await apiCreateRegistration(payload2);
+                  const regResult = await apiCreateRegistration(payload2, { admin: true });
                   if (regResult.error) { setSubmitError(regResult.error.message); setAdminConfirmOpen(false); return; }
                   // 2. Confirm with chosen payment status
                   const confirmResult = await apiConfirmRegistration(regResult.data!.id, {

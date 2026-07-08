@@ -124,6 +124,41 @@ public class EventsController : ControllerBase
         return Ok();
     }
 
+    [HttpPatch("{id:int}/registration-status"), Authorize(Roles = "superadmin,eventadmin")]
+    public async Task<IActionResult> UpdateRegistrationStatus(int id, [FromBody] UpdateEventRegistrationStatusRequest req)
+    {
+        var status = (req.Status ?? "").Trim().ToLowerInvariant();
+        if (status is not ("open" or "paused" or "closed"))
+            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be open, paused, or closed." });
+
+        var ev = await _db.Events
+            .Include(e => e.GalleryImages)
+            .FirstOrDefaultAsync(e => e.EventId == id);
+        if (ev == null) return NotFound(new { code = "NOT_FOUND", message = "Event not found." });
+
+        var activeProgramCount = await _db.Programs.CountAsync(p => p.EventId == id && p.IsActive);
+        if (activeProgramCount == 0)
+            return BadRequest(new { code = "EVENT_DRAFT", message = "Add at least one program before changing registration status." });
+
+        var oldValue = AuditEventSnapshot(ev);
+        ev.RegistrationStatus = status;
+        ev.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        await _audit.LogAsync(
+            User,
+            GetClientIp(),
+            "EVENT_REGISTRATION_STATUS_UPDATE",
+            "Event",
+            ev.EventId.ToString(),
+            oldValue,
+            AuditEventSnapshot(ev),
+            $"Changed event '{ev.Name}' registration status to {ev.RegistrationStatus}.");
+
+        var loaded = await LoadEvents().FirstAsync(e => e.EventId == id);
+        var counts = await GetParticipantCounts(loaded.Programs.Select(p => p.ProgramId).ToList());
+        return Ok(MapEvent(loaded, counts));
+    }
+
     // ── Document sub-resource ─────────────────────────────────────────────────
 
     // GET /api/events/:id/documents
@@ -372,6 +407,8 @@ public class EventsController : ControllerBase
         ev.IsSports         = r.IsSports;
         ev.SportType        = r.SportType;
         ev.FixtureMode      = r.FixtureMode;
+        if (string.IsNullOrWhiteSpace(ev.RegistrationStatus))
+            ev.RegistrationStatus = "open";
         ev.GalleryImages    = r.GalleryUrls.Select((url, i) =>
             new EventGalleryImage { ImageUrl = url, SortOrder = i }).ToList();
         return ev;
@@ -586,6 +623,8 @@ public class EventsController : ControllerBase
         ev.IsSports,
         sportType       = ev.SportType ?? "",
         ev.FixtureMode,
+        registrationStatus = ev.RegistrationStatus,
+        computedRegistrationStatus = RegistrationWorkflowService.ComputeRegistrationStatus(ev, ev.Programs.Count(p => p.IsActive)),
         programs        = ev.Programs.Where(p => p.IsActive)
                             .Select(p => MapProgram(p, counts.GetValueOrDefault(p.ProgramId, 0))).ToList()
     };
@@ -612,6 +651,7 @@ public class EventsController : ControllerBase
         ev.IsSports,
         ev.SportType,
         ev.FixtureMode,
+        ev.RegistrationStatus,
         ev.IsActive,
         GalleryUrls = ev.GalleryImages.OrderBy(g => g.SortOrder).Select(g => g.ImageUrl).ToList(),
     };
