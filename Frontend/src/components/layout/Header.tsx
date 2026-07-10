@@ -39,6 +39,7 @@ export default function Header() {
   const navActionClass = isLandingPage
     ? "landing-nav-link"
     : "text-sm font-semibold uppercase tracking-[0.18em] hover:opacity-80 transition-opacity";
+  const headerLogoUrl = cfg.logoDarkUrl || cfg.logoUrl;
 
   const scrollToLandingSection = (id: string) => {
     if (!isLandingPage) {
@@ -67,7 +68,7 @@ export default function Header() {
                 background: showSolid ? "var(--color-hero-bg)" : "transparent",
                 color: "var(--color-hero-text)",
                 backdropFilter: showSolid ? "none" : "blur(8px)",
-                boxShadow: showSolid ? "0 2px 12px rgba(0,0,0,0.15)" : "none",
+                boxShadow: showSolid ? "var(--shadow-header)" : "none",
               }
         }
       >
@@ -82,8 +83,8 @@ export default function Header() {
           }}
           className="flex items-center gap-2 font-heading font-bold text-xl"
         >
-          {cfg.logoUrl ? (
-            <img src={cfg.logoUrl} alt={cfg.appName} className="h-8" />
+          {headerLogoUrl ? (
+            <img src={headerLogoUrl} alt={cfg.appName} className="h-8" />
           ) : (
             <Trophy className="h-6 w-6" />
           )}

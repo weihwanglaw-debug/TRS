@@ -145,38 +145,37 @@ export default function BadmintonClubs() {
         onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
       />
 
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
-        <div>
-          <div className="admin-page-title" style={{ marginBottom: 0 }}>
-            <h1>Badminton Clubs</h1>
-          </div>
-          <p className="text-xs opacity-50 mt-1">
-            Master list used by badminton registration club dropdowns.
-          </p>
+      <div className="flex items-center justify-between mb-8">
+        <div className="admin-page-title" style={{ marginBottom: 0 }}>
+          <h1>Badminton Clubs</h1>
         </div>
         <button onClick={openCreate} className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-semibold">
           <Plus className="h-4 w-4" /> Add Club
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-3 mb-5">
-        <div className="relative flex-1 min-w-[220px]">
-          <input
-            className="field-input pr-8 w-full"
-            placeholder="Search club, country, or email..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          {search ? (
-            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 opacity-40 hover:opacity-80">
-              <X className="h-3.5 w-3.5" />
-            </button>
-          ) : (
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 opacity-40 pointer-events-none" />
-          )}
-        </div>
-        <div className="flex items-center text-sm opacity-50 whitespace-nowrap px-1">
-          {loading ? "Loading..." : `${filtered.length.toLocaleString()} ${filtered.length === 1 ? "club" : "clubs"}`}
+      <div className="p-5 mb-6" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
+        <div className="grid grid-cols-1 md:flex md:flex-wrap items-end gap-4">
+          <FG label="Search">
+            <div className="relative w-full md:w-80">
+              <input
+                className="field-input with-right-icon w-full"
+                placeholder="Search club, country, or email..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+              {search ? (
+                <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 opacity-40 hover:opacity-80">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 opacity-40 pointer-events-none" />
+              )}
+            </div>
+          </FG>
+          <div className="flex items-center text-sm opacity-50 whitespace-nowrap px-1 pb-2">
+            {loading ? "Loading..." : `${filtered.length.toLocaleString()} ${filtered.length === 1 ? "club" : "clubs"}`}
+          </div>
         </div>
       </div>
 
@@ -341,6 +340,15 @@ function FF({ label, error, children }: { label: string; error?: string; childre
       <label className="block text-xs font-semibold mb-2 opacity-70">{label}</label>
       {children}
       {error && <p className="text-xs mt-1" style={{ color: "var(--badge-open-text)" }}>{error}</p>}
+    </div>
+  );
+}
+
+function FG({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-xs font-semibold mb-1.5 opacity-60">{label}</label>
+      {children}
     </div>
   );
 }

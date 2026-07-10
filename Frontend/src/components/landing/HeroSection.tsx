@@ -22,7 +22,7 @@ export default function HeroSection() {
         aria-labelledby="hero-title"
         style={{
           backgroundAttachment: "fixed",
-          backgroundImage: `linear-gradient(90deg, rgb(250 250 250 / 12%), rgb(47 46 46 / 8%)), url(${bgImage})`,
+          backgroundImage: `linear-gradient(90deg, var(--overlay-light-soft), var(--overlay-dark-soft)), url(${bgImage})`,
         }}
       >
         <motion.div

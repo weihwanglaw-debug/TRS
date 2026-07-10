@@ -534,15 +534,17 @@ public class RegistrationWorkflowService
         if (activeProgramCount <= 0)
             return "draft";
 
+        if (string.Equals(eventEntity.RegistrationStatus, "paused", StringComparison.OrdinalIgnoreCase))
+            return "paused";
+        if (string.Equals(eventEntity.RegistrationStatus, "closed", StringComparison.OrdinalIgnoreCase))
+            return "closed";
+
         var today = TodayInSingapore();
         if (today < eventEntity.OpenDate)
             return "upcoming";
         if (today > eventEntity.CloseDate)
             return "closed";
-        if (string.Equals(eventEntity.RegistrationStatus, "paused", StringComparison.OrdinalIgnoreCase))
-            return "paused";
-        if (string.Equals(eventEntity.RegistrationStatus, "closed", StringComparison.OrdinalIgnoreCase))
-            return "closed";
+
         return "open";
     }
 

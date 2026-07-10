@@ -44,8 +44,9 @@ export function ConfirmDialog({
             <span
               className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center"
               style={{
-                backgroundColor: destructive ? "var(--badge-open-bg)" : "var(--badge-soon-bg)",
-                color: destructive ? "var(--feedback-error)" : "var(--feedback-warning)",
+                backgroundColor: "var(--feedback-warning-bg)",
+                color: "var(--color-primary)",
+                border: "1px solid var(--color-primary)",
               }}
             >
               <AlertTriangle className="h-5 w-5" />
@@ -71,7 +72,7 @@ export function ConfirmDialog({
               e.preventDefault();
               onConfirm();
             }}
-            style={destructive ? { backgroundColor: "var(--feedback-error)", color: "var(--color-hero-text)" } : undefined}
+            style={destructive ? { backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" } : undefined}
           >
             {loading ? "Working..." : confirmLabel}
           </AlertDialogAction>

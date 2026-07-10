@@ -61,7 +61,7 @@ export default function MessageSection() {
             Players, parents, coaches, and club representatives can leave a message for the tournament team.
             Use this space for event questions, program clarification, venue help, or registration support.
           </p>
-          <a className="landing-button" href="#events-section">
+          <a className="landing-button" href="#events-section" style={{ background: "rgb(0 0 0 / 0)", border: "2px solid rgb(255 255 255 / 30%)" }}>
             View Events
           </a>
         </motion.div>

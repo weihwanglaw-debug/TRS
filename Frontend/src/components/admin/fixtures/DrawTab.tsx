@@ -340,6 +340,7 @@ export function DrawTab({
 }: Props) {
   const hasGroups  = bracketState.groups.length > 0;
   const hasKo      = bracketState.matches.length > 0;
+  const isRoundRobin = bracketState.format === "round_robin";
   const bracketRef = useRef<HTMLDivElement | null>(null);
   const groupsRef  = useRef<HTMLDivElement | null>(null);
   const [notice, setNotice] = useState("");
@@ -414,9 +415,13 @@ export function DrawTab({
           {!hasKo && (
             <div className="mb-5 p-4"
               style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
-              <p className="text-sm font-semibold">Knockout bracket not generated yet</p>
+              <p className="text-sm font-semibold">
+                {isRoundRobin ? "No bracket view available for fixture type: Round Robin" : "Knockout bracket not generated yet"}
+              </p>
               <p className="text-xs opacity-60 mt-1">
-                Complete the group matches, then generate the knockout phase to display the bracket.
+                {isRoundRobin
+                  ? "Use Table View to enter results and review the current standings."
+                  : "Complete the group matches, then generate the knockout phase to display the bracket."}
               </p>
             </div>
           )}

@@ -40,7 +40,13 @@ public class ReceiptService
         var orgName = cfg.GetValueOrDefault("appName", "System");
         var orgEmail = cfg.GetValueOrDefault("contactEmail", "");
         var copyright = cfg.GetValueOrDefault("copyrightText", "");
-        var logoUrl = cfg.GetValueOrDefault("logoUrl", "");
+        var logoUrl = cfg.GetValueOrDefault("logoLightUrl", "");
+        if (string.IsNullOrWhiteSpace(logoUrl))
+            logoUrl = cfg.GetValueOrDefault("logoUrl", "");
+        if (string.IsNullOrWhiteSpace(logoUrl))
+            logoUrl = cfg.GetValueOrDefault("logoDarkUrl", "");
+        if (string.IsNullOrWhiteSpace(logoUrl))
+            logoUrl = "/images/app/logo_light_mode.png";
         var currency = payment.Currency;
 
         // ── Logo — always read as local file from wwwroot ───────────────────
@@ -240,28 +246,22 @@ public class ReceiptService
                         row.RelativeItem().Column(c =>
                         {
                             if (logoBytes is { Length: > 0 })
-                            {
-                                c.Item().MaxHeight(56).MaxWidth(180)
+                                c.Item().Height(72).Width(150)
                                     .Image(logoBytes).FitArea();
-                                c.Item().PaddingTop(3).Text(orgName)
-                                    .FontSize(10).FontColor(Colors.Grey.Darken2);
-                            }
                             else
-                            {
                                 c.Item().Text(orgName)
                                     .FontSize(20).Bold();
-                            }
-                            if (!string.IsNullOrEmpty(orgEmail))
-                                c.Item().PaddingTop(2).Text(orgEmail)
-                                    .FontSize(9).FontColor(Colors.Grey.Darken1);
                         });
 
                         row.ConstantItem(145).Column(c =>
                         {
-                            c.Item().AlignRight().Text("RECEIPT")
+                            c.Item().Height(72).AlignMiddle().Column(status =>
+                            {
+                                status.Item().AlignRight().Text("RECEIPT")
                                 .FontSize(20).Bold().FontColor(statusColor);
-                            c.Item().AlignRight().Text(overallStatus)
+                                status.Item().AlignRight().Text(overallStatus)
                                 .FontSize(9).Bold().FontColor(statusColor);
+                            });
                         });
                     });
 

@@ -148,6 +148,7 @@ export default function EventEdit() {
     isSports: true, sportType: "Badminton",
     fixtureMode: "internal" as "internal" | "external" | "not_required",
   });
+  const [registrationStatusDraft, setRegistrationStatusDraft] = useState<"open" | "paused" | "closed">("open");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) =>
     setForm(p => ({ ...p, [k]: v }));
@@ -188,6 +189,7 @@ export default function EventEdit() {
       const ev = r.data!;
       setEvent(ev);
       setPrograms(ev.programs);
+      setRegistrationStatusDraft((ev.registrationStatus ?? "open") as "open" | "paused" | "closed");
       const safeGallery = (ev.galleryUrls || []).filter(u => !isBlobUrl(u));
       if (safeGallery.length !== (ev.galleryUrls || []).length)
         setGalleryError("Some previously selected images were temporary previews and can't be loaded after refresh. Please re-upload them.");
@@ -362,7 +364,15 @@ export default function EventEdit() {
         const r = await apiUpdateEvent(eventId!, payload);
         if (r.error) { showError("Event could not be saved", r.error.message); return; }
         await saveDocuments(eventId!, docs);
-        setEvent(r.data!);
+        let savedEvent = r.data!;
+        if (event && registrationStatusDraft !== (event.registrationStatus ?? "open")) {
+          const sr = await apiUpdateEventRegistrationStatus(eventId!, registrationStatusDraft);
+          if (sr.error) { showError("Registration status could not be saved", sr.error.message); return; }
+          savedEvent = sr.data!;
+        }
+        setEvent(savedEvent);
+        setPrograms(savedEvent.programs);
+        setRegistrationStatusDraft((savedEvent.registrationStatus ?? "open") as "open" | "paused" | "closed");
         setEditing(false);
         setFeedback({ open: true, variant: "success", title: "Event saved", description: "The event details have been updated." });
       }
@@ -382,19 +392,6 @@ export default function EventEdit() {
 
   const status = event ? getEventStatus(event) : undefined;
   const canChangeRegistrationStatus = !!event && programs.length > 0;
-  const handleRegistrationStatusChange = async (nextStatus: "open" | "paused" | "closed") => {
-    if (!eventId || isNew) return;
-    setSaving(true);
-    try {
-      const r = await apiUpdateEventRegistrationStatus(eventId, nextStatus);
-      if (r.error) { showError("Registration status could not be changed", r.error.message); return; }
-      setEvent(r.data!);
-      setPrograms(r.data!.programs);
-      setFeedback({ open: true, variant: "success", title: "Registration status updated" });
-    } finally {
-      setSaving(false);
-    }
-  };
   const panelStyle = {
     border: "1px solid var(--color-table-border)",
     background: "linear-gradient(var(--color-row-hover), var(--color-row-hover)), var(--color-page-bg)",
@@ -425,25 +422,6 @@ export default function EventEdit() {
               <h1 className="font-bold text-2xl">
                 {isNew ? "Create New Event" : event?.name || "Event"}
               </h1>
-              {status && (
-                <div className="mt-2 flex flex-wrap items-center gap-3">
-                  <StatusBadge status={status} />
-                  {!isNew && event && (
-                    <select
-                      className="field-input text-xs"
-                      value={event.registrationStatus ?? "open"}
-                      disabled={saving || !canChangeRegistrationStatus}
-                      onChange={e => handleRegistrationStatusChange(e.target.value as "open" | "paused" | "closed")}
-                      style={{ width: 180, height: 34 }}
-                      title={canChangeRegistrationStatus ? "Registration status" : "Add at least one program before changing registration status"}
-                    >
-                      <option value="open">Open registration</option>
-                      <option value="paused">Pause registration</option>
-                      <option value="closed">Close registration</option>
-                    </select>
-                  )}
-                </div>
-              )}
             </div>
           </div>
           <div className="flex gap-3">
@@ -463,7 +441,7 @@ export default function EventEdit() {
             {editing && (
               <>
                 {!isNew && (
-                  <button onClick={() => setEditing(false)}
+                  <button onClick={() => { setRegistrationStatusDraft((event?.registrationStatus ?? "open") as "open" | "paused" | "closed"); setEditing(false); }}
                     className="btn-outline flex items-center gap-2 px-5 py-2.5 text-sm font-medium">
                     <X className="h-4 w-4" /> Cancel
                   </button>
@@ -511,6 +489,27 @@ export default function EventEdit() {
           <FF label="Sponsor Information">
             <input className="field-input" value={form.sponsorInfo} onChange={e => set("sponsorInfo", e.target.value)} disabled={!editing} />
           </FF>
+          {!isNew && event && status && (
+            <div className="md:col-span-2">
+              <FF label="Registration Status">
+                <div className="flex flex-wrap items-center gap-3">
+                  <StatusBadge status={status} />
+                  <select
+                    className="field-input"
+                    value={registrationStatusDraft}
+                    disabled={!editing || saving || !canChangeRegistrationStatus}
+                    onChange={e => setRegistrationStatusDraft(e.target.value as "open" | "paused" | "closed")}
+                    style={{ maxWidth: 260 }}
+                    title={canChangeRegistrationStatus ? "Registration status" : "Add at least one program before changing registration status"}
+                  >
+                    <option value="open">Open registration</option>
+                    <option value="paused">Pause registration</option>
+                    <option value="closed">Close registration</option>
+                  </select>
+                </div>
+              </FF>
+            </div>
+          )}
           <div className="md:col-span-2">
             <FF label="Short Description (shown on event header)">
               <textarea className="field-input" rows={2} value={form.description} onChange={e => set("description", e.target.value)} disabled={!editing} />

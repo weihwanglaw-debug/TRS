@@ -5,6 +5,7 @@ import { apiGetEvents } from "@/lib/api";
 import { getEventStatus, formatDate } from "@/lib/eventUtils";
 import StatusBadge from "@/components/events/StatusBadge";
 import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
+import { PageLoader } from "@/components/ui/LoadingSpinner";
 import { Plus, Eye, Users, MoreVertical } from "lucide-react";
 
 export default function AdminEvents() {
@@ -37,9 +38,7 @@ export default function AdminEvents() {
   const clearFilters = () => { setFilterStatus(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterRegStatus(""); };
   const hasFilter = filterStatus || filterDateFrom || filterDateTo || filterRegStatus;
 
-  if (loading) return (
-    <div className="flex items-center justify-center py-20 opacity-40 text-sm">Loading events…</div>
-  );
+  if (loading) return <PageLoader label="Loading events..." />;
 
   return (
     <div>

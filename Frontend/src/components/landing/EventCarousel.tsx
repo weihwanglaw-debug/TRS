@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import type { TournamentEvent } from "@/types/config";
 import { apiGetEvents, assetUrl } from "@/lib/api";
 import { formatDate, getEventStatus } from "@/lib/eventUtils";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Carousel,
   CarouselContent,
@@ -20,6 +21,7 @@ const FALLBACK_BANNERS = [eventBanner1, eventBanner2, eventBanner3];
 
 export default function EventCarousel() {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [visibleEvents, setVisibleEvents] = useState<TournamentEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -31,6 +33,7 @@ export default function EventCarousel() {
           r.data
             .filter((event) => {
               const status = getEventStatus(event);
+              if (isAuthenticated) return status !== "draft";
               return status === "open" || status === "upcoming";
             })
             .sort((a, b) => {
@@ -43,7 +46,7 @@ export default function EventCarousel() {
         );
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [isAuthenticated]);
 
   return (
     <section id="events-section" className="landing-section white section-anchor">
@@ -97,7 +100,11 @@ export default function EventCarousel() {
                 const status = getEventStatus(event);
                 const bannerImage = event.bannerUrl ? assetUrl(event.bannerUrl) : FALLBACK_BANNERS[index % FALLBACK_BANNERS.length];
                 const dateLabel = `${formatDate(event.eventStartDate)} - ${formatDate(event.eventEndDate)}`;
-                const statusLabel = status === "open" ? "Open" : "Upcoming";
+                const statusLabel =
+                  status === "open" ? "Open" :
+                  status === "paused" ? "Paused" :
+                  status === "closed" ? "Closed" :
+                  "Upcoming";
 
                 return (
                   <CarouselItem key={event.id} className="pl-6 basis-full md:basis-1/2 lg:basis-1/3">
@@ -113,7 +120,7 @@ export default function EventCarousel() {
                         <div
                           className="trs-event-image"
                           style={{
-                            backgroundImage: `linear-gradient(rgb(196 43 43 / 20%), rgb(47 46 46 / 14%)), url(${bannerImage})`,
+                            backgroundImage: `linear-gradient(var(--overlay-primary-soft), var(--overlay-dark-medium)), url(${bannerImage})`,
                           }}
                         />
                         <span className="trs-event-status">{statusLabel}</span>

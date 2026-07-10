@@ -14,6 +14,8 @@ import { apiGetConfig, apiUpdateConfig } from "@/lib/api";
 export interface LiveConfig {
   appName:       string;
   logoUrl:       string;
+  logoLightUrl:  string;
+  logoDarkUrl:   string;
   heroTitle:     string;
   heroSubtitle:  string;
   heroImageUrl:  string;
@@ -38,7 +40,12 @@ interface LiveConfigState {
 }
 
 const EMPTY: LiveConfig = {
-  appName: "", logoUrl: "", heroTitle: "", heroSubtitle: "",
+  appName: "",
+  logoUrl: "",
+  logoLightUrl: "/images/app/logo_light_mode.png",
+  logoDarkUrl: "/images/app/logo_dark_mode.png",
+  heroTitle: "",
+  heroSubtitle: "",
   heroImageUrl: "", currency: "SGD", contactEmail: "",
   copyrightText: "", consentText: "",
   adEnabled: "true", adUrl: "", adImageUrl: "",
@@ -57,13 +64,13 @@ export const LiveConfigProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     apiGetConfig().then(r => {
-      if (r.data) setCfg(r.data);
+      if (r.data) setCfg({ ...EMPTY, ...r.data });
     }).finally(() => setLoading(false));
   }, []);
 
   const update = async (key: keyof LiveConfig, value: string) => {
     const r = await apiUpdateConfig({ [key]: value });
-    if (r.data) setCfg(r.data);
+    if (r.data) setCfg({ ...EMPTY, ...r.data });
     else setCfg(prev => ({ ...prev, [key]: value }));
   };
 

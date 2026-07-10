@@ -18,6 +18,7 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import { PageLoader } from "@/components/ui/LoadingSpinner";
 import { Switch } from "@/components/ui/switch";
+import { isValidPhoneInput, sanitizePhoneInput } from "@/lib/phoneInput";
 import ParticipantFieldsForm, {
   blankParticipantFormValues,
   validateParticipant,
@@ -181,7 +182,7 @@ function EventGallery({ images }: { images: string[] }) {
                   {images.map((_, i) => (
                     <button key={i} onClick={e => { e.stopPropagation(); setSwipeDir(i > lightboxIdx ? 1 : -1); setLightboxIdx(i); }}
                       className="w-1.5 h-1.5 rounded-full transition-all duration-200"
-                      style={{ backgroundColor: i === lightboxIdx ? "var(--color-primary)" : "rgba(255,255,255,0.35)" }}
+                      style={{ backgroundColor: i === lightboxIdx ? "var(--color-primary)" : "var(--lightbox-dot-inactive)" }}
                     />
                   ))}
                 </div>
@@ -392,6 +393,12 @@ export default function EventDetail() {
     if (safe.length > 0) return safe;
     return FALLBACK_BANNERS;
   }, [event]);
+
+  const registrationNoticeStyle = {
+    backgroundColor: "var(--color-row-hover)",
+    border: "1px solid var(--color-primary)",
+    color: "var(--color-primary)",
+  };
 
   const sectionNavItems = useMemo<EventSectionNavItem[]>(() => {
     if (!event) return [];
@@ -841,6 +848,7 @@ export default function EventDetail() {
       if (!contact.email.trim()) cErrs.email = "Required";
       else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)) cErrs.email = "Invalid email";
       if (!contact.phone.trim()) cErrs.phone = "Required";
+      else if (!isValidPhoneInput(contact.phone)) cErrs.phone = "Enter a valid contact number";
       if (Object.keys(cErrs).length) { setContactErrors(cErrs); return; }
     }
     setContactErrors({});
@@ -1034,20 +1042,6 @@ export default function EventDetail() {
                         ))}
                 </div>
               )}
-              {status === "upcoming" && (
-                <div className="p-4 text-sm" style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
-                  Registration opens on {formatDate(event.openDate)}
-                </div>
-              )}
-              {status === "paused" && (
-                <div className="p-4 text-sm" style={{ backgroundColor: "var(--feedback-warning-bg)", color: "var(--feedback-warning)" }}>Registration Paused</div>
-              )}
-              {status === "draft" && (
-                <div className="p-4 text-sm" style={{ backgroundColor: "var(--feedback-info-bg)", color: "var(--feedback-info)" }}>Registration is not available yet.</div>
-              )}
-              {status === "closed" && (
-                <div className="p-4 text-sm" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>Registration Closed</div>
-              )}
             </div>
           </div>
 
@@ -1083,6 +1077,26 @@ export default function EventDetail() {
           <h2 className="event-detail-section-heading font-bold text-xl mb-6">           
             {event.sportType.toLowerCase() === "badminton" ? "Event Categories" : "Programs"}
           </h2>
+          {status === "upcoming" && (
+            <div className="p-4 mb-6 text-sm" style={registrationNoticeStyle}>
+              {isAdminRegistrationMode
+                ? `Admin registration mode (Registration opens on ${formatDate(event.openDate)})`
+                : `Registration opens on ${formatDate(event.openDate)}`}
+            </div>
+          )}
+          {status === "paused" && (
+            <div className="p-4 mb-6 text-sm" style={registrationNoticeStyle}>
+              {isAdminRegistrationMode ? "Admin registration mode (Registration Paused)" : "Registration Paused"}
+            </div>
+          )}
+          {status === "draft" && (
+            <div className="p-4 mb-6 text-sm" style={registrationNoticeStyle}>Registration is not available yet.</div>
+          )}
+          {status === "closed" && (
+            <div className="p-4 mb-6 text-sm" style={registrationNoticeStyle}>
+              {isAdminRegistrationMode ? "Admin registration mode (Registration Closed)" : "Registration Closed"}
+            </div>
+          )}
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
             {event.programs.map((prog) => {
@@ -1139,11 +1153,6 @@ export default function EventDetail() {
           {canShowRegistration && (
             <div className="event-detail-registration section-anchor" id="registration" ref={registrationRef}>
               <div className="h-px mb-12" style={{ backgroundColor: "var(--color-table-border)" }} />
-              {isAdminRegistrationMode && (
-                <div className="p-4 mb-6 text-sm font-semibold" style={{ backgroundColor: "var(--feedback-info-bg)", color: "var(--feedback-info)" }}>
-                  Admin registration mode
-                </div>
-              )}
               <AnimatePresence mode="wait">
                 {step === 1 && !selectedProgram && (
                   <motion.div key="step1" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
@@ -1337,10 +1346,12 @@ export default function EventDetail() {
                                 Phone <span style={{ color: "var(--badge-open-text)" }}>*</span>
                               </label>
                               <input
+                                type="tel"
+                                inputMode="tel"
                                 className="field-input"
                                 placeholder="+65 9123 4567"
                                 value={contact.phone}
-                                onChange={e => { setContact(c => ({ ...c, phone: e.target.value })); setContactErrors(ce => ({ ...ce, phone: undefined })); }}
+                                onChange={e => { setContact(c => ({ ...c, phone: sanitizePhoneInput(e.target.value) })); setContactErrors(ce => ({ ...ce, phone: undefined })); }}
                               />
                               {contactErrors.phone && <p className="text-xs mt-1" style={{ color: "var(--badge-open-text)" }}>{contactErrors.phone}</p>}
                             </div>

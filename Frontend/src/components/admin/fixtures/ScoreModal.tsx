@@ -140,6 +140,10 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
     team.participants.length > 0 && team.participants.length <= 2
       ? team.participants.join(" / ")
       : team.label;
+  const sectionLabelClass = "text-xs font-bold uppercase tracking-wide";
+  const fieldLabelClass = "block text-xs font-semibold mb-1.5";
+  const secondaryTextStyle = { color: "var(--color-disabled-text)" };
+  const labelTextStyle = { color: "var(--color-body-text)" };
 
   const selectWinner = (side: "team1" | "team2") => {
     if (draft.walkover) return;
@@ -178,7 +182,7 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
 
           {/* ── Team panels ── */}
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">
+            <p className={`${sectionLabelClass} mb-3`} style={labelTextStyle}>
               {draft.walkover ? "Walkover — Select Winner" : "Select Winner — click a team"}
             </p>
             <div className="grid grid-cols-[1fr_48px_1fr] gap-0">
@@ -201,7 +205,7 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
                 style={{ border: "1px solid var(--color-table-border)", backgroundColor: hasDrawScore && draft.winner === null ? "var(--color-row-hover)" : "transparent" }}>
                 <div>
                   <p className="text-sm font-semibold">Draw</p>
-                  <p className="text-xs opacity-50">
+                  <p className="text-xs" style={secondaryTextStyle}>
                     {isKnockout ? "Knockout matches require a winner." : "For sports or formats where tied results are allowed."}
                   </p>
                 </div>
@@ -230,10 +234,10 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
 
           {/* ── Actual time ── */}
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">Actual Time</p>
+            <p className={`${sectionLabelClass} mb-3`} style={labelTextStyle}>Actual Time</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold mb-1.5 opacity-60">Start Time</label>
+                <label className={fieldLabelClass} style={labelTextStyle}>Start Time</label>
                 <input
                   ref={startTimeRef}
                   type="time"
@@ -244,7 +248,7 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold mb-1.5 opacity-60">End Time</label>
+                <label className={fieldLabelClass} style={labelTextStyle}>End Time</label>
                 <input
                   ref={endTimeRef}
                   type="time"
@@ -261,8 +265,8 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
           {!draft.walkover && (
             <div>
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-bold uppercase tracking-wide opacity-50">
-                  Game Scores <span className="font-normal opacity-60 normal-case">(required)</span>
+                <p className={sectionLabelClass} style={labelTextStyle}>
+                  Game Scores <span className="font-normal normal-case" style={secondaryTextStyle}>(required)</span>
                 </p>
                 <button onClick={addGame} className="flex items-center gap-1 text-xs font-medium"
                   style={{ color: "var(--color-primary)" }}>
@@ -272,14 +276,14 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
 
               <div className="grid grid-cols-[64px_1fr_28px_1fr_32px] gap-2 mb-1.5 px-0.5">
                 <span></span>
-                <span className="text-xs font-semibold opacity-60 truncate">{teamDisplayLabel(draft.team1)}</span>
+                <span className="text-xs font-semibold truncate" style={labelTextStyle}>{teamDisplayLabel(draft.team1)}</span>
                 <span></span>
-                <span className="text-xs font-semibold opacity-60 truncate">{teamDisplayLabel(draft.team2)}</span>
+                <span className="text-xs font-semibold truncate" style={labelTextStyle}>{teamDisplayLabel(draft.team2)}</span>
                 <span></span>
               </div>
               {draft.games.map((g, idx) => (
                 <div key={idx} className="grid grid-cols-[64px_1fr_28px_1fr_32px] gap-2 mb-2 items-center">
-                  <span className="text-xs opacity-40">Game {idx + 1}</span>
+                  <span className="text-xs font-semibold" style={labelTextStyle}>Game {idx + 1}</span>
                   <input type="number" min="0" className="field-input text-center font-bold"
                     value={g.p1} placeholder="0"
                     onChange={e => updateGame(idx, "p1", e.target.value)} />
@@ -308,7 +312,7 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
 
           {/* ── Remark ── */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wide opacity-50 mb-2">
+            <label className={`${sectionLabelClass} block mb-2`} style={labelTextStyle}>
               Remark
             </label>
             <textarea
@@ -321,21 +325,26 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
           {/* ── Officials ── */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-bold uppercase tracking-wide opacity-50">Officials</p>
+              <p className={sectionLabelClass} style={labelTextStyle}>Officials</p>
               <button onClick={addOfficial} className="flex items-center gap-1 text-xs font-medium"
                 style={{ color: "var(--color-primary)" }}>
                 <Plus className="h-3 w-3" /> Add Official
               </button>
             </div>
-            {draft.officials.length === 0 && <p className="text-xs opacity-30">None assigned.</p>}
+            {draft.officials.length === 0 && <p className="text-xs" style={secondaryTextStyle}>None assigned.</p>}
             {draft.officials.map((o, idx) => (
               <div key={o.id} className="flex gap-2 mb-2 items-center">
                 <div className="w-36 flex-shrink-0">
-                  <input className="field-input" list={`roles-${idx}`} placeholder="Role"
-                    value={o.role} onChange={e => updateOfficial(idx, "role", e.target.value)} />
-                  <datalist id={`roles-${idx}`}>
-                    {ROLE_SUGGESTIONS.map(r => <option key={r} value={r} />)}
-                  </datalist>
+                  <select className="field-input"
+                    style={{ color: "var(--color-body-text)", backgroundColor: "var(--field-input-bg)" }}
+                    value={o.role} onChange={e => updateOfficial(idx, "role", e.target.value)}>
+                    <option value="" style={{ color: "var(--color-body-text)", backgroundColor: "var(--color-page-bg)" }}>Role</option>
+                    {ROLE_SUGGESTIONS.map(r => (
+                      <option key={r} value={r} style={{ color: "var(--color-body-text)", backgroundColor: "var(--color-page-bg)" }}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <input className="field-input flex-1" placeholder="Full name"
                   value={o.name} onChange={e => updateOfficial(idx, "name", e.target.value)} />

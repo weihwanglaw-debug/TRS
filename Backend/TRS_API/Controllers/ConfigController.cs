@@ -17,7 +17,15 @@ public class ConfigController : ControllerBase
     public async Task<IActionResult> Get()
     {
         var rows = await _db.SystemConfigs.ToListAsync();
-        var dict = rows.ToDictionary(r => r.ConfigKey, r => r.ConfigValue);
+        var dict = new Dictionary<string, string>
+        {
+            ["logoLightUrl"] = "/images/app/logo_light_mode.png",
+            ["logoDarkUrl"] = "/images/app/logo_dark_mode.png",
+        };
+        foreach (var row in rows)
+        {
+            dict[row.ConfigKey] = row.ConfigValue;
+        }
         return Ok(dict);
     }
 

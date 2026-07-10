@@ -54,7 +54,13 @@ export async function apiGetSbaMember(sbaId: string, type?: string): Promise<Api
     headers: publicHeaders(),
   });
   if (!res.ok) return err("LOOKUP_FAILED", "SBA member lookup failed.");
-  return ok(await res.json());
+  if (res.status === 204) return ok(null);
+
+  try {
+    return ok(await res.json());
+  } catch {
+    return ok(null);
+  }
 }
 
 export async function apiSearchSbaMembers(name: string, type?: string): Promise<ApiResult<SbaMember[]>> {

@@ -290,6 +290,15 @@ public class FixtureGenerationService
         match.WalkoverWinner = "";
         match.Remark = "";
         match.Status = "Scheduled";
+
+        if (string.Equals(state.Format, "group_knockout", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(match.Phase, "group", StringComparison.OrdinalIgnoreCase) &&
+            state.Matches.Any())
+        {
+            state.Matches.Clear();
+            state.Phase = "group";
+        }
+
         state.Locked = IsLocked(state);
 
         await SaveStateAsync(loaded.Fixture!, state);

@@ -166,7 +166,7 @@ export default function SbaRankings() {
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6 md:p-10 max-w-screen-xl mx-auto">
+    <div>
 
       {/* ── Toast stack ── */}
       <ActionFeedbackDialog
@@ -178,14 +178,10 @@ export default function SbaRankings() {
       />
 
       {/* ── Header ── */}
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
-        <div>
-          <h1 className="font-heading font-bold text-2xl">SBA Rankings</h1>
-          <p className="text-sm opacity-50 mt-1">Import workbooks and browse ranking data by type or player.</p>
-          <p className="text-xs opacity-50 mt-1">List updated: {fmtDateTime(latestUpdatedAt)}</p>
-        </div>
-
-        {/* Import button */}
+      <div className="flex items-center justify-between mb-8">
+          <div className="admin-page-title" style={{ marginBottom: 0 }}>
+            <h1>SBA Rankings</h1>
+          </div>
         <label className={`btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-semibold cursor-pointer select-none ${importing ? "opacity-60 pointer-events-none" : ""}`}>
           {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
           {importing ? "Importing…" : "Import XLSX"}
@@ -234,11 +230,12 @@ export default function SbaRankings() {
       )}
 
       {/* ── Filters ── */}
-      <div className="flex flex-wrap gap-3 mb-5">
+      <div className="p-5 mb-6" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
+        <div className="grid grid-cols-1 md:flex md:flex-wrap items-end gap-4">
         {/* Ranking type filter */}
-        <div className="relative">
+        <FG label="Ranking Type">
           <select
-            className="field-input pr-8 min-w-[220px]"
+            className="field-input w-full md:w-56"
             value={filterType}
             onChange={e => { setFilterType(e.target.value); setSearch(""); }}
           >
@@ -247,12 +244,13 @@ export default function SbaRankings() {
               <option key={t.value} value={t.value}>{t.label}</option>
             ))}
           </select>
-        </div>
+        </FG>
 
         {/* Search */}
-        <div className="relative flex-1 min-w-[220px]">
+        <FG label="Search">
+        <div className="relative w-full md:w-80">
           <input
-            className="field-input pr-8 w-full"
+            className="field-input with-right-icon w-full"
             placeholder="Search SBA ID or player name…"
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -265,18 +263,20 @@ export default function SbaRankings() {
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 opacity-40 pointer-events-none" />
           )}
         </div>
+        </FG>
 
         {/* Result count */}
-        <div className="flex items-center text-sm opacity-50 whitespace-nowrap px-1">
+        <div className="flex items-center text-sm opacity-50 whitespace-nowrap px-1 pb-2">
           {loading ? "Loading…" : `${filtered.length.toLocaleString()} ${filtered.length === 1 ? "entry" : "entries"}`}
+        </div>
         </div>
       </div>
 
       {/* ── Grid ── */}
-      <div className="hidden md:block" style={{ border: "1px solid var(--color-table-border)", overflowX: "auto" }}>
-        <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
+      <div className="hidden md:block overflow-x-auto" style={{ border: "1px solid var(--color-table-border)" }}>
+        <table className="trs-table w-full">
           <thead>
-            <tr style={{ borderBottom: "2px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
+            <tr>
               <Th onClick={() => toggleSort("ranking")} sortable>
                 Rank <SortIcon k="ranking" />
               </Th>
@@ -310,22 +310,18 @@ export default function SbaRankings() {
                     : "No results match your filters."}
                 </td>
               </tr>
-            ) : filtered.map((r, idx) => {
+            ) : filtered.map((r) => {
               const isDoubles = !!r.player2;
               return (
-                <tr key={r.id}
-                  style={{
-                    borderBottom: "1px solid var(--color-table-border)",
-                    backgroundColor: idx % 2 === 0 ? "transparent" : "var(--color-row-hover)",
-                  }}>
+                <tr key={r.id}>
 
                   {/* Rank */}
-                  <td className="px-4 py-3 font-mono font-bold tabular-nums" style={{ width: 64 }}>
+                  <td className="font-mono font-bold tabular-nums" style={{ width: 64 }}>
                     #{r.ranking}
                   </td>
 
                   {/* Ranking Type */}
-                  <td className="px-4 py-3">
+                  <td>
                     <span className="inline-flex items-center gap-1.5">
                       {isDoubles
                         ? <Users className="h-3.5 w-3.5 opacity-50 flex-shrink-0" />
@@ -335,7 +331,7 @@ export default function SbaRankings() {
                   </td>
 
                   {/* Player(s) */}
-                  <td className="px-4 py-3">
+                  <td>
                     {isDoubles ? (
                       <div className="space-y-0.5">
                         <p className="font-medium leading-tight">{r.player1.name}</p>
@@ -347,7 +343,7 @@ export default function SbaRankings() {
                   </td>
 
                   {/* Date of Birth */}
-                  <td className="px-4 py-3 text-xs opacity-70 whitespace-nowrap">
+                  <td className="text-xs opacity-70 whitespace-nowrap">
                     {isDoubles ? (
                       <div className="space-y-0.5">
                         <p>{r.player1.dob || "—"}</p>
@@ -359,7 +355,7 @@ export default function SbaRankings() {
                   </td>
 
                   {/* SBA ID(s) */}
-                  <td className="px-4 py-3 font-mono text-xs">
+                  <td className="font-mono text-xs">
                     {isDoubles ? (
                       <div className="space-y-0.5">
                         <p>{r.player1.sbaId}</p>
@@ -371,7 +367,7 @@ export default function SbaRankings() {
                   </td>
 
                   {/* Club */}
-                  <td className="px-4 py-3 text-xs opacity-70">
+                  <td className="text-xs opacity-70">
                     {isDoubles ? (
                       <div className="space-y-0.5">
                         <p>{r.player1.club || "—"}</p>
@@ -383,13 +379,13 @@ export default function SbaRankings() {
                   </td>
 
                   {/* Score */}
-                  <td className="px-4 py-3 text-right font-mono tabular-nums font-semibold"
+                  <td className="text-right font-mono tabular-nums font-semibold"
                     style={{ color: "var(--color-primary)" }}>
                     {fmt(r.accumulatedScore)}
                   </td>
 
                   {/* Tournaments */}
-                  <td className="px-4 py-3 text-right tabular-nums text-xs opacity-70">
+                  <td className="text-right tabular-nums text-xs opacity-70">
                     {r.tournaments}
                   </td>
 
@@ -486,5 +482,14 @@ function Th({ children, onClick, sortable, right }: {
       style={{ opacity: 0.6 }}>
       {children}
     </th>
+  );
+}
+
+function FG({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-xs font-semibold mb-1.5 opacity-60">{label}</label>
+      {children}
+    </div>
   );
 }

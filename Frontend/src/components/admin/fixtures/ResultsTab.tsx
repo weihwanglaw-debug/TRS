@@ -10,6 +10,7 @@ import { Check, FileDown, Pencil, X } from "lucide-react";
 import type { BracketState, MatchEntry } from "@/types/config";
 import { exportFixtureRoundCsv } from "@/lib/exportCsv";
 import { getAllMatches } from "@/lib/fixtureEngine";
+import { GroupStandingsTable } from "./GroupStandingsTable";
 
 interface ScheduleFields {
   courtNo: string;
@@ -237,6 +238,7 @@ export function ResultsTab({ bracketState, eventName, programName, onOpenScore, 
   const all = getAllMatches(bracketState);
   const done = all.filter(isResolvedMatch);
   const isGroupStage = bracketState.phase === "group" && bracketState.groups.length > 0;
+  const isRoundRobin = bracketState.format === "round_robin";
   const groupSections = useMemo(() => bracketState.groups.map(group => ({
     key: group.id,
     label: group.name,
@@ -328,7 +330,28 @@ export function ResultsTab({ bracketState, eventName, programName, onOpenScore, 
 
       {all.length === 0 ? (
         <p className="text-center py-12 text-sm opacity-40">No matches generated yet.</p>
-      ) : isGroupStage ? (
+      ) : (
+        <>
+          {isRoundRobin && bracketState.groups.length > 0 && (
+            <div className="mb-6">
+              <p className="text-xs font-bold uppercase tracking-wide mb-3"
+                style={{ color: "var(--color-body-text)" }}>
+                Current Standings
+              </p>
+              <div className="space-y-4">
+                {bracketState.groups.map(group => (
+                  <GroupStandingsTable
+                    key={group.id}
+                    group={group}
+                    advancePerGroup={bracketState.config.advancePerGroup ?? group.teams.length}
+                    standingPoints={bracketState.config.standingPoints}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isGroupStage ? (
         <div className="space-y-5">
           {groupSections.map(section => {
             const sectionDone = section.matches.filter(isResolvedMatch).length;
@@ -353,6 +376,8 @@ export function ResultsTab({ bracketState, eventName, programName, onOpenScore, 
           </div>
           {renderTable(visibleMatches)}
         </div>
+          )}
+        </>
       )}
     </div>
   );

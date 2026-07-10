@@ -3,6 +3,7 @@ import { Plus, Edit2, Key, Trash2, Eye, EyeOff, Check, MoreVertical } from "luci
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
+import { PageLoader } from "@/components/ui/LoadingSpinner";
 import {
   apiGetUsers, apiCreateUser, apiUpdateUser,
   apiDeleteUser, apiResetUserPassword,
@@ -121,9 +122,7 @@ export default function UserManagement() {
   const roleLabel = (r: string) => r === "superadmin" ? "Super Admin" : "Event Admin";
   const roleBadge = (r: string) => ({ bg: r === "superadmin" ? "var(--color-primary)" : "var(--badge-soon-bg)", text: r === "superadmin" ? "var(--color-hero-text)" : "var(--badge-soon-text)" });
 
-  if (loading) return (
-    <div className="flex items-center justify-center py-20 opacity-40 text-sm">Loading users…</div>
-  );
+  if (loading) return <PageLoader label="Loading users..." />;
 
   return (
     <div>

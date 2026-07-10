@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useLiveConfig } from "@/contexts/LiveConfigContext";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, CalendarDays, Users, GitBranch, ListOrdered,
@@ -11,6 +12,7 @@ import {
 export default function AdminLayout() {
   const { isAuthenticated, user, logout, mustChangePassword } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { cfg } = useLiveConfig();
   const navigate = useNavigate();
   const isSuperAdmin = user?.role === "superadmin";
   const [collapsed, setCollapsed] = useState(true);
@@ -41,6 +43,7 @@ export default function AdminLayout() {
 
   const expanded = !collapsed || hovered;
   const sidebarWidth = expanded ? "w-60" : "w-16";
+  const adminLogoUrl = cfg.logoDarkUrl || cfg.logoUrl;
 
   return (
     <div className="flex min-h-screen">
@@ -50,10 +53,14 @@ export default function AdminLayout() {
         onMouseEnter={() => collapsed && setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        <div className="flex items-center justify-between px-3 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+        <div className="flex items-center justify-between px-3 py-4" style={{ borderBottom: "1px solid var(--admin-header-border)" }}>
           {expanded && (
             <div className="flex items-center gap-2 px-1">
-              <Trophy className="h-5 w-5 flex-shrink-0" />
+              {adminLogoUrl ? (
+                <img src={adminLogoUrl} alt={cfg.appName || "Admin"} className="h-9 w-9 flex-shrink-0 object-contain" />
+              ) : (
+                <Trophy className="h-5 w-5 flex-shrink-0" />
+              )}
               <span className="font-bold text-sm whitespace-nowrap">Admin Panel</span>
             </div>
           )}

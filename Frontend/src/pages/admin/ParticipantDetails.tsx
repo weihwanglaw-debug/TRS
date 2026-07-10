@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { Loader2, Save, Search } from "lucide-react";
+import { Save, Search } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -21,6 +21,7 @@ import ParticipantFieldsForm, {
   ParticipantFormValues,
   validateParticipant, buildDobString, parseDobString,
 } from "@/components/registration/ParticipantFieldsForm";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
 // Types
 
@@ -422,17 +423,17 @@ export default function ParticipantDetails() {
 
   return (
     <div>
-      <div className="sticky-header">
-        <div className="admin-page-title"><h1>Participant Details</h1></div>
+      <div className="flex items-center justify-between mb-8">
+        <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>Participant Details</h1></div>
       </div>
 
       {/* Filters */}
-      <div className="p-4 mb-5"
+      <div className="p-5 mb-6"
         style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4">
           <FG label="Search">
             <div className="relative">
-              <input className="field-input w-48 pr-8" placeholder="Name, SBA ID..."
+              <input className="field-input with-right-icon w-48" placeholder="Name, SBA ID..."
                 value={filterSearch} onChange={e => setFilterSearch(e.target.value)} />
               {filterSearch && (
                 <button onClick={() => setFilterSearch("")}
@@ -474,9 +475,7 @@ export default function ParticipantDetails() {
 
       {/* Table */}
       {loading ? (
-        <div className="flex items-center justify-center py-20 gap-2 opacity-40 text-sm">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading participants...
-        </div>
+        <LoadingSpinner size="sm" label="Loading participants..." />
       ) : error ? (
         <div className="py-16 text-center text-sm opacity-60">{error}</div>
       ) : visibleEntries.length === 0 ? (

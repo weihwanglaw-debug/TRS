@@ -186,7 +186,7 @@ export interface ConfigEntry {
 }
 
 export interface Config {
-  branding: { logoUrl: string; appName: string };
+  branding: { logoUrl: string; logoLightUrl?: string; logoDarkUrl?: string; appName: string };
   hero: { title: string; subtitle: string };
   nav: { menuItems: { label: string; href: string }[] };
   footer: {

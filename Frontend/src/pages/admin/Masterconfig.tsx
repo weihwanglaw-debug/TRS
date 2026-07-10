@@ -3,6 +3,7 @@ import { Check, Edit2, X } from "lucide-react";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
 import type { LiveConfig } from "@/contexts/LiveConfigContext";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
+import AdminTabs from "@/components/admin/AdminTabs";
 
 export type { LiveConfig };
 
@@ -15,7 +16,9 @@ interface ConfigRow {
 
 const CONFIG_ROWS: ConfigRow[] = [
   { id: "appName",       group: "Branding",   label: "Application Name",                          type: "text"     },
-  { id: "logoUrl",       group: "Branding",   label: "Logo URL",                                  type: "url"      },
+  { id: "logoLightUrl",  group: "Branding",   label: "Logo URL (Light Background)",                type: "url"      },
+  { id: "logoDarkUrl",   group: "Branding",   label: "Logo URL (Dark Background)",                 type: "url"      },
+  { id: "logoUrl",       group: "Branding",   label: "Legacy Logo URL",                           type: "url"      },
   { id: "heroTitle",     group: "Hero",       label: "Hero Title",                                type: "text"     },
   { id: "heroSubtitle",  group: "Hero",       label: "Hero Subtitle",                             type: "textarea" },
   { id: "heroImageUrl",  group: "Hero",       label: "Hero Background Image URL",                 type: "url"      },
@@ -33,6 +36,7 @@ const CONFIG_ROWS: ConfigRow[] = [
 ];
 
 const GROUPS = ["All", "Branding", "Hero", "Payment", "Footer", "Consent", "Ad Banner"];
+const GROUP_TABS = GROUPS.map(group => ({ key: group, label: group }));
 
 export default function MasterConfig() {
   const { cfg, update } = useLiveConfig();
@@ -86,24 +90,9 @@ export default function MasterConfig() {
         onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
       />
       <div className="admin-page-title"><h1>Master Configuration</h1></div>
-      <p className="text-xs opacity-50 mb-8 -mt-4">
-        Changes are saved immediately via the API.
-      </p>
+  
 
-      {/* Group filter tabs */}
-      <div className="flex flex-wrap gap-0 mb-8 overflow-x-auto" style={{ borderBottom: "2px solid var(--color-table-border)" }}>
-        {GROUPS.map(g => (
-          <button key={g} onClick={() => setActiveGroup(g)}
-            className="px-5 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap"
-            style={{
-              color: activeGroup === g ? "var(--color-primary)" : "var(--color-body-text)",
-              borderBottom: activeGroup === g ? "2px solid var(--color-primary)" : "2px solid transparent",
-              marginBottom: "-2px",
-            }}>
-            {g}
-          </button>
-        ))}
-      </div>
+      <AdminTabs tabs={GROUP_TABS} activeKey={activeGroup} onChange={setActiveGroup} />
 
       <div className="space-y-8">
         {Object.entries(byGroup).map(([group, groupRows]) => (

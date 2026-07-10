@@ -40,6 +40,8 @@ import { HeatsTab }    from "@/components/admin/fixtures/HeatsTab";
 import { FG }          from "@/components/admin/fixtures/shared";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
+import AdminTabs from "@/components/admin/AdminTabs";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -92,6 +94,16 @@ function hasEnteredResult(m: MatchEntry) {
     m.walkover === true ||
     walkoverWinner !== "" ||
     games.some(g => (g.p1 ?? "") !== "" || (g.p2 ?? "") !== "");
+}
+
+function fixtureFormatLabel(format?: string) {
+  switch ((format ?? "").toLowerCase()) {
+    case "knockout": return "Knockout";
+    case "group_knockout": return "Group + Knockout";
+    case "round_robin": return "Round Robin";
+    case "heats": return "Heats";
+    default: return "Not generated";
+  }
 }
 
 // ── External seeding panel ────────────────────────────────────────────────────
@@ -647,7 +659,7 @@ export default function AdminFixtures() {
   return (
     <div className="print:p-0">
       {loading && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9998, backgroundColor: "rgba(0,0,0,.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 9998, backgroundColor: "var(--overlay-backdrop-soft)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)", padding: "16px 24px", display: "flex", alignItems: "center", gap: 10, fontSize: 13, fontWeight: 600 }}>
             <Loader2 className="h-4 w-4 animate-spin" style={{ color: "var(--color-primary)" }} />
             Processing…
@@ -661,7 +673,9 @@ export default function AdminFixtures() {
         description={feedback.description}
         onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
       />
-      <div className="admin-page-title print:hidden"><h1>Fixture Management</h1></div>
+      <div className="flex items-center justify-between mb-8 print:hidden">
+        <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>Fixture Management</h1></div>
+      </div>
 
       {/* ════════════════════════════════════════════════════════════════════
           PROGRAM LIST
@@ -669,13 +683,13 @@ export default function AdminFixtures() {
       {!selRow && (
         <div className="print:hidden">
           {/* Filter bar */}
-          <div className="flex flex-wrap items-end gap-3 p-4 mb-4"
+          <div className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4 p-5 mb-6"
             style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
             <div className="flex-1 min-w-48">
               <label className="block text-xs font-semibold mb-1.5 opacity-60">Search</label>
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 opacity-40" />
-                <input className="field-input pl-8 w-full" placeholder="Event or program name…"
+                <input className="field-input with-left-icon w-full" placeholder="Event or program name…"
                   value={filterName} onChange={e => setFilterName(e.target.value)} />
               </div>
             </div>
@@ -832,11 +846,17 @@ export default function AdminFixtures() {
                     {selRow.mode === "internal" ? "Internal" : selRow.mode === "external" ? "External" : "Not Required"}
                   </span>
                   <span className="opacity-50">{selRow.sportType}</span>
-                  <span className="opacity-30">·</span>
-                  <span className="opacity-50">{selRow.startDate} → {selRow.endDate}</span>
-                  <span className="opacity-30">·</span>
+                  <span className="opacity-30">/</span>
+                  <span className="opacity-50">{selRow.startDate} to {selRow.endDate}</span>
+                  <span className="opacity-30">/</span>
                   <span className="opacity-50">{selRowParticipants.length} entries</span>
                 </div>
+                {bracketState && (
+                  <div className="mt-3 text-xs font-semibold uppercase tracking-wide"
+                    style={{ color: "var(--color-body-text)" }}>
+                    Fixture type: {fixtureFormatLabel(bracketState.format)}
+                  </div>
+                )}
               </div>
               <div className="flex flex-wrap gap-2">
                 <button onClick={selRow.mode === "external"
@@ -883,7 +903,7 @@ export default function AdminFixtures() {
                   style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
                   <p className="text-sm opacity-50">No fixture generated for this program.</p>
                   {loadingParticipants ? (
-                    <p className="text-xs opacity-30">Loading registered entries...</p>
+                    <LoadingSpinner size="sm" label="Loading registered entries..." />
                   ) : selRowParticipants.length >= 2
                     ? <button onClick={() => setShowWizard(true)} className="btn-primary px-6 py-2.5 text-sm font-semibold">Generate Fixture →</button>
                     : <p className="text-xs opacity-30">Need at least 2 registered entries.</p>}
@@ -906,14 +926,7 @@ export default function AdminFixtures() {
               {/* Fixture tabs */}
               {bracketState && (
                 <>
-                  <div className="tab-bar mb-6 print:hidden">
-                    {tabs.map(t => (
-                      <button key={t.key} onClick={() => setActiveTab(t.key)}
-                        className={`tab-btn ${activeTab === t.key ? "active" : ""}`}>
-                        {t.label}
-                      </button>
-                    ))}
-                  </div>
+                  <AdminTabs<Tab> tabs={tabs} activeKey={activeTab} onChange={setActiveTab} className="print:hidden" />
 
                   {showResetLatestRound && (
                     <div className="mb-5 p-4 flex flex-wrap items-center justify-between gap-3 print:hidden"

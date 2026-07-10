@@ -11,22 +11,6 @@ export function FG({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-export function TabBtn({ active, onClick, children }: {
-  active: boolean; onClick: () => void; children: React.ReactNode;
-}) {
-  return (
-    <button onClick={onClick}
-      className="px-5 py-2.5 text-sm font-semibold whitespace-nowrap flex-shrink-0"
-      style={{
-        borderBottom: active ? "2px solid var(--color-primary)" : "2px solid transparent",
-        color: active ? "var(--color-primary)" : "var(--color-body-text)",
-        marginBottom: "-2px",
-      }}>
-      {children}
-    </button>
-  );
-}
-
 export function StepCard({ n, title, description, children }: {
   n: number; title: string; description?: string; children: React.ReactNode;
 }) {

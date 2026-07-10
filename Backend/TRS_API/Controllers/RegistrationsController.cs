@@ -48,6 +48,7 @@ public class RegistrationsController : ControllerBase
         [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
         var q = _db.EventRegistrations
+            .Include(r => r.Event)
             .Include(r => r.ParticipantGroups).ThenInclude(g => g.Participants).ThenInclude(p => p.CustomFieldValues)
             .Include(r => r.Payments).ThenInclude(p => p.Items)
             .AsQueryable();
@@ -415,6 +416,7 @@ public class RegistrationsController : ControllerBase
     public async Task<IActionResult> Export([FromQuery] int? eventId, [FromQuery] int? programId)
     {
         var q = _db.EventRegistrations
+            .Include(r => r.Event)
             .Include(r => r.ParticipantGroups).ThenInclude(g => g.Participants).ThenInclude(p => p.CustomFieldValues)
             .Include(r => r.Payments).ThenInclude(p => p.Items)
             .AsQueryable();
@@ -702,6 +704,7 @@ public class RegistrationsController : ControllerBase
     // -- Load helper ----------------------------------------------------------
     private Task<EventRegistration?> LoadReg(int id) =>
         _db.EventRegistrations
+            .Include(r => r.Event)
             .Include(r => r.ParticipantGroups).ThenInclude(g => g.Participants)
             .ThenInclude(p => p.CustomFieldValues)
             .Include(r => r.Payments).ThenInclude(p => p.Items)
@@ -709,6 +712,7 @@ public class RegistrationsController : ControllerBase
 
     private Task<EventRegistration?> LoadCancellationRegistration(int id) =>
         _db.EventRegistrations
+            .Include(r => r.Event)
             .Include(r => r.ParticipantGroups).ThenInclude(g => g.Participants)
             .Include(r => r.Payments).ThenInclude(p => p.Items)
             .FirstOrDefaultAsync(r => r.RegistrationId == id);
@@ -831,14 +835,16 @@ public class RegistrationsController : ControllerBase
             }
         }
 
-        if (participant != null)
+        var cancellationCanProceed = !shouldRefund || errors.Count == 0;
+
+        if (cancellationCanProceed && participant != null)
         {
             participant.ParticipantStatus = "Cancelled";
             participant.UpdatedAt = DateTime.UtcNow;
             if (participant.Group.Participants.All(p => p.ParticipantStatus == "Cancelled"))
                 CancelGroupOnly(participant.Group);
         }
-        else
+        else if (cancellationCanProceed)
         {
             foreach (var group in groups)
                 CancelGroupOnly(group);
@@ -1263,7 +1269,8 @@ public class RegistrationsController : ControllerBase
         {
             id = r.RegistrationId.ToString(),
             eventId = r.EventId.ToString(),
-            eventName = r.EventName,
+            eventName = r.Event?.Name ?? r.EventName,
+            snapshotEventName = r.EventName,
             submittedAt = r.SubmittedAt,
             regStatus = r.RegStatus,
             contactName = r.ContactName,

@@ -28,7 +28,8 @@ import { totalFee, PAYMENT_STATUS_LABEL, PAYMENT_METHOD_LABEL } from "@/types/re
 import {
   apiGetEvents, apiGetRegistration, apiGetRegistrations,
   apiUpdatePayment,
-  apiGetRefunds, apiGetPaymentAudit, apiInitiateRefund, apiCancelRegistration, apiConfirmRegistration, assetUrl,
+  apiGetRefunds, apiGetPaymentAudit, apiCancelRegistration, apiCancelRegistrationGroup,
+  apiCancelRegistrationParticipant, apiConfirmRegistration, assetUrl,
 } from "@/lib/api";
 import type { CancellationRefundMode } from "@/lib/api/registrationsApi";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -945,23 +946,51 @@ export default function AdminRegistrations() {
     }
   };
 
-  // Refund: check if removing a per-player item would drop group below minPlayers
-  const getGroupMinPlayersWarning = (reg: Registration, itemId: string): string | null => {
+  const getActiveRefundableItemIds = (reg: Registration): string[] => {
     const payment = getPayment(reg);
-    const item = payment?.items.find(i => i.id === itemId);
-    if (!item?.participantId) return null;
-    const group = reg.groups.find(g => g.id === item.participantGroupId);
-    if (!group) return null;
-    const eventProgram = events.flatMap(e => e.programs).find(p => p.id === group.programId);
-    if (!eventProgram) return null;
-    const activeItems = (payment?.items ?? []).filter(
-      i => i.participantGroupId === group.id && i.participantId && i.itemStatus !== "R" && i.id !== itemId
-    );
-    const remainingPlayers = activeItems.length;
-    if (remainingPlayers < eventProgram.minPlayers) {
-      return `Removing this participant leaves ${remainingPlayers} — below the minimum of ${eventProgram.minPlayers}. Cancel the entire entry instead.`;
+    if (!payment) return [];
+    const refunds = refundsByReg[reg.id] ?? [];
+    return refundableItems(payment, refunds).map(item => item.id);
+  };
+
+  const isLastActiveRefundItem = (reg: Registration, itemId: string): boolean =>
+    getActiveRefundableItemIds(reg).length === 1 &&
+    getActiveRefundableItemIds(reg)[0] === itemId;
+
+  const getRefundScopeWarning = (reg: Registration, itemId: string): string | null => {
+    if (isLastActiveRefundItem(reg, itemId)) {
+      return "This is the only active paid item in the registration. Refunding it will also cancel the registration.";
     }
     return null;
+  };
+
+  const refundItemWithScopeCancellation = async (
+    reg: Registration,
+    item: PaymentItem,
+    reason: string,
+  ) => {
+    const cancelOptions = refundSource === "External"
+      ? {
+          refundSource: "External" as const,
+          refundMethod,
+          refundReference,
+          adminNote: refundAdminNote,
+        }
+      : undefined;
+
+    if (isLastActiveRefundItem(reg, item.id)) {
+      return apiCancelRegistration(reg.id, reason, "refundPaidItems", cancelOptions);
+    }
+
+    if (item.participantId) {
+      return apiCancelRegistrationParticipant(reg.id, item.participantId, reason, "refundPaidItems", cancelOptions);
+    }
+
+    if (item.participantGroupId) {
+      return apiCancelRegistrationGroup(reg.id, item.participantGroupId, reason, "refundPaidItems", cancelOptions);
+    }
+
+    return apiCancelRegistration(reg.id, reason, "refundPaidItems", cancelOptions);
   };
 
   const handleRefund = async () => {
@@ -977,25 +1006,13 @@ export default function AdminRegistrations() {
       const refundErrors: string[] = [];
       for (const [itemId, sel] of Object.entries(refundSel)) {
         if (!sel.checked || !sel.reason.trim()) continue;
-        if (getGroupMinPlayersWarning(refundModal, itemId)) continue;
         const item = payment.items.find(i => i.id === itemId);
         if (!item) continue;
-        const refundResult = await apiInitiateRefund(
-          refundModal.id,
-          itemId,
-          item.amount,
-          sel.reason,
-          "admin",
-          refundSource === "External"
-            ? {
-                refundSource: "External",
-                refundMethod,
-                refundReference,
-                adminNote: refundAdminNote,
-              }
-            : undefined,
-        );
+        const refundResult = await refundItemWithScopeCancellation(refundModal, item, sel.reason);
         if (refundResult.error) refundErrors.push(`${item.programName}: ${refundResult.error.message}`);
+        if (refundResult.data?.errors?.length) {
+          refundErrors.push(...refundResult.data.errors.map(error => `${item.programName}: ${error}`));
+        }
       }
       const [regR, refR] = await Promise.all([
         apiGetRegistration(refundModal.id),
@@ -1059,15 +1076,15 @@ export default function AdminRegistrations() {
           }
         }}
       />
-      <div className="sticky-header">
-        <div className="admin-page-title"><h1>Registrations &amp; Payments</h1></div>
+      <div className="flex items-center justify-between mb-8">
+        <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>Registrations &amp; Payments</h1></div>
       </div>
 
       {/* ══════════ REGISTRATIONS ══════════ */}
       <>
         {/* Filters */}
-        <div className="p-4 mb-5" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
-          <div className="flex flex-wrap items-end gap-3">
+        <div className="p-5 mb-6" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
+          <div className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4">
             <FG label="Search">
               <input className="field-input w-52" placeholder="Name, ID, club…"
                 value={filterSearchInput} onChange={e => setFilterSearchInput(e.target.value)} />
@@ -1506,7 +1523,7 @@ export default function AdminRegistrations() {
               const existingRefund  = (refundModal ? (refundsByReg[refundModal.id] ?? []) : [])
                 .find(r => r.paymentItemId === item.id && r.refundStatus === "S");
               const warning = refundModal && refundSel[item.id]?.checked
-                ? getGroupMinPlayersWarning(refundModal, item.id) : null;
+                ? getRefundScopeWarning(refundModal, item.id) : null;
               const isPerPlayer = !!item.participantId;
               return (
                 <div key={item.id} className="p-4 space-y-3"
@@ -1539,11 +1556,11 @@ export default function AdminRegistrations() {
                   </label>
                   {warning && (
                     <div className="flex items-start gap-2 p-3 text-xs font-medium"
-                      style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
-                      ⚠ {warning}
+                      style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
+                      <span>!</span> {warning}
                     </div>
                   )}
-                  {refundSel[item.id]?.checked && !warning && (
+                  {refundSel[item.id]?.checked && (
                     <input className="field-input" placeholder="Reason *"
                       value={refundSel[item.id]?.reason ?? ""}
                       onChange={e => setRefundSel(p => ({ ...p, [item.id]: { ...p[item.id], reason: e.target.value } }))} />
@@ -1557,7 +1574,6 @@ export default function AdminRegistrations() {
             <button onClick={handleRefund}
               disabled={!Object.entries(refundSel).some(([id, s]) => {
                 if (!s.checked || !s.reason.trim()) return false;
-                if (refundModal && getGroupMinPlayersWarning(refundModal, id)) return false;
                 return true;
               }) || savingRefund}
               className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">

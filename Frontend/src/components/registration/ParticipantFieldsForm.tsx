@@ -24,6 +24,7 @@ import type { Program, CustomField, ProgramFields, BadmintonClub } from "@/types
 import { CheckCircle, XCircle, Paperclip } from "lucide-react";
 import { apiGetBadmintonClubs, assetUrl } from "@/lib/api";
 import { singaporeDateKey } from "@/lib/eventUtils";
+import { isValidPhoneInput, sanitizePhoneInput } from "@/lib/phoneInput";
 
 // ── Constants (shared with both consumers) ────────────────────────────────────
 
@@ -111,6 +112,7 @@ export function validateParticipant(
   if (!v.email.trim())             errs.email    = "Required";
   else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) errs.email = "Invalid email";
   if (!v.contactNumber.trim())     errs.contactNumber = "Required";
+  else if (!isValidPhoneInput(v.contactNumber)) errs.contactNumber = "Enter a valid contact number";
   if (!v.nationality.trim())       errs.nationality   = "Required";
   if (!v.clubSchoolCompany.trim()) errs.clubSchoolCompany = "Required";
 
@@ -173,6 +175,8 @@ export function validateParticipant(
     if (!v.guardianName?.trim())    errs.guardianName    = "Required";
     if (!v.guardianContact?.trim()) errs.guardianContact = "Required";
   }
+  if (v.guardianContact?.trim() && !isValidPhoneInput(v.guardianContact))
+    errs.guardianContact = "Enter a valid contact number";
   if (program.fields.enableSbaId && program.fields.requireSbaId && !v.sbaId?.trim())
     errs.sbaId = "Required";
   if (program.fields.enableDocumentUpload && program.fields.requireDocumentUpload && !v.documentFile)
@@ -527,9 +531,9 @@ export default function ParticipantFieldsForm({
 
       {/* ── Contact Number ── */}
       <FieldWrapper label="Contact Number *" error={errors.contactNumber}>
-        <input className="field-input" value={values.contactNumber}
+        <input type="tel" inputMode="tel" className="field-input" value={values.contactNumber}
           disabled={disabled}
-          onChange={e => set({ contactNumber: e.target.value })} />
+          onChange={e => set({ contactNumber: sanitizePhoneInput(e.target.value) })} />
       </FieldWrapper>
 
       {/* ── Nationality ── */}
@@ -617,9 +621,9 @@ export default function ParticipantFieldsForm({
               onChange={e => set({ guardianName: e.target.value })} />
           </FieldWrapper>
           <FieldWrapper label={`Guardian Contact Number${programFields.requireGuardianInfo ? " *" : ""}`} error={errors.guardianContact}>
-            <input className="field-input" value={values.guardianContact ?? ''}
+            <input type="tel" inputMode="tel" className="field-input" value={values.guardianContact ?? ''}
               disabled={disabled}
-              onChange={e => set({ guardianContact: e.target.value })} />
+              onChange={e => set({ guardianContact: sanitizePhoneInput(e.target.value) })} />
           </FieldWrapper>
         </>
       )}

@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Info, X } from "lucide-react";
+import { AlertTriangle, Check, CircleHelp, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   Dialog,
@@ -23,7 +23,7 @@ const variantConfig: Record<ActionFeedbackVariant, { color: string; bg: string; 
   success: { color: "var(--feedback-success)", bg: "var(--feedback-success-bg)", Icon: Check },
   error: { color: "var(--feedback-error)", bg: "var(--feedback-error-bg)", Icon: X },
   warning: { color: "var(--feedback-warning)", bg: "var(--feedback-warning-bg)", Icon: AlertTriangle },
-  info: { color: "var(--feedback-info)", bg: "var(--feedback-info-bg)", Icon: Info },
+  info: { color: "var(--feedback-info)", bg: "var(--feedback-info-bg)", Icon: CircleHelp },
 };
 
 export function ActionFeedbackDialog({

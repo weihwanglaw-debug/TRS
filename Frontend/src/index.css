@@ -7,6 +7,7 @@
   --color-hero-bg: #2b3a4a;
   --color-hero-text: #f0f4f8;
   --color-primary: #e8694a;
+  --color-primary-rgb: 232 105 74;
   --color-primary-hover: #d4583a;
   --color-page-bg: #e8eaec;
   --color-heading: #2b3a4a;
@@ -23,14 +24,25 @@
   --badge-soon-text: #c05621;
   --badge-closed-bg: #e2e8f0;
   --badge-closed-text: #718096;
-  --feedback-success: var(--color-primary); 
-  --feedback-success-bg: #dcece2;
-  --feedback-error: var(--badge-open-text);
-  --feedback-error-bg: #fed7d7;   /* same as --badge-open-bg */
-  --feedback-warning: #e99400;    /* sits between --badge-soon-text and --color-primary */
-  --feedback-warning-bg: #f7e3c9;
-  --feedback-info: var(--color-primary);      /* derived from --color-hero-bg, lightened for text use */
-  --feedback-info-bg: #dde4ea;    /* cool tint echoing --color-page-bg */
+  --feedback-success: var(--color-primary);
+  --feedback-success-bg: var(--color-row-hover);
+  --feedback-error: var(--color-primary);
+  --feedback-error-bg: var(--color-row-hover);
+  --feedback-warning: var(--color-primary);
+  --feedback-warning-bg: var(--color-row-hover);
+  --feedback-info: var(--color-primary);
+  --feedback-info-bg: var(--color-row-hover);
+  --payment-provider-primary: var(--color-primary);
+  --overlay-backdrop-soft: rgb(0 0 0 / 20%);
+  --overlay-light-soft: rgb(250 250 250 / 12%);
+  --overlay-dark-soft: rgb(47 46 46 / 8%);
+  --overlay-dark-medium: rgb(47 46 46 / 14%);
+  --overlay-primary-soft: rgb(var(--color-primary-rgb) / 20%);
+  --admin-header-border: rgb(255 255 255 / 10%);
+  --lightbox-dot-inactive: rgb(255 255 255 / 35%);
+  --spinner-contrast-border: rgb(255 255 255 / 30%);
+  --winner-score-bg: rgb(0 0 0 / 22%);
+  --shadow-header: 0 2px 12px rgb(0 0 0 / 15%);
 
   /* shadcn mapping */
   --background: 216 33% 97%;
@@ -69,6 +81,7 @@
   --color-hero-bg: linear-gradient(135deg, #0f0f10, #1a1a1e);
   --color-hero-text: #fafafa;
   --color-primary: #f43f5e;
+  --color-primary-rgb: 244 63 94;
   --color-primary-hover: #e02d4b;
   --color-page-bg: #141417;
   --color-heading: #fb7185;
@@ -85,17 +98,25 @@
   --badge-soon-text: #fbbf24;
   --badge-closed-bg: rgba(255,255,255,0.05);
   --badge-closed-text: #52525b;
---feedback-success: #6ee7b7;
---feedback-success-bg: rgba(110, 231, 183, 0.14);
-
---feedback-error: var(--badge-open-text);
---feedback-error-bg: var(--badge-open-bg);
-
---feedback-warning: #fbbf24;
---feedback-warning-bg: rgba(251, 191, 36, 0.13);
-
---feedback-info: #93b4d8;
---feedback-info-bg: rgba(147, 180, 216, 0.14);
+  --feedback-success: var(--color-primary);
+  --feedback-success-bg: var(--color-row-hover);
+  --feedback-error: var(--color-primary);
+  --feedback-error-bg: var(--color-row-hover);
+  --feedback-warning: var(--color-primary);
+  --feedback-warning-bg: var(--color-row-hover);
+  --feedback-info: var(--color-primary);
+  --feedback-info-bg: var(--color-row-hover);
+  --payment-provider-primary: var(--color-primary);
+  --overlay-backdrop-soft: rgb(0 0 0 / 20%);
+  --overlay-light-soft: rgb(250 250 250 / 12%);
+  --overlay-dark-soft: rgb(47 46 46 / 8%);
+  --overlay-dark-medium: rgb(47 46 46 / 14%);
+  --overlay-primary-soft: rgb(var(--color-primary-rgb) / 20%);
+  --admin-header-border: rgb(255 255 255 / 10%);
+  --lightbox-dot-inactive: rgb(255 255 255 / 35%);
+  --spinner-contrast-border: rgb(255 255 255 / 30%);
+  --winner-score-bg: rgb(0 0 0 / 22%);
+  --shadow-header: 0 2px 12px rgb(0 0 0 / 15%);
 
   /* shadcn mapping */
   --background: 240 7% 8%;
@@ -247,6 +268,12 @@
 .field-input::placeholder {
   color: var(--color-body-text);
   opacity: 0.4;
+}
+.field-input.with-left-icon {
+  padding-left: 2.5rem;
+}
+.field-input.with-right-icon {
+  padding-right: 2.5rem;
 }
 
 .registration-form-label {
@@ -1624,15 +1651,11 @@
 .trs-table tbody tr:hover td {
   color: var(--color-body-text);
 }
-/* Left accent border on hover */
-.trs-table tbody tr {
-  border-left: 3px solid transparent;
-}
 .trs-table tbody tr:nth-child(even) {
   background-color: var(--color-row-stripe);
 }
 .trs-table tbody tr:hover {
-  border-left-color: var(--color-primary);
+  box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
 /* Sticky section headers in admin */
@@ -1652,15 +1675,10 @@
   display: flex;
   gap: 0;
   border-bottom: 2px solid var(--color-table-border);
-  overflow-x: auto;
-  overflow-y: visible;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  flex-wrap: nowrap;
-  margin-bottom: 0;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
   position: relative;
 }
-.tab-bar::-webkit-scrollbar { display: none; }
 .tab-btn {
   padding: 0.625rem 1.375rem;
   font-size: 0.8125rem;

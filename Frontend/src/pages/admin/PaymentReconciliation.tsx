@@ -7,6 +7,7 @@ import type { OrphanRefundHistory, RefundMethod, RefundSource, WebhookFailure } 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
+import AdminTabs from "@/components/admin/AdminTabs";
 
 // ── small helpers ─────────────────────────────────────────────────────────────
 
@@ -192,43 +193,33 @@ export default function PaymentReconciliation() {
           }
         }}
       />
-      <div className="sticky-header">
-        <div className="admin-page-title"><h1>Payment Reconciliation</h1></div>
+      <div className="flex items-center justify-between mb-8">
+        <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>Payment Reconciliation</h1></div>
         {failuresLoadError && (
-          <div className="mb-4">
-            <button
-              type="button"
-              onClick={loadFailures}
-              className="btn-outline flex items-center gap-1.5 px-4 py-2 text-xs font-semibold"
-            >
-              <RefreshCw className="h-3.5 w-3.5" /> Retry unmatched payments
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={loadFailures}
+            className="btn-outline flex items-center gap-1.5 px-4 py-2 text-xs font-semibold"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Retry unmatched payments
+          </button>
         )}
       </div>
 
 
 
       <p className="text-sm opacity-60 mb-4">
-        Payments where no registration was created — the payer completed checkout but the
-        session was never matched to a registration in the system. Issue a refund directly from here.
+        Payments where no registration was created
       </p>
 
-      <div className="tab-bar mb-4">
-        {[
-          { key: "active" as const, label: `Active (${failures.length})` },
-          { key: "history" as const, label: `Refund History (${history.length})` },
-        ].map(tab => (
-          <button
-            key={tab.key}
-            type="button"
-            className={`tab-btn ${activeTab === tab.key ? "active" : ""}`}
-            onClick={() => setActiveTab(tab.key)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <AdminTabs<"active" | "history">
+        tabs={[
+          { key: "active", label: `Active (${failures.length})` },
+          { key: "history", label: `Refund History (${history.length})` },
+        ]}
+        activeKey={activeTab}
+        onChange={setActiveTab}
+      />
 
       {activeTab === "active" && (
         <>

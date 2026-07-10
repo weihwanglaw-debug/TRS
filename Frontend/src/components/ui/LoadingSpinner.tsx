@@ -42,7 +42,7 @@ export function ButtonLoader() {
     <motion.div
       className="h-4 w-4 rounded-full"
       style={{
-        border: "2px solid rgba(255,255,255,0.3)",
+        border: "2px solid var(--spinner-contrast-border)",
         borderTopColor: "var(--color-hero-text)",
       }}
       animate={{ rotate: 360 }}

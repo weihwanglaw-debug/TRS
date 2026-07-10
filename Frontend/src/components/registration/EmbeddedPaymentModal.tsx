@@ -55,6 +55,11 @@ const PAYMENT_OPEN_PATIENCE_MS = 20000;
 const STRIPE_LOAD_TIMEOUT_MS = 10000;
 const PAYMENT_STATUS_POLL_FAILURE_LIMIT = 5;
 
+function readThemeColor(name: string) {
+  if (typeof window === "undefined") return "currentColor";
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "currentColor";
+}
+
 function isTerminalPhase(phase: PaymentModalPhase) {
   return phase === "success" || phase === "failed" || phase === "expired" || phase === "review";
 }
@@ -75,7 +80,7 @@ export default function EmbeddedPaymentModal(props: EmbeddedPaymentModalProps) {
       appearance: {
         theme: "stripe",
         variables: {
-          colorPrimary: "#e8694a",
+          colorPrimary: readThemeColor("--payment-provider-primary"),
           borderRadius: "2px",
           fontFamily: "Inter, system-ui, sans-serif",
         },

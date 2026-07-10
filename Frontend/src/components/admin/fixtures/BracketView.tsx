@@ -165,7 +165,7 @@ function MatchCard({
         alignItems: "center",
         padding:    "0 10px",
         gap:        6,
-        background: isWinner ? "var(--color-primary, #e05a2b)" : "transparent",
+        background: isWinner ? "var(--color-primary)" : "transparent",
         overflow:   "hidden",
       }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -207,7 +207,7 @@ function MatchCard({
             textAlign:   "center",
             padding:     "2px 6px",
             borderRadius: 4,
-            background:  isWinner ? "rgba(0,0,0,.22)" : "var(--color-row-hover)",
+            background:  isWinner ? "var(--winner-score-bg)" : "var(--color-row-hover)",
             color:       isWinner ? "var(--color-hero-text)" : TEXT_MAIN,
           }}>
             <span style={{ lineHeight: 1 }}>{score}</span>
@@ -389,8 +389,8 @@ export const BracketView = React.forwardRef<HTMLDivElement, {
   }
 
   const primary = typeof window !== "undefined"
-    ? (getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim() || "#e05a2b")
-    : "#e05a2b";
+    ? (getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim() || "currentColor")
+    : "currentColor";
 
   const rounds = buildRounds(koMatches);
   const firstCount = rounds[0].matches.length;
