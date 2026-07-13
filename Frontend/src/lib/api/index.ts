@@ -1,11 +1,11 @@
 /**
- * index.ts — Single import point for all API modules.
+ * index.ts - Single import point for all API modules.
  *
  * Usage:
- *   import { apiGetEvents, apiCreateEmbeddedPaymentAttempt, apiGetRefunds } from "@/lib/api";
+ *  import { apiGetEvents, apiCreateEmbeddedPaymentAttempt, apiGetRefunds } from "@/lib/api";
  *
  * Every function is a stub: mock data now, swap to fetch() later by
- * replacing only the function body — no caller edits needed.
+ * replacing only the function body - no caller edits needed.
  */
 
 // Shared types & helpers
@@ -20,6 +20,9 @@ export * from "./usersApi";
 
 // System config
 export * from "./configApi";
+
+// Public contact form
+export * from "./contactApi";
 
 // Events & programs
 export * from "./eventsApi";
@@ -37,7 +40,7 @@ export * from "./sbaApi";
 export * from "./clubsApi";
 
 
-// Fixture API (pre-existing — re-exported for convenience)
+// Fixture API (pre-existing - re-exported for convenience)
 export {
   apiGetFixture,
   apiGenerateDraw,

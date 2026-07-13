@@ -1,18 +1,18 @@
 /**
- * Registrations.tsx — Registration & Payment Management
+ * Registrations.tsx - Registration & Payment Management
  *
  * Primary unit: Registration (one row = one form submission).
  * Each registration can cover multiple programs (multiple ParticipantGroups).
  * One payment receipt per registration covers all programs in that submission.
  *
- * Payment Log modal — redesigned:
- *   - Full-width panel (max-w-4xl) with two-column layout
- *   - Programs grouped as cards (Registration → Program → Participant count)
- *   - Per-entry vs per-player clearly labelled with fee badge
- *   - Always shows participant count (never a long name list)
- *   - Refund timeline shows ALL statuses (P/S/F) in chronological order
- *   - Receipt download grayed out (with tooltip) when no receipt yet
- *   - Single source: both admin and user hit GET /api/registrations/:id/receipt
+ * Payment Log modal - redesigned:
+ *  - Full-width panel (max-w-4xl) with two-column layout
+ *  - Programs grouped as cards (Registration -> Program -> Participant count)
+ *  - Per-entry vs per-player clearly labelled with fee badge
+ *  - Always shows participant count (never a long name list)
+ *  - Refund timeline shows ALL statuses (P/S/F) in chronological order
+ *  - Receipt download grayed out (with tooltip) when no receipt yet
+ *  - Single source: both admin and user hit GET /api/registrations/:id/receipt
  */
 
 import React, { useState, useMemo, useEffect } from "react";
@@ -20,7 +20,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   CreditCard, CheckCircle, XCircle, RefreshCw,
   Receipt, MoreVertical, Users, ExternalLink,
-  Clock, AlertCircle, Download,
+  Clock, AlertCircle, Download, Loader2,
 } from "lucide-react";
 import type { TournamentEvent } from "@/types/config";
 import type { Registration, ParticipantGroup, Payment, PaymentItem, Refund, PaymentMethod, PaymentStatus, PaymentAuditEntry, RefundMethod, RefundSource } from "@/types/registration";
@@ -39,7 +39,7 @@ import { Switch } from "@/components/ui/switch";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+//  Types
 
 type RegStatus = "Pending" | "Confirmed" | "CancelPending" | "RefundFailed" | "Cancelled";
 
@@ -58,7 +58,7 @@ function useSort<T>(data: T[]) {
   return { sort, toggle, sorted };
 }
 
-// ── Badges ────────────────────────────────────────────────────────────────────
+//  Badges
 
 function PayBadge({ status }: { status: PaymentStatus }) {
   const label = PAYMENT_STATUS_LABEL[status] ?? status;
@@ -140,7 +140,7 @@ function programEntrySummary(groups: ParticipantGroup[]) {
 }
 
 function formatDate(value?: string): string {
-  if (!value) return "—";
+  if (!value) return "-";
   const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
   const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return value;
@@ -148,7 +148,7 @@ function formatDate(value?: string): string {
 }
 
 function formatDateTime(value?: string): string {
-  if (!value) return "—";
+  if (!value) return "-";
   const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
   const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return value;
@@ -168,7 +168,7 @@ function formatDateTime(value?: string): string {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+//  Helpers
 
 /** Sum of Success refunds for a registration/payment item list. */
 function calcRefunded(refunds: Refund[], items: PaymentItem[]): number {
@@ -205,7 +205,7 @@ function requiresRefundReference(method: RefundMethod): boolean {
   return method !== "Cash";
 }
 
-// ── Payment Log helpers ───────────────────────────────────────────────────────
+//  Payment Log helpers
 
 /**
  * Groups PaymentItems by programName, mirrors what ReceiptService.cs does.
@@ -216,6 +216,7 @@ interface ProgramGroup {
   isPerPlayer:      boolean;   // true when any item has participantId set
   items:            PaymentItem[];
   participantCount: number;    // total participants across all groups for this program
+  quantity:         number;    // billable quantity: participants for per-head, entries for per-entry
   subtotal:         number;
   refundedAmount:   number;    // sum of successful refunds for this program's items
   hasRefunds:       boolean;
@@ -236,9 +237,9 @@ function buildProgramGroups(
   return Array.from(byProgram.entries()).map(([programName, items]) => {
     const isPerPlayer = items.some(i => !!i.participantId);
 
-    // Participant count:
-    // per_player → each item = 1 participant
-    // per_entry  → sum participants across the groups that belong to this program
+  // Participant count:
+  // per_player -> each item = 1 participant
+  // per_entry  -> sum participants across the groups that belong to this program
     let participantCount: number;
     if (isPerPlayer) {
       participantCount = items.length;
@@ -248,6 +249,7 @@ function buildProgramGroups(
         .filter(g => groupIds.has(g.id))
         .reduce((sum, g) => sum + g.participants.length, 0);
     }
+    const quantity = isPerPlayer ? items.length : items.length;
 
     const subtotal = items.reduce((s, i) => s + i.amount, 0);
 
@@ -262,6 +264,7 @@ function buildProgramGroups(
       isPerPlayer,
       items,
       participantCount,
+      quantity,
       subtotal,
       refundedAmount,
       hasRefunds: refundedAmount > 0,
@@ -305,7 +308,7 @@ function buildTimeline(
     paymentMethod: payment.method ? (PAYMENT_METHOD_LABEL[payment.method] ?? payment.method) : undefined,
   });
 
-  // Refund entries — all statuses
+  // Refund entries - all statuses
   for (const r of refunds) {
     const item = payment.items.find(i => i.id === r.paymentItemId);
     entries.push({
@@ -325,7 +328,7 @@ function buildTimeline(
   return entries.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// ── Payment Log Modal ─────────────────────────────────────────────────────────
+//  Payment Log Modal
 
 interface PaymentLogModalProps {
   reg:      Registration;
@@ -372,26 +375,26 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
           flexDirection: "column",
         }}
       >
-        {/* ── Header ── */}
+  {/*  Header  */}
         <DialogHeader
           className="px-7 py-5 flex-shrink-0"
           style={{ borderBottom: "1px solid var(--color-table-border)" }}
         >
           <div>
             <DialogTitle className="font-bold text-lg">
-              Payment Log — Registration {reg.id}
+              Payment Log - Registration {reg.id}
             </DialogTitle>
             <p className="text-xs opacity-50 mt-1">
-              {reg.contactName} · {reg.eventName}
+              {reg.contactName} - {reg.eventName}
             </p>
           </div>
         </DialogHeader>
 
-        {/* ── Scrollable body ── */}
+  {/*  Scrollable body  */}
         <div className="overflow-y-auto flex-1">
           <div className="p-7 space-y-7">
 
-            {/* Payment summary */}
+  {/* Payment summary */}
             <div
               className="grid gap-4 text-sm"
               style={{
@@ -403,14 +406,14 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
             >
               <MetaField label="Payer" value={reg.contactName} />
               <MetaField label="Payer Email" value={reg.contactEmail} mono />
-              <MetaField label="Payer Contact" value={reg.contactPhone || "—"} />
-              <MetaField label="Payment Method" value={payment?.method ? (PAYMENT_METHOD_LABEL[payment.method] ?? payment.method) : "—"} />
+              <MetaField label="Payer Contact" value={reg.contactPhone || "-"} />
+              <MetaField label="Payment Method" value={payment?.method ? (PAYMENT_METHOD_LABEL[payment.method] ?? payment.method) : "-"} />
               <div>
                 <p className="text-xs opacity-50 mb-1">Payment Status</p>
                 {payment ? <PayBadge status={payment.paymentStatus} /> : <span className="opacity-40 text-xs">No payment</span>}
               </div>
             </div>
-            {/* ── SECTION 2: Programs breakdown ── */}
+  {/*  SECTION 2: Programs breakdown  */}
             <div>
               <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">
                 Programs &amp; Line Items
@@ -422,12 +425,12 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
 
               <div className="space-y-3">
                 {programGroups.map((pg, idx) => {
-                  // Unit price calculation: mirrors ReceiptService.cs logic
+  // Unit price calculation: mirrors ReceiptService.cs logic
                   const unitPrice = pg.isPerPlayer
                     ? (pg.items[0]?.amount ?? 0)
-                    : (pg.participantCount > 0
-                        ? pg.subtotal / pg.participantCount
-                        : pg.subtotal / Math.max(pg.items.length, 1));
+                    : (pg.quantity > 0
+                        ? pg.subtotal / pg.quantity
+                        : 0);
 
                   return (
                     <div
@@ -437,14 +440,14 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
                         backgroundColor: "var(--color-row-hover)",
                       }}
                     >
-                      {/* Program header row */}
+  {/* Program header row */}
                       <div
                         className="flex items-center justify-between gap-3 px-4 py-3"
                         style={{ borderBottom: "1px solid var(--color-table-border)" }}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <p className="font-semibold text-sm truncate">{pg.programName}</p>
-                          {/* Fee type badge */}
+  {/* Fee type badge */}
                           <span
                             className="flex-shrink-0 text-xs px-2 py-0.5 font-medium"
                             style={{
@@ -470,20 +473,20 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
                         </div>
                       </div>
 
-                      {/* Program detail rows */}
+  {/* Program detail rows */}
                       <div className="px-4 py-3 grid gap-2 text-xs" style={{ gridTemplateColumns: "1fr auto auto" }}>
-                        {/* Participant count */}
+  {/* Participant count */}
                         <div className="flex items-center gap-1.5 opacity-60">
                           <Users className="h-3.5 w-3.5" />
                           <span>
                             {pg.participantCount} participant{pg.participantCount !== 1 ? "s" : ""}
                           </span>
                         </div>
-                        {/* Qty × unit */}
+  {/* Qty x unit */}
                         <span className="opacity-50">
-                          {pg.participantCount} × SGD {unitPrice.toFixed(2)}
+                          {pg.quantity} x SGD {unitPrice.toFixed(2)}
                         </span>
-                        {/* Item count (entries) */}
+  {/* Item count (entries) */}
                         {!pg.isPerPlayer && pg.items.length > 1 && (
                           <span className="opacity-40">{pg.items.length} entries</span>
                         )}
@@ -492,7 +495,7 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
                         )}
                       </div>
 
-                      {/* Per-item status breakdown — only when some items are refunded */}
+  {/* Per-item status breakdown - only when some items are refunded */}
                       {pg.items.some(i => i.itemStatus === "R") && (
                         <div
                           className="px-4 pb-3 space-y-1"
@@ -543,7 +546,7 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
                 })}
               </div>
 
-              {/* Programs total row */}
+  {/* Programs total row */}
               {payment && (
                 <div
                   className="px-4 py-3 mt-1 font-semibold text-sm"
@@ -571,7 +574,7 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
               )}
             </div>
 
-            {/* Admin note */}
+  {/* Admin note */}
             {payment?.adminNote && (
               <div
                 className="px-4 py-3 text-xs"
@@ -585,7 +588,7 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
               </div>
             )}
 
-            {/* ── SECTION 3: Transaction Timeline ── */}
+  {/*  SECTION 3: Transaction Timeline  */}
             {auditRows.length > 0 && (
               <div>
                 <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">
@@ -610,13 +613,13 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
                         </td>
                         <td className="text-sm font-medium">{row.action}</td>
                         <td className="text-xs">
-                          <span className="font-mono">{row.oldStatus ?? "—"}</span>
-                          <span className="opacity-40 mx-1">→</span>
-                          <span className="font-mono">{row.newStatus ?? "—"}</span>
+                          <span className="font-mono">{row.oldStatus ?? "-"}</span>
+                          <span className="opacity-40 mx-1">to</span>
+                          <span className="font-mono">{row.newStatus ?? "-"}</span>
                         </td>
-                        <td className="text-xs opacity-70">{row.performedBy ?? "—"}</td>
-                        <td className="text-xs opacity-70">{row.reason ?? row.notes ?? "—"}</td>
-                        <td className="font-mono text-xs opacity-50">{row.ipAddress ?? "—"}</td>
+                        <td className="text-xs opacity-70">{row.performedBy ?? "-"}</td>
+                        <td className="text-xs opacity-70">{row.reason ?? row.notes ?? "-"}</td>
+                        <td className="font-mono text-xs opacity-50">{row.ipAddress ?? "-"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -653,7 +656,7 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
                           )}
                         </td>
                         <td className="font-mono text-xs opacity-60 whitespace-nowrap">
-                          {entry.transactionId ?? entry.gatewayRef ?? "—"}
+                          {entry.transactionId ?? entry.gatewayRef ?? "-"}
                         </td>
                         <td className="text-right font-semibold text-sm whitespace-nowrap">
                           {entry.type === "refund" && (
@@ -673,7 +676,7 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
                             : <RefundStatusBadge status={entry.status} />}
                         </td>
                         <td className="text-xs font-medium">
-                          {entry.paymentMethod ?? "—"}
+                          {entry.paymentMethod ?? "-"}
                         </td>
                       </tr>
                     ))}
@@ -685,14 +688,14 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
           </div>
         </div>
 
-        {/* ── Footer ── */}
+  {/*  Footer  */}
         <DialogFooter
           className="px-7 py-4 flex-shrink-0"
           style={{ borderTop: "1px solid var(--color-table-border)" }}
         >
-          {/* Receipt button anchored left; Close anchored right via flex justify-between */}
+  {/* Receipt button anchored left; Close anchored right via flex justify-between */}
           <div className="flex items-center justify-between w-full gap-4">
-            <div title={!hasReceipt ? "Receipt not yet generated — payment must be confirmed first" : undefined}>
+            <div title={!hasReceipt ? "Receipt not yet generated - payment must be confirmed first" : undefined}>
               <a
                 href={hasReceipt ? receiptUrl : undefined}
                 target="_blank"
@@ -723,7 +726,7 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
   );
 }
 
-// ── Small helper sub-components used inside PaymentLogModal ───────────────────
+//  Small helper sub-components used inside PaymentLogModal
 
 function MetaField({
   label, value, mono = false, bold = false,
@@ -745,26 +748,27 @@ function GatewayRef({ label, value }: { label: string; value: string }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+
 // Main page
-// ═══════════════════════════════════════════════════════════════════════════════
+
 
 export default function AdminRegistrations() {
   const [urlParams] = useSearchParams();
   const navigate    = useNavigate();
 
-  // ── Filters ──────────────────────────────────────────────────────────────
+  //  Filters
 
   const [filterEvent,   setFilterEvent]   = useState(urlParams.get("event")     || "");
   const [filterProgram, setFilterProgram] = useState(urlParams.get("program")   || "");
   const [filterReg,     setFilterReg]     = useState(urlParams.get("regStatus") || "");  
   const [filterPay,     setFilterPay]     = useState(urlParams.get("payStatus") || "");  
-  const [filterSearchInput, setFilterSearchInput] = useState("");
-  const [filterSearch,  setFilterSearch]  = useState("");
+  const initialSearch = urlParams.get("search") || "";
+  const [filterSearchInput, setFilterSearchInput] = useState(initialSearch);
+  const [filterSearch,  setFilterSearch]  = useState(initialSearch);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
 
-  // ── Remote state ──────────────────────────────────────────────────────────
+  //  Remote state
   const [events,      setEvents]      = useState<TournamentEvent[]>([]);
   const [regs,        setRegs]        = useState<Registration[]>([]);
   const [regTotal,    setRegTotal]    = useState(0);
@@ -834,7 +838,7 @@ export default function AdminRegistrations() {
   const sorted = useMemo(() => [...regs].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)), [regs]);
   const paged  = sorted;
 
-  // ── Action dropdown ───────────────────────────────────────────────────────
+  //  Action dropdown
   const [openAction, setOpenAction] = useState<{ reg: Registration; anchorEl: HTMLElement } | null>(null);
 
   useEffect(() => {
@@ -845,7 +849,7 @@ export default function AdminRegistrations() {
     return () => window.clearTimeout(timer);
   }, [filterSearchInput]);
 
-  // ── Modals ────────────────────────────────────────────────────────────────
+  //  Modals
   const [markPaidModal,   setMarkPaidModal]   = useState<Registration | null>(null);
   const [paymentLogModal, setPaymentLogModal] = useState<Registration | null>(null);
   const [cancelModal,     setCancelModal]     = useState<Registration | null>(null);
@@ -867,7 +871,7 @@ export default function AdminRegistrations() {
   const [savingCancel,    setSavingCancel]    = useState(false);
   const [savingRefund,    setSavingRefund]    = useState(false);
 
-  // ── Mutation helpers ──────────────────────────────────────────────────────
+  //  Mutation helpers
   const handleMarkPaid = async () => {
     if (!markPaidModal || !markPaidRemark.trim()) return;
     setSavingMarkPaid(true);
@@ -1045,7 +1049,7 @@ export default function AdminRegistrations() {
     try {
       const r = await apiConfirmRegistration(confirmRegModal.id, {
         paymentStatus: "S",   
-        adminNote: confirmRegNote.trim() || "Admin confirmed — Payment verified",
+        adminNote: confirmRegNote.trim() || "Admin confirmed - Payment verified",
       });
       if (r.error) { setApiError(r.error.message); return; }
       if (r.data) {
@@ -1059,9 +1063,9 @@ export default function AdminRegistrations() {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
+
   // RENDER
-  // ─────────────────────────────────────────────────────────────────────────
+
   return (
     <div>
       <ActionFeedbackDialog
@@ -1080,13 +1084,13 @@ export default function AdminRegistrations() {
         <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>Registrations &amp; Payments</h1></div>
       </div>
 
-      {/* ══════════ REGISTRATIONS ══════════ */}
+  {/* REGISTRATIONS */}
       <>
-        {/* Filters */}
+  {/* Filters */}
         <div className="p-5 mb-6" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
           <div className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4">
             <FG label="Search">
-              <input className="field-input w-52" placeholder="Name, ID, club…"
+              <input className="field-input w-52" placeholder="Reg no. or contact person..."
                 value={filterSearchInput} onChange={e => setFilterSearchInput(e.target.value)} />
             </FG>
             <FG label="Event">
@@ -1124,7 +1128,7 @@ export default function AdminRegistrations() {
           </div>
         </div>
 
-        {/* Table */}
+  {/* Table */}
         <div style={{ border: "1px solid var(--color-table-border)" }}>
           <div className="hidden md:block overflow-x-auto">
           <table className="trs-table">
@@ -1143,7 +1147,7 @@ export default function AdminRegistrations() {
             </thead>
             <tbody>
               {loadingRegs && (
-                <tr><td colSpan={10} className="text-center py-6"><LoadingSpinner size="sm" label="Loading registrations…" /></td></tr>
+                <tr><td colSpan={10} className="text-center py-6"><LoadingSpinner size="sm" label="Loading registrations..." /></td></tr>
               )}
               {!loadingRegs && paged.length === 0 && (
                 <tr><td colSpan={10} className="text-center py-10 opacity-40">No registrations found.</td></tr>
@@ -1274,7 +1278,7 @@ export default function AdminRegistrations() {
         </div>
       </>
 
-      {/* ══════════ ACTION DROPDOWN ══════════ */}
+  {/* ACTION DROPDOWN */}
       <ActionDropdownPortal
         open={!!openAction}
         anchorEl={openAction?.anchorEl ?? null}
@@ -1336,16 +1340,16 @@ export default function AdminRegistrations() {
         )}
       </ActionDropdownPortal>
 
-      {/* ══════════ MODALS ══════════ */}
+  {/* MODALS */}
 
-      {/* Mark as Paid */}
+  {/* Mark as Paid */}
       <Dialog open={!!markPaidModal} onOpenChange={v => { if (!v) { setMarkPaidModal(null); setMarkPaidRemark(""); } }}>
         <DialogContent className="max-w-md p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
           <DialogHeader className="p-7 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
             <DialogTitle className="font-bold text-lg">Mark as Paid</DialogTitle>
             {markPaidModal && (
               <p className="text-xs opacity-50 mt-1">
-                {markPaidModal.id} · {markPaidModal.groups.map(g => g.programName).join(", ")} · Total: ${getPayment(markPaidModal) ? totalFee(markPaidModal).toFixed(2) : "0.00"}
+                {markPaidModal.id} - {markPaidModal.groups.map(g => g.programName).join(", ")} - Total: ${getPayment(markPaidModal) ? totalFee(markPaidModal).toFixed(2) : "0.00"}
               </p>
             )}
           </DialogHeader>
@@ -1369,8 +1373,8 @@ export default function AdminRegistrations() {
           <DialogFooter className="p-7 pt-0">
             <button onClick={() => setMarkPaidModal(null)} className="btn-outline px-5 py-2.5 text-sm">Cancel</button>
             <button onClick={handleMarkPaid} disabled={!markPaidRemark.trim() || savingMarkPaid}
-              className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
-              {savingMarkPaid ? "Saving..." : "Confirm Payment"}
+              className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 inline-flex items-center justify-center gap-2">
+              {savingMarkPaid ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</> : "Confirm Payment"}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -1383,7 +1387,7 @@ export default function AdminRegistrations() {
             <DialogTitle className="font-bold text-lg">Confirm Registration</DialogTitle>
             {confirmRegModal && (
               <p className="text-xs opacity-50 mt-1">
-                {confirmRegModal.id} · {confirmRegModal.contactName} · ${getPayment(confirmRegModal) ? totalFee(confirmRegModal).toFixed(2) : "0.00"}
+                {confirmRegModal.id} - {confirmRegModal.contactName} - ${getPayment(confirmRegModal) ? totalFee(confirmRegModal).toFixed(2) : "0.00"}
               </p>
             )}
           </DialogHeader>
@@ -1414,7 +1418,7 @@ export default function AdminRegistrations() {
         </DialogContent>
       </Dialog>
 
-      {/* Cancel */}
+  {/* Cancel */}
       <Dialog open={!!cancelModal} onOpenChange={v => { if (!v) { setCancelModal(null); setCancelReason(""); setCancelRefundAction("none"); setCancelRefundSource("System"); setCancelRefundReference(""); setCancelRefundNote(""); } }}>
         <DialogContent className="max-w-md p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
           <DialogHeader className="p-7 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
@@ -1463,7 +1467,7 @@ export default function AdminRegistrations() {
             <FG label="Reason *">
               <textarea className="field-input" rows={3} value={cancelReason}
                 onChange={e => setCancelReason(e.target.value)}
-                placeholder="Enter reason for cancellation…" />
+                placeholder="Enter reason for cancellation..." />
             </FG>
           </div>
           <DialogFooter className="p-7 pt-0">
@@ -1477,8 +1481,8 @@ export default function AdminRegistrations() {
                 <button
                   onClick={() => handleCancel(selectedRefundMode)}
                   disabled={!cancelReason.trim() || savingCancel || (cancelRefundAction !== "none" && !canRefund)}
-                  className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
-                  {savingCancel ? "Processing..." : "Proceed"}
+                  className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 inline-flex items-center justify-center gap-2">
+                  {savingCancel ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</> : "Proceed"}
                 </button>
               );
             })()}
@@ -1486,12 +1490,12 @@ export default function AdminRegistrations() {
         </DialogContent>
       </Dialog>
 
-      {/* Refund */}
+  {/* Refund */}
       <Dialog open={!!refundModal} onOpenChange={v => { if (!v) { setRefundModal(null); setRefundSel({}); setRefundSource("System"); setRefundReference(""); setRefundAdminNote(""); } }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
           <DialogHeader className="p-7 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
             <DialogTitle className="font-bold text-lg">Process Refund</DialogTitle>
-            {refundModal && <p className="text-xs mt-1">{refundModal.id} · {refundModal.contactName}</p>}
+            {refundModal && <p className="text-xs mt-1">{refundModal.id} - {refundModal.contactName}</p>}
           </DialogHeader>
           <div className="p-7 space-y-4">
             <FG label="Refund mode">
@@ -1537,7 +1541,7 @@ export default function AdminRegistrations() {
                         <div>
                           <span className="text-sm font-medium">{item.programName}</span>
                           {isPerPlayer && item.playerName && (
-                            <span className="text-xs opacity-60 ml-2">— {item.playerName}</span>
+                            <span className="text-xs opacity-60 ml-2">- {item.playerName}</span>
                           )}
                           {!isPerPlayer && (
                             <span className="text-xs opacity-40 ml-2">(per entry)</span>
@@ -1576,14 +1580,14 @@ export default function AdminRegistrations() {
                 if (!s.checked || !s.reason.trim()) return false;
                 return true;
               }) || savingRefund}
-              className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
-              {savingRefund ? "Processing..." : refundSource === "External" ? "Save" : "Execute Refund"}
+              className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 inline-flex items-center justify-center gap-2">
+              {savingRefund ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</> : refundSource === "External" ? "Save" : "Execute Refund"}
             </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Payment Log — full-width redesigned panel */}
+  {/* Payment Log - full-width redesigned panel */}
       {paymentLogModal && (
         <PaymentLogModal
           reg={paymentLogModal}

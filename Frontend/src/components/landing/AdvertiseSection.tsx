@@ -91,6 +91,10 @@ export default function AdvertiseSection() {
             href={cfg.adUrl || "#register"}
             target={cfg.adUrl ? "_blank" : undefined}
             rel={cfg.adUrl ? "noopener noreferrer" : undefined}
+            style={{
+              background: "rgb(0 0 0 / 0%)",
+              border: "2px solid rgb(233 233 233 / 50%)",
+            }}
           >
             {buttonLabel} {cfg.adUrl && <ExternalLink className="ml-2 h-4 w-4" />}
           </a>

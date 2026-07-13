@@ -1,19 +1,19 @@
 /**
- * eventsApi.ts — Event & Program management.
+ * eventsApi.ts - Event & Program management.
  *
  * Real backend:
- *   GET    /events                             list all events
- *   GET    /events/:id                         single event with programs + documents
- *   POST   /events                             create event
- *   PUT    /events/:id                         update event details
- *   DELETE /events/:id                         delete event (admin only)
- *   POST   /events/:id/programs                add program to event
- *   PUT    /events/:id/programs/:pid           update program
- *   DELETE /events/:id/programs/:pid           remove program
- *   GET    /events/:id/documents               list documents
- *   POST   /events/:id/documents               add document
- *   PUT    /events/:id/documents/:did          update document label/order
- *   DELETE /events/:id/documents/:did          remove document
+ *  GET  /events  list all events
+ *  GET  /events/:id  single event with programs + documents
+ *  POST  /events  create event
+ *  PUT  /events/:id  update event details
+ *  DELETE /events/:id  delete event (admin only)
+ *  POST  /events/:id/programs  add program to event
+ *  PUT  /events/:id/programs/:pid  update program
+ *  DELETE /events/:id/programs/:pid  remove program
+ *  GET  /events/:id/documents  list documents
+ *  POST  /events/:id/documents  add document
+ *  PUT  /events/:id/documents/:did  update document label/order
+ *  DELETE /events/:id/documents/:did  remove document
  */
 
 import { ok, err, delay, API_BASE, publicHeaders, adminHeaders, parseError, apiFetch } from "./_base";
@@ -36,7 +36,7 @@ function remapProgram<T extends { fields?: { customFields?: any[] } }>(p: T): T 
   };
 }
 
-// ── Event CRUD ────────────────────────────────────────────────────────────────
+//  Event CRUD
 
 export async function apiGetEvents(filters?: {
   status?: string;
@@ -122,7 +122,7 @@ export async function apiDeleteEvent(eventId: string): Promise<ApiResult<null>> 
   return ok(null);
 }
 
-// ── Program sub-resource ──────────────────────────────────────────────────────
+//  Program sub-resource
 
 export async function apiAddProgram(
   eventId: string,
@@ -181,7 +181,7 @@ export async function apiDeleteProgram(
   return ok(null);
 }
 
-// ── Document sub-resource ─────────────────────────────────────────────────────
+//  Document sub-resource
 
 export async function apiAddEventDocument(
   eventId: string,

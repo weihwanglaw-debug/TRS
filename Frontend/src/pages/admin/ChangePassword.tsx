@@ -2,15 +2,15 @@
  * ChangePassword.tsx
  *
  * Self-service password change. Required when mustChangePassword = true.
- * Calls apiChangePassword() — requires the current password for security.
+ * Calls apiChangePassword() - requires the current password for security.
  *
  * Mock:  validates against mockUserStore in-memory password
- * Real:  swap authApi.ts apiChangePassword() body to fetch() — no changes here
+ * Real:  swap authApi.ts apiChangePassword() body to fetch() - no changes here
  */
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff, KeyRound } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiChangePassword } from "@/lib/api";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
@@ -56,9 +56,9 @@ export default function ChangePassword() {
     }
     setLogoutPending(true);
     setFeedback({ open: true, variant: "success", title: "Password changed", description: "Please log in again with your new password." });
-    // Force full logout so mustChangePassword flag is cleared from the session.
-    // navigate("/admin") alone keeps the stale user object in AuthContext state —
-    // only apiGetMe() on boot re-reads the flag, so we must go through login again.
+  // Force full logout so mustChangePassword flag is cleared from the session.
+  // navigate("/admin") alone keeps the stale user object in AuthContext state -
+  // only apiGetMe() on boot re-reads the flag, so we must go through login again.
   };
 
   return (
@@ -122,8 +122,8 @@ export default function ChangePassword() {
                 className="btn-outline px-5 py-2.5 text-sm font-medium">Log Out</button>
             )}
             <button type="submit" disabled={saving}
-              className="btn-primary flex-1 py-2.5 text-sm font-semibold disabled:opacity-50">
-              {saving ? "Saving…" : "Change Password"}
+              className="btn-primary flex-1 py-2.5 text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2">
+              {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</> : "Change Password"}
             </button>
           </div>
       </form>

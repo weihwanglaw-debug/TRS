@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { Trophy, Eye, EyeOff } from "lucide-react";
+import { Trophy, Eye, EyeOff, Loader2 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -45,11 +45,11 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
     if (mustChangePassword) {
       navigate("/admin/change-password");
     } else if (!isPublicPage) {
-      // Only redirect to admin panel when on a non-public page (/login)
+  // Only redirect to admin panel when on a non-public page (/login)
       navigate("/admin");
     }
-    // If isPublicPage: stay — page re-renders with isAuthenticated=true,
-    // enabling the admin registration flow.
+  // If isPublicPage: stay - page re-renders with isAuthenticated=true,
+  // enabling the admin registration flow.
   };
 
   const handleCancel = () => {
@@ -95,8 +95,8 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
               <button type="button" onClick={handleCancel}
                 className="btn-outline flex-1 py-2.5 text-sm font-medium">Cancel</button>
               <button type="submit" disabled={submitting}
-                className="btn-primary flex-1 py-2.5 text-sm font-semibold disabled:opacity-50">
-                {submitting ? "Signing in…" : "Sign In"}
+                className="btn-primary flex-1 py-2.5 text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2">
+                {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Signing in...</> : "Sign In"}
               </button>
             </div>
           </form>

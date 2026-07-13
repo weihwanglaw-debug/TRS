@@ -1,8 +1,8 @@
 /**
- * authApi.ts — Authentication & session management.
+ * authApi.ts - Authentication & session management.
  *
  * Real backend: POST /auth/login, POST /auth/logout, GET /auth/me,
- *               POST /auth/change-password
+ *  POST /auth/change-password
  *
  * Mock: delegates to mockUserStore (in-memory, seeded from config.json).
  * Swap: replace function bodies with fetch() calls to your auth endpoints.
@@ -14,14 +14,14 @@ import { ok, err, delay, API_BASE, publicHeaders, adminHeaders, parseError, apiF
 import type { ApiResult }  from "./_base";
 import type { AdminUser }  from "@/types/config";
 
-// ── Response shapes ───────────────────────────────────────────────────────────
+//  Response shapes
 
 export interface LoginResponse {
   user:  AdminUser;
   token: string;   // JWT (mock returns a dummy string; real backend returns signed JWT)
 }
 
-// ── API functions ─────────────────────────────────────────────────────────────
+//  API functions
 
 /**
  * POST /auth/login

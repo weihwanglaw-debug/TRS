@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, Edit2, Users, Save, X, Image, Trash2,
   MoreVertical, ExternalLink, Lock, Unlock, FileText, GripVertical,
+  Loader2,
 } from "lucide-react";
 import type { TournamentEvent, Program, EventDocument } from "@/types/config";
 import { getEventStatus } from "@/lib/eventUtils";
@@ -22,7 +23,7 @@ import {
   apiUploadFile, assetUrl,
 } from "@/lib/api";
 
-// ── Quill rich-text editor ────────────────────────────────────────────────────
+//  Quill rich-text editor
 // Install: npm install react-quilljs quill && npm install -D @types/quill
 import { useQuill } from "react-quilljs";
 import "quill/dist/quill.snow.css";
@@ -33,7 +34,7 @@ const MAX_PDF_MB = 8;
 
 function isBlobUrl(url: string) { return url.startsWith("blob:"); }
 
-// ── Quill WYSIWYG editor ──────────────────────────────────────────────────────
+//  Quill WYSIWYG editor
 // Uses react-quilljs (hook wrapper) + Quill Snow theme.
 // The Snow theme renders the familiar toolbar with dropdowns for heading,
 // font size, alignment, lists, bold, italic, underline, link, etc.
@@ -104,7 +105,7 @@ function RichTextEditor({
       className="quill-wrapper"
       style={{
         opacity: disabled ? 0.7 : 1,
-        // Snow theme border uses its own styles via quill.snow.css
+  // Snow theme border uses its own styles via quill.snow.css
       }}
     >
       <div ref={quillRef} style={{ minHeight: 200 }} />
@@ -112,7 +113,7 @@ function RichTextEditor({
   );
 }
 
-// ── Document manager row ──────────────────────────────────────────────────────
+//  Document manager row
 interface DocRow {
   id?: number;       // undefined = not yet saved to backend
   label: string;
@@ -139,7 +140,7 @@ export default function EventEdit() {
   const showError = (title: string, description: string) =>
     setFeedback({ open: true, variant: "error", title, description });
 
-  // ── Form state ──────────────────────────────────────────────────────────────
+  //  Form state
   const [form, setForm] = useState({
     name: "", description: "", venue: "", venueAddress: "",
     eventStartDate: "", eventEndDate: "", openDate: "", closeDate: "",
@@ -153,10 +154,10 @@ export default function EventEdit() {
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) =>
     setForm(p => ({ ...p, [k]: v }));
 
-  // ── Document rows ───────────────────────────────────────────────────────────
+  //  Document rows
   const [docs, setDocs] = useState<DocRow[]>([]);
 
-  // ── Gallery / banner ────────────────────────────────────────────────────────
+  //  Gallery / banner
   const [gallery,          setGallery]          = useState<string[]>([]);
   const [galleryError,     setGalleryError]     = useState("");
   const [uploadingGallery, setUploadingGallery] = useState(false);
@@ -165,7 +166,7 @@ export default function EventEdit() {
   const galleryRef = useRef<HTMLInputElement>(null);
   const bannerRef  = useRef<HTMLInputElement>(null);
 
-  // ── Program / editing state ─────────────────────────────────────────────────
+  //  Program / editing state
   const [editing,          setEditing]          = useState(isNew);
   const [programs,         setPrograms]         = useState<Program[]>([]);
   const [programModalOpen, setProgramModalOpen] = useState(false);
@@ -181,7 +182,7 @@ export default function EventEdit() {
   const isTeamSport   = form.isSports && TEAM_SPORTS.includes(form.sportType);
   const isBadminton   = form.isSports && form.sportType === "Badminton";
 
-  // ── Load existing event ─────────────────────────────────────────────────────
+  //  Load existing event
   useEffect(() => {
     if (isNew) return;
     apiGetEvent(eventId!, { admin: true }).then(r => {
@@ -194,7 +195,7 @@ export default function EventEdit() {
       if (safeGallery.length !== (ev.galleryUrls || []).length)
         setGalleryError("Some previously selected images were temporary previews and can't be loaded after refresh. Please re-upload them.");
       setGallery(safeGallery);
-      // Populate document rows from loaded event
+  // Populate document rows from loaded event
       setDocs((ev.documents || []).map(d => ({
         id: d.id, label: d.label, fileUrl: d.fileUrl, displayOrder: d.displayOrder,
       })));
@@ -218,7 +219,7 @@ export default function EventEdit() {
     }).finally(() => setLoading(false));
   }, [eventId, isNew]);
 
-  // ── Gallery upload ──────────────────────────────────────────────────────────
+  //  Gallery upload
   const handleGalleryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     setGalleryError("");
     const files = Array.from(e.target.files || []);
@@ -234,11 +235,11 @@ export default function EventEdit() {
         }),
       );
     });
-    if (errs.length) setGalleryError(errs.join(" · "));
+    if (errs.length) setGalleryError(errs.join(" - "));
     setUploadingGallery(true);
     void Promise.all(newUrls).then(urls => {
       const good = urls.filter(Boolean) as string[];
-      if (errs.length) setGalleryError(errs.join(" · "));
+      if (errs.length) setGalleryError(errs.join(" - "));
       if (good.length) setGallery(prev => [...prev, ...good]);
     }).finally(() => setUploadingGallery(false));
     if (galleryRef.current) galleryRef.current.value = "";
@@ -246,7 +247,7 @@ export default function EventEdit() {
 
   const removeGalleryImage = (idx: number) => setGallery(prev => prev.filter((_, i) => i !== idx));
 
-  // ── Banner upload ───────────────────────────────────────────────────────────
+  //  Banner upload
   const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -259,7 +260,7 @@ export default function EventEdit() {
     }).finally(() => { setUploadingBanner(false); if (bannerRef.current) bannerRef.current.value = ""; });
   };
 
-  // ── Document handlers ───────────────────────────────────────────────────────
+  //  Document handlers
   const addDocRow = () => {
     setDocs(prev => [...prev, { label: "", fileUrl: "", displayOrder: prev.length }]);
   };
@@ -270,7 +271,7 @@ export default function EventEdit() {
 
   const removeDocRow = async (idx: number) => {
     const doc = docs[idx];
-    // If already saved to backend, delete it
+  // If already saved to backend, delete it
     if (doc.id && !isNew && eventId) {
       await apiDeleteEventDocument(eventId, doc.id);
     }
@@ -288,13 +289,13 @@ export default function EventEdit() {
     if (r.error) { updateDocRow(idx, { labelError: r.error.message }); return; }
     updateDocRow(idx, { fileUrl: r.data! });
 
-    // If saved event exists, persist immediately.
-    // Use a ref-safe approach: read current doc state via a one-shot setter to avoid stale closure.
+  // If saved event exists, persist immediately.
+  // Use a ref-safe approach: read current doc state via a one-shot setter to avoid stale closure.
     if (!isNew && eventId) {
       let currentDoc: DocRow | undefined;
       setDocs(prev => {
         currentDoc = prev[idx];
-        return prev; // no mutation — reading only
+        return prev; // no mutation - reading only
       });
       if (currentDoc?.id) {
         const label = currentDoc.label || file.name.replace(/\.[^.]+$/, "");
@@ -324,7 +325,7 @@ export default function EventEdit() {
     }
   };
 
-  // ── Validation ──────────────────────────────────────────────────────────────
+  //  Validation
   const validate = () => {
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = "Required";
@@ -342,7 +343,7 @@ export default function EventEdit() {
     return Object.keys(e).length === 0;
   };
 
-  // ── Save ────────────────────────────────────────────────────────────────────
+  //  Save
   const handleSave = async () => {
     if (!validate()) return;
     setSaving(true);
@@ -397,7 +398,7 @@ export default function EventEdit() {
     background: "linear-gradient(var(--color-row-hover), var(--color-row-hover)), var(--color-page-bg)",
   };
 
-  if (loading) return <PageLoader label="Loading event…" />;
+  if (loading) return <PageLoader label="Loading event..." />;
   if (!isNew && !event && !loading) return (
     <div className="py-20 text-center opacity-40 text-sm">Event not found.</div>
   );
@@ -411,7 +412,7 @@ export default function EventEdit() {
         description={feedback.description}
         onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
       />
-      {/* ── Sticky Header ── */}
+  {/*  Sticky Header  */}
       <div className="sticky-header px-2 md:px-4" style={panelStyle}>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
@@ -448,7 +449,8 @@ export default function EventEdit() {
                 )}
                 <button onClick={handleSave} disabled={saving}
                   className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-semibold disabled:opacity-50">
-                  <Save className="h-4 w-4" /> {saving ? "Saving…" : "Save Event"}
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {saving ? "Saving..." : "Save Event"}
                 </button>
               </>
             )}
@@ -456,7 +458,7 @@ export default function EventEdit() {
         </div>
       </div>
 
-      {/* ── Event Details ── */}
+  {/*  Event Details  */}
       <div className="mb-8 p-8" style={panelStyle}>
         <SectionTitle>Event Details</SectionTitle>
         <div className="grid md:grid-cols-2 gap-6">
@@ -518,7 +520,7 @@ export default function EventEdit() {
         </div>
       </div>
 
-      {/* ── Documents ── */}
+  {/*  Documents  */}
       <div className="mb-8 p-8" style={panelStyle}>
         <div className="flex items-center justify-between mb-1">
           <SectionTitle>Documents</SectionTitle>
@@ -530,11 +532,11 @@ export default function EventEdit() {
           )}
         </div>
         <p className="text-xs opacity-60 mb-5">
-          Upload PDFs for download (prospectus, visa form, hotel form, etc.) · max {MAX_PDF_MB}MB each
+          Upload PDFs for download (prospectus, visa form, hotel form, etc.) - max {MAX_PDF_MB}MB each
         </p>
 
         {docs.length === 0 && (
-          <p className="text-sm opacity-40">{editing ? "No documents yet — click Add Document." : "No documents uploaded."}</p>
+          <p className="text-sm opacity-40">{editing ? "No documents yet - click Add Document." : "No documents uploaded."}</p>
         )}
 
         <div className="space-y-3">
@@ -543,11 +545,11 @@ export default function EventEdit() {
               style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-background-secondary)" }}>
               {editing && <GripVertical className="h-4 w-4 mt-2.5 opacity-30 flex-shrink-0" />}
 
-              {/* Label */}
+  {/* Label */}
               <div className="flex-1 min-w-0">
                 <input
                   className="field-input mb-1"
-                  placeholder="Label, e.g. Prospectus, Visa Application Form…"
+                  placeholder="Label, e.g. Prospectus, Visa Application Form..."
                   value={doc.label}
                   disabled={!editing}
                   onChange={e => updateDocRow(idx, { label: e.target.value })}
@@ -557,12 +559,12 @@ export default function EventEdit() {
                 )}
               </div>
 
-              {/* File */}
+  {/* File */}
               <div className="flex-shrink-0">
                 {editing ? (
                   <label className={`inline-flex items-center gap-2 btn-outline px-3 py-2 text-xs font-medium cursor-pointer ${doc.uploading ? "opacity-60 pointer-events-none" : ""}`}>
-                    <FileText className="h-3.5 w-3.5" />
-                    {doc.uploading ? "Uploading…" : doc.fileUrl ? "Replace" : "Choose PDF"}
+                    {doc.uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                    {doc.uploading ? "Uploading..." : doc.fileUrl ? "Replace" : "Choose PDF"}
                     <input
                       type="file" accept="application/pdf,.pdf" className="hidden"
                       disabled={doc.uploading}
@@ -585,7 +587,7 @@ export default function EventEdit() {
                 )}
               </div>
 
-              {/* Remove */}
+  {/* Remove */}
               {editing && (
                 <button onClick={() => removeDocRow(idx)} className="mt-2 p-1 flex-shrink-0 opacity-50 hover:opacity-100"
                   style={{ color: "var(--badge-closed-text)" }}>
@@ -597,11 +599,11 @@ export default function EventEdit() {
         </div>
       </div>
 
-      {/* ── Additional Information (rich text) ── */}
+  {/*  Additional Information (rich text)  */}
       <div className="mb-8 p-8" style={panelStyle}>
         <SectionTitle>Additional Information</SectionTitle>
         <p className="text-xs opacity-60 mb-4">
-          Free-form content shown on the event page — key dates, venue details, important notes, etc.
+          Free-form content shown on the event page - key dates, venue details, important notes, etc.
           Use headings to create sections.
         </p>
         <RichTextEditor
@@ -611,7 +613,7 @@ export default function EventEdit() {
         />
       </div>
 
-      {/* ── Sport / Fixture Settings ── */}
+  {/*  Sport / Fixture Settings  */}
       <div className="mb-8 p-8" style={panelStyle}>
         <SectionTitle>Sport &amp; Fixture Settings</SectionTitle>
         <div className="space-y-5">
@@ -670,14 +672,15 @@ export default function EventEdit() {
         </div>
       </div>
 
-      {/* ── Event Banner ── */}
+  {/*  Event Banner  */}
       <div className="mb-8 p-8" style={panelStyle}>
         <SectionTitle>Event Banner</SectionTitle>
-        <p className="text-xs opacity-60 mb-4">Hero background on the event page (JPG, PNG, WEBP · max {MAX_IMAGE_MB}MB)</p>
+        <p className="text-xs opacity-60 mb-4">Hero background on the event page (JPG, PNG, WEBP - max {MAX_IMAGE_MB}MB)</p>
         {editing && (
           <>
             <label className={`inline-flex items-center gap-2 btn-outline px-5 py-2.5 text-sm font-medium cursor-pointer mb-3 ${uploadingBanner ? "opacity-60 pointer-events-none" : ""}`}>
-              <Image className="h-4 w-4" /> {uploadingBanner ? "Uploading…" : form.bannerUrl ? "Replace Banner" : "Upload Banner"}
+              {uploadingBanner ? <Loader2 className="h-4 w-4 animate-spin" /> : <Image className="h-4 w-4" />}
+              {uploadingBanner ? "Uploading..." : form.bannerUrl ? "Replace Banner" : "Upload Banner"}
               <input ref={bannerRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleBannerUpload} />
             </label>
             {bannerError && <p className="text-xs mb-3" style={{ color: "var(--badge-open-text)" }}>{bannerError}</p>}
@@ -700,14 +703,15 @@ export default function EventEdit() {
         )}
       </div>
 
-      {/* ── Gallery ── */}
+  {/*  Gallery  */}
       <div className="mb-8 p-8" style={panelStyle}>
         <SectionTitle>Event Gallery</SectionTitle>
-        <p className="text-xs opacity-60 mb-4">Upload multiple images (JPG, PNG, WEBP · max {MAX_IMAGE_MB}MB each)</p>
+        <p className="text-xs opacity-60 mb-4">Upload multiple images (JPG, PNG, WEBP - max {MAX_IMAGE_MB}MB each)</p>
         {editing && (
           <>
             <label className={`inline-flex items-center gap-2 btn-outline px-5 py-2.5 text-sm font-medium cursor-pointer mb-3 ${uploadingGallery ? "opacity-60 pointer-events-none" : ""}`}>
-              <Image className="h-4 w-4" /> {uploadingGallery ? "Uploading…" : "Upload Images"}
+              {uploadingGallery ? <Loader2 className="h-4 w-4 animate-spin" /> : <Image className="h-4 w-4" />}
+              {uploadingGallery ? "Uploading..." : "Upload Images"}
               <input ref={galleryRef} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleGalleryUpload} />
             </label>
             {galleryError && <p className="text-xs mb-3" style={{ color: "var(--badge-open-text)" }}>{galleryError}</p>}
@@ -734,7 +738,7 @@ export default function EventEdit() {
         )}
       </div>
 
-      {/* ── Programs ── */}
+  {/*  Programs  */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-6">
           <SectionTitle>Programs</SectionTitle>
@@ -745,7 +749,7 @@ export default function EventEdit() {
         </div>
         {isNew && programs.length === 0 && (
           <div className="p-5 text-sm opacity-60 text-center" style={{ border: "1px dashed var(--color-table-border)" }}>
-            Save the event first, then add programs — or add programs now and save everything together.
+            Save the event first, then add programs - or add programs now and save everything together.
           </div>
         )}
         {programs.length > 0 && (
@@ -763,7 +767,7 @@ export default function EventEdit() {
                   <tr key={prog.id}>
                     <td className="font-medium">{prog.name}</td>
                     <td className="text-sm">{prog.type}</td>
-                    <td className="text-sm">{prog.minAge}–{prog.maxAge}</td>
+                    <td className="text-sm">{prog.minAge}-{prog.maxAge}</td>
                     <td className="text-sm">{prog.gender}</td>
                     <td className="font-semibold text-sm" style={{ color: "var(--color-primary)" }}>
                       {prog.fee > 0 ? `$${prog.fee.toFixed(2)}` : "Free"}

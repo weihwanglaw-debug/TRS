@@ -1,23 +1,23 @@
 /**
- * BracketView.tsx — Pure custom bracket, no third-party bracket library.
+ * BracketView.tsx - Pure custom bracket, no third-party bracket library.
  *
  * Layout:
- *   - Each round is a column of match cards
- *   - Cards are vertically centred between their two feeders
- *   - Connectors:
- *       • A horizontal stub leaves the RIGHT edge of each QF card at the winner-slot Y
- *       • A vertical spine joins the two stubs (only drawn when BOTH feeder matches have a winner)
- *       • A horizontal arm from spine midpoint → left edge of next-round card
- *       • If only one feeder has a winner, draw just that stub (no spine / arm yet)
- *       • If neither feeder has a winner, draw nothing
+ *  - Each round is a column of match cards
+ *  - Cards are vertically centred between their two feeders
+ *  - Connectors:
+ *  - A horizontal stub leaves the RIGHT edge of each QF card at the winner-slot Y
+ *  - A vertical spine joins the two stubs (only drawn when BOTH feeder matches have a winner)
+ *  - A horizontal arm from spine midpoint -> left edge of next-round card
+ *  - If only one feeder has a winner, draw just that stub (no spine / arm yet)
+ *  - If neither feeder has a winner, draw nothing
  */
 
 import React from "react";
 import type { BracketState, MatchEntry, FixtureFormat } from "@/types/config";
 
-// ─── Layout constants ─────────────────────────────────────────────────────────
+//  Layout constants
 const CARD_W    = 260;   // card width
-const CARD_H    = 88;    // card height  (slot×2 + divider)
+const CARD_H    = 88;    // card height  (slotx2 + divider)
 const SLOT_H    = 40;    // each team slot
 const DIV_H     = 8;    // divider between match slots
 const COL_GAP   = 72;    // horizontal gap between columns
@@ -34,7 +34,7 @@ const LINK_LINE = "color-mix(in srgb, var(--color-body-text) 28%, transparent)";
 const PLACEHOLDER_TEXT = "color-mix(in srgb, var(--color-body-text) 46%, transparent)";
 const PLACEHOLDER_LINE = "color-mix(in srgb, var(--color-body-text) 18%, transparent)";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+//  Helpers
 
 function getRoundTitle(matchCount: number): string {
   if (matchCount === 1) return "Final";
@@ -49,7 +49,7 @@ function winnerSlotCY(isTeam1Winner: boolean): number {
   return isTeam1Winner ? SLOT_H / 2 : SLOT_H + DIV_H + SLOT_H / 2;
 }
 
-// ─── Data builder ─────────────────────────────────────────────────────────────
+//  Data builder
 
 type RoundData = {
   title: string;
@@ -87,7 +87,7 @@ function buildRounds(koMatches: MatchEntry[]): RoundData[] {
   return rounds;
 }
 
-// ─── Coordinate system ────────────────────────────────────────────────────────
+//  Coordinate system
 // bodyH = total height of the body area (below header) based on first-round match count
 
 function bodyH(firstRoundCount: number): number {
@@ -110,7 +110,7 @@ function colX(ci: number): number {
   return ci * (CARD_W + COL_GAP);
 }
 
-// ─── Match Card (HTML) ────────────────────────────────────────────────────────
+//  Match Card (HTML)
 
 function MatchCard({
   match, x, y, onOpenScore,
@@ -128,14 +128,14 @@ function MatchCard({
     .map(g => `${g.p1}-${g.p2}`)
     .join(", ");
 
-  const score1  = !match ? null : match.walkover ? (match.walkoverWinner === "team1" ? "W/O" : "—") : isDone ? t1w : null;
-  const score2  = !match ? null : match.walkover ? (match.walkoverWinner === "team2" ? "W/O" : "—") : isDone ? t2w : null;
+  const score1  = !match ? null : match.walkover ? (match.walkoverWinner === "team1" ? "W/O" : "-") : isDone ? t1w : null;
+  const score2  = !match ? null : match.walkover ? (match.walkoverWinner === "team2" ? "W/O" : "-") : isDone ? t2w : null;
 
   const sched = match ? [
     match.courtNo,
     match.matchDate ? new Date(match.matchDate).toLocaleDateString("en-SG", { day: "2-digit", month: "short" }) : "",
     match.startTime,
-  ].filter(Boolean).join(" · ") : "";
+  ].filter(Boolean).join(" - ") : "";
 
   const isNull = !match;
   const isBye  = !!match && (
@@ -286,8 +286,8 @@ function MatchCard({
   );
 }
 
-// ─── Connector ────────────────────────────────────────────────────────────────
-// Draws the ⊏ connector from two feeder cards → one next-round card.
+//  Connector
+// Draws the connector connector from two feeder cards -> one next-round card.
 // Rules:
 //  - Only draw a stub for a feeder that has a winner
 //  - Only draw the spine + arm if BOTH feeders have a winner
@@ -328,20 +328,20 @@ function Connector({
     ? botCardY + winnerSlotCY(botWinner === "team1")
     : botCardY + CARD_H / 2;
 
-  // Midpoint of spine → arm
+  // Midpoint of spine -> arm
   const spineTopY = topStubY;
   const spineBotY = botStubY;
   const armY      = nextCardY + SLOT_H + DIV_H / 2;  // aim at divider centre of next card
 
   return (
     <g fill="none" strokeLinecap="round" strokeLinejoin="round">
-      {/* Top stub — only if top match has a winner */}
+  {/* Top stub - only if top match has a winner */}
       <path
         d={`M ${fromX} ${topStubY} H ${spineX}`}
         stroke={topWinner ? primary : LINK_LINE}
         strokeWidth={topWinner ? 2.5 : 2}
       />
-      {/* Bottom stub — only if bottom match has a winner */}
+  {/* Bottom stub - only if bottom match has a winner */}
       {botMatch && (
         <path
           d={`M ${fromX} ${botStubY} H ${spineX}`}
@@ -349,7 +349,7 @@ function Connector({
           strokeWidth={botWinner ? 2.5 : 2}
         />
       )}
-      {/* Vertical spine + arm — only when both have winners */}
+  {/* Vertical spine + arm - only when both have winners */}
       {botMatch && (
         <path
           d={`M ${spineX} ${spineTopY} V ${spineBotY}`}
@@ -366,7 +366,7 @@ function Connector({
   );
 }
 
-// ─── Public export ────────────────────────────────────────────────────────────
+//  Public export
 
 export const BracketView = React.forwardRef<HTMLDivElement, {
   bracketState: BracketState;
@@ -395,7 +395,7 @@ export const BracketView = React.forwardRef<HTMLDivElement, {
   const rounds = buildRounds(koMatches);
   const firstCount = rounds[0].matches.length;
   const h = bodyH(firstCount);
-  // Natural dimensions — used as viewBox so SVG scales to fill container
+  // Natural dimensions - used as viewBox so SVG scales to fill container
   const contentW = rounds.length * CARD_W + Math.max(0, rounds.length - 1) * COL_GAP;
   const naturalW = contentW + SVG_PAD * 2;
   const naturalH = HDR_H + h + SVG_PAD * 2;
@@ -416,7 +416,7 @@ export const BracketView = React.forwardRef<HTMLDivElement, {
         style={{ display: "block", overflow: "visible", fontFamily: "inherit" }}
       >
         <g transform={`translate(${SVG_PAD}, ${SVG_PAD})`}>
-        {/* ── Round headers ── */}
+  {/*  Round headers  */}
         {rounds.map((round, ci) => {
           const x = colX(ci);
           return (
@@ -442,7 +442,7 @@ export const BracketView = React.forwardRef<HTMLDivElement, {
           );
         })}
 
-        {/* ── Connectors (drawn behind cards) ── */}
+  {/*  Connectors (drawn behind cards)  */}
         <g transform={`translate(0, ${HDR_H})`}>
           {rounds.slice(0, -1).map((round, ci) => {
             const nextRound  = rounds[ci + 1];
@@ -477,7 +477,7 @@ export const BracketView = React.forwardRef<HTMLDivElement, {
           })}
         </g>
 
-        {/* ── Cards ── */}
+  {/*  Cards  */}
         <g transform={`translate(0, ${HDR_H})`}>
           {rounds.map((round, ci) =>
             round.matches.map((match, i) => (

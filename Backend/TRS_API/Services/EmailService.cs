@@ -259,6 +259,63 @@ public class EmailService
             reg.ContactEmail);
     }
 
+    public async Task SendLandingMessageAsync(
+        TRSDbContext db,
+        string name,
+        string contact,
+        string topic,
+        string body,
+        CancellationToken ct = default)
+    {
+        var configs = await db.SystemConfigs.AsNoTracking().ToListAsync(ct);
+        var cfg = configs.ToDictionary(c => c.ConfigKey, c => c.ConfigValue);
+        var appName = cfg.GetValueOrDefault("appName", "System");
+        if (string.IsNullOrWhiteSpace(appName)) appName = "System";
+
+        var recipient = cfg.GetValueOrDefault("contactEmail", "");
+        if (string.IsNullOrWhiteSpace(recipient) || !IsValidEmailAddress(recipient))
+            throw new InvalidOperationException("Contact email is not configured.");
+
+        var host = _config["Email:Smtp:Host"];
+        var port = _config.GetValue<int?>("Email:Smtp:Port") ?? 587;
+        var username = _config["Email:Smtp:Username"];
+        var password = _config["Email:Smtp:Password"];
+        var fromAddress = _config["Email:FromAddress"] ?? username;
+        var fromName = _config["Email:FromName"] ?? appName;
+
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
+            throw new InvalidOperationException("SMTP is not configured.");
+
+        using var message = new MailMessage
+        {
+            From = new MailAddress(fromAddress, fromName),
+            Subject = $"[{appName}] {topic.Trim()}",
+            Body =
+                "A message was submitted from the landing page.\n\n" +
+                $"Name: {name.Trim()}\n" +
+                $"Email or phone: {contact.Trim()}\n" +
+                $"Topic: {topic.Trim()}\n\n" +
+                body.Trim(),
+            IsBodyHtml = false,
+        };
+        message.To.Add(recipient.Trim());
+
+        if (IsValidEmailAddress(contact.Trim()))
+            message.ReplyToList.Add(new MailAddress(contact.Trim(), name.Trim()));
+
+        using var client = new SmtpClient(host, port)
+        {
+            EnableSsl = _config.GetValue("Email:Smtp:EnableSsl", true),
+            DeliveryMethod = SmtpDeliveryMethod.Network,
+        };
+
+        if (!string.IsNullOrWhiteSpace(username))
+            client.Credentials = new NetworkCredential(username, password);
+
+        await client.SendMailAsync(message, ct);
+        _logger.LogInformation("Landing message sent to configured contact email {Email}", recipient);
+    }
+
     private static bool IsValidEmailAddress(string email)
     {
         try

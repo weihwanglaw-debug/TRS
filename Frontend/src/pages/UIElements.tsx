@@ -26,7 +26,7 @@ export default function UIElements() {
           <h1 className="font-bold text-3xl mb-2">UI Elements Reference</h1>
           <p className="text-sm opacity-60 mb-12">All available components and design tokens for the application.</p>
 
-          {/* ── Colors ── */}
+  {/*  Colors  */}
           <Section title="Color Palette">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
@@ -52,7 +52,7 @@ export default function UIElements() {
             </div>
           </Section>
 
-          {/* ── Buttons ── */}
+  {/*  Buttons  */}
           <Section title="Buttons">
             <div className="flex flex-wrap gap-3 mb-6">
               <button className="btn-primary px-5 py-2.5 text-sm font-semibold">Primary</button>
@@ -77,7 +77,7 @@ export default function UIElements() {
             </div>
           </Section>
 
-          {/* ── Form Fields ── */}
+  {/*  Form Fields  */}
           <Section title="Form Fields">
             <div className="grid sm:grid-cols-2 gap-5 max-w-2xl">
               <div>
@@ -110,7 +110,7 @@ export default function UIElements() {
             </div>
           </Section>
 
-          {/* ── Toggle Switches ── */}
+  {/*  Toggle Switches  */}
           <Section title="Toggle Switches">
             <div className="space-y-4 max-w-sm">
               <label className="flex items-center justify-between gap-3 text-sm cursor-pointer p-3" style={{ border: "1px solid var(--color-table-border)" }}>
@@ -128,7 +128,7 @@ export default function UIElements() {
             </div>
           </Section>
 
-          {/* ── Checkboxes ── */}
+  {/*  Checkboxes  */}
           <Section title="Checkboxes (Shadcn)">
             <div className="space-y-3 max-w-sm">
               <label className="flex items-center gap-3 text-sm cursor-pointer">
@@ -140,7 +140,7 @@ export default function UIElements() {
             </div>
           </Section>
 
-          {/* ── Badges ── */}
+  {/*  Badges  */}
           <Section title="Status Badges">
             <div className="flex flex-wrap gap-3">
               {[
@@ -164,7 +164,7 @@ export default function UIElements() {
             </div>
           </Section>
 
-          {/* ── Tables ── */}
+  {/*  Tables  */}
           <Section title="Table (with alternate rows)">
             <div className="overflow-x-auto" style={{ border: "1px solid var(--color-table-border)" }}>
               <table className="trs-table">
@@ -194,12 +194,12 @@ export default function UIElements() {
             </div>
           </Section>
 
-          {/* ── Tab Bar ── */}
+  {/*  Tab Bar  */}
           <Section title="Tab Bar">
             <TabBarDemo />
           </Section>
 
-          {/* ── Loading States ── */}
+  {/*  Loading States  */}
           <Section title="Loading States">
             <div className="flex flex-wrap gap-8 items-center">
               <LoadingSpinner size="sm" label="Small" />
@@ -211,7 +211,7 @@ export default function UIElements() {
             </div>
           </Section>
 
-          {/* ── Modal ── */}
+  {/*  Modal  */}
           <Section title="Modal / Dialog">
             <button className="btn-primary px-5 py-2.5 text-sm font-semibold" onClick={() => setModalOpen(true)}>
               Open Sample Modal
@@ -236,26 +236,26 @@ export default function UIElements() {
             </Dialog>
           </Section>
 
-          {/* ── Action Dropdown ── */}
+  {/*  Action Dropdown  */}
           <Section title="Action Dropdown">
             <ActionDropdownDemo />
           </Section>
 
-          {/* ── Typography ── */}
+  {/*  Typography  */}
           <Section title="Typography">
             <div className="space-y-4">
               <h1>Heading 1</h1>
               <h2>Heading 2</h2>
               <h3>Heading 3</h3>
               <h4>Heading 4</h4>
-              <p className="text-sm" style={{ color: "var(--color-body-text)" }}>Body text — The quick brown fox jumps over the lazy dog.</p>
-              <p className="text-xs opacity-60">Small / Caption text — secondary information</p>
+              <p className="text-sm" style={{ color: "var(--color-body-text)" }}>Body text - The quick brown fox jumps over the lazy dog.</p>
+              <p className="text-xs opacity-60">Small / Caption text - secondary information</p>
               <p className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--color-primary)" }}>Label / Overline</p>
-              <p className="font-mono text-sm">Monospace — R001, TXN-001, SBA-003</p>
+              <p className="font-mono text-sm">Monospace - R001, TXN-001, SBA-003</p>
             </div>
           </Section>
 
-          {/* ── Spacing ── */}
+  {/*  Spacing  */}
           <Section title="Spacing Tokens">
             <div className="space-y-2">
               {[1, 2, 3, 4, 5, 6, 8, 10, 12, 16].map(n => (

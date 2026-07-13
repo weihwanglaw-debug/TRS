@@ -1,4 +1,4 @@
-// ── Custom field + program field config ──────────────────────────────────────
+//  Custom field + program field config
 
 export interface CustomField {
   id?: string | number;
@@ -23,13 +23,13 @@ export interface ProgramFields {
   customFields: CustomField[];
 }
 
-// ── Fixture types ─────────────────────────────────────────────────────────────
+//  Fixture types
 
 export type FixtureFormat =
   | "knockout"       // single elimination bracket
-  | "group_knockout" // round-robin groups → top N advance to KO
+  | "group_knockout" // round-robin groups -> top N advance to KO
   | "round_robin"    // everyone vs everyone, standings only
-  | "heats";         // individual/non-vs: rounds of individual results → advancement → final
+  | "heats";         // individual/non-vs: rounds of individual results -> advancement -> final
 
 export type FixtureMode = "internal" | "external" | "not_required";
 
@@ -40,7 +40,7 @@ export type TiebreakCriteria =
   | "goal_difference"
   | "goals_scored";
 
-// ── Round Robin standing points ───────────────────────────────────────────────
+//  Round Robin standing points
 
 export interface StandingPoints {
   win:  number;   // default 2
@@ -48,7 +48,7 @@ export interface StandingPoints {
   loss: number;   // default 0
 }
 
-// ── Heats format config ───────────────────────────────────────────────────────
+//  Heats format config
 
 export interface HeatsConfig {
   numRounds:      number;   // total rounds including final (min 2)
@@ -57,7 +57,7 @@ export interface HeatsConfig {
   placesAwarded:  number;   // how many places to assign in final (1=winner only, 3=podium)
 }
 
-// Wizard-produced config — stored inside BracketState
+// Wizard-produced config - stored inside BracketState
 export interface WizardConfig {
   format:          FixtureFormat;
   numSeeds:        number;
@@ -72,7 +72,7 @@ export interface WizardConfig {
 
 export type FixtureFormatConfig = WizardConfig;
 
-// ── SBA ranking ───────────────────────────────────────────────────────────────
+//  SBA ranking
 
 export interface SbaRanking {
   id: number;
@@ -95,7 +95,7 @@ export interface SbaRankingType {
   maxAge: number;
 }
 
-// ── BadmintonClub ───────────────────────────────────────────────────────────────────
+//  BadmintonClub
 export interface BadmintonClub {
   clubId:        number;
   name:          string;
@@ -108,7 +108,7 @@ export interface BadmintonClub {
 export type BadmintonClubInput = Omit<BadmintonClub, "clubId">;
  
 
-// ── Program ───────────────────────────────────────────────────────────────────
+//  Program
 
 export interface Program {
   id: string;
@@ -120,7 +120,7 @@ export interface Program {
   gender: string;
   fee: number;
   paymentRequired: boolean;
-  feeStructure: "per_entry" | "per_player"; // per_entry = flat fee for whole group; per_player = fee × each player
+  feeStructure: "per_entry" | "per_player"; // per_entry = flat fee for whole group; per_player = fee x each player
   minPlayers: number;
   maxPlayers: number;
   minParticipants: number;
@@ -131,7 +131,7 @@ export interface Program {
   participantSeeds?: SeedEntry[];
 }
 
-// ── Event ─────────────────────────────────────────────────────────────────────
+//  Event
 
 export interface EventDocument {
   id:           number;
@@ -149,7 +149,7 @@ export interface TournamentEvent {
   venueAddress:     string;
   bannerUrl:        string;
   galleryUrls:      string[];
-  additionalInfo:   string;    // sanitised HTML — replaces prospectusUrl
+  additionalInfo:   string;    // sanitised HTML - replaces prospectusUrl
   documents:        EventDocument[];   // downloadable attachments
   eventStartDate:   string;
   eventEndDate:     string;
@@ -166,7 +166,7 @@ export interface TournamentEvent {
   programs:         Program[];
 }
 
-// ── Users / config ────────────────────────────────────────────────────────────
+//  Users / config
 
 export interface AdminUser {
   id: string;
@@ -204,7 +204,7 @@ export interface Config {
 export type EventStatus   = "draft" | "upcoming" | "open" | "paused" | "closed";
 export type ProgramStatus = "open" | "upcoming" | "closed" | "full" | "nearly_full";
 
-// ── Match / bracket types ─────────────────────────────────────────────────────
+//  Match / bracket types
 
 export interface GameScore {
   p1: string;
@@ -281,7 +281,7 @@ export interface GroupEntry {
   matches: MatchEntry[];
 }
 
-// ── Heats bracket types ───────────────────────────────────────────────────────
+//  Heats bracket types
 
 export interface HeatParticipantResult {
   teamId:   string;
@@ -299,7 +299,7 @@ export interface HeatRound {
   isComplete:   boolean;
 }
 
-// ── BracketState ─────────────────────────────────────────────────────────────
+//  BracketState
 
 export interface BracketState {
   format: FixtureFormat;
@@ -313,7 +313,7 @@ export interface BracketState {
   heatRounds?: HeatRound[];
 }
 
-// ── Registration / participant types ─────────────────────────────────────────
+//  Registration / participant types
 
 export interface Participant {
   id: string;
@@ -338,20 +338,20 @@ export interface Participant {
 export interface CartEntry {
   programId: string;
   programName: string;
-  fee: number;               // total fee for this entry (feePerPlayer × players OR flat fee)
+  fee: number;               // total fee for this entry (feePerPlayer x players OR flat fee)
   feeStructure: "per_entry" | "per_player";
   feePerPlayer?: number;     // only set when feeStructure = "per_player"
   participants: Participant[];
 }
 
-// ── Payment types ─────────────────────────────────────────────────────────────
+//  Payment types
 // Single source of truth lives in registration.ts.
-// Import from there — do not duplicate here.
+// Import from there - do not duplicate here.
 //
-//   import type { PaymentStatus, ItemStatus, RefundStatus,
-//                 PaymentMethod, PaymentGateway,
-//                 Payment, PaymentItem, Refund,
-//                 PAYMENT_STATUS_LABEL } from "@/types/registration";
+//  import type { PaymentStatus, ItemStatus, RefundStatus,
+//  PaymentMethod, PaymentGateway,
+//  Payment, PaymentItem, Refund,
+//  PAYMENT_STATUS_LABEL } from "@/types/registration";
 //
 // PaymentRecord (legacy flat shape) has been removed.
-// Use Registration → Payment → PaymentItem[] from registration.ts instead.
+// Use Registration -> Payment -> PaymentItem[] from registration.ts instead.

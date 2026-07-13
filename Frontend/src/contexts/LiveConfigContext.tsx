@@ -5,7 +5,7 @@
  * update(): calls apiUpdateConfig() to persist immediately, then updates local state.
  *
  * Mock:  configApi.ts reads config.json + writes to in-memory _config
- * Real:  swap configApi.ts function bodies to fetch() — no changes needed here
+ * Real:  swap configApi.ts function bodies to fetch() - no changes needed here
  */
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
@@ -23,6 +23,8 @@ export interface LiveConfig {
   contactEmail:  string;
   copyrightText: string;
   consentText:   string;
+  messageTitle:  string;
+  messageBody:   string;
   // Ad banner
   adEnabled:     string;
   adUrl:         string;
@@ -48,6 +50,8 @@ const EMPTY: LiveConfig = {
   heroSubtitle: "",
   heroImageUrl: "", currency: "SGD", contactEmail: "",
   copyrightText: "", consentText: "",
+  messageTitle: "Questions before joining?",
+  messageBody: "Players, parents, coaches, and club representatives can leave a message for the tournament team.\nUse this space for event questions, program clarification, venue help, or registration support.",
   adEnabled: "true", adUrl: "", adImageUrl: "",
   adTag: "", adTitle: "", adBody: "", adButtonLabel: "Learn More",
 };

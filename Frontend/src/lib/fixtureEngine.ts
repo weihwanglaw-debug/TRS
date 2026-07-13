@@ -13,7 +13,7 @@ import type {
   HeatRound, HeatParticipantResult,
 } from "@/types/config";
 
-// ── ID generation ─────────────────────────────────────────────────────────────
+//  ID generation
 
 function makeIdGen(startAt = 0) {
   let seq = startAt;
@@ -27,7 +27,7 @@ function maxSeqFrom(matches: MatchEntry[]): number {
   return matches.reduce((max, m) => Math.max(max, parseSeq(m.id)), 0);
 }
 
-// ── Blank match factory ───────────────────────────────────────────────────────
+//  Blank match factory
 
 function blankMatch(
   nextId: ReturnType<typeof makeIdGen>,
@@ -46,7 +46,7 @@ function blankMatch(
   };
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+//  Helpers
 
 export function getRoundLabel(matchesInRound: number): string {
   switch (matchesInRound) {
@@ -84,7 +84,7 @@ function sortedSeeds(seeds: SeedEntry[]): SeedEntry[] {
   return [...seeded, ...unseeded];
 }
 
-// ── Knockout bracket ──────────────────────────────────────────────────────────
+//  Knockout bracket
 
 function nextPow2(n: number): number {
   let p = 1; while (p < n) p *= 2; return p;
@@ -149,7 +149,7 @@ function generateKnockoutMatches(
   return applyRoundLabels(matches);
 }
 
-// ── Group draw ────────────────────────────────────────────────────────────────
+//  Group draw
 
 function generateGroupDraw(
   nextId: ReturnType<typeof makeIdGen>,
@@ -179,7 +179,7 @@ function generateGroupDraw(
   return groups;
 }
 
-// ── Knockout from groups ──────────────────────────────────────────────────────
+//  Knockout from groups
 
 export function generateKnockoutFromGroups(
   groups: GroupEntry[], config: FixtureFormatConfig
@@ -212,7 +212,7 @@ export function generateKnockoutFromGroups(
   return applyRoundLabels(matches);
 }
 
-// ── Next KO round ─────────────────────────────────────────────────────────────
+//  Next KO round
 
 export function generateNextKnockoutRound(koMatches: MatchEntry[]): MatchEntry[] {
   const maxRound = Math.max(...koMatches.map(m => m.round));
@@ -230,7 +230,7 @@ export function generateNextKnockoutRound(koMatches: MatchEntry[]): MatchEntry[]
   return applyRoundLabels([...koMatches, ...newMatches]).filter(m => m.round > maxRound);
 }
 
-// ── Group standings ───────────────────────────────────────────────────────────
+//  Group standings
 
 export function computeGroupStandings(
   group: GroupEntry,
@@ -317,7 +317,7 @@ export function computeGroupStandings(
   return ordered;
 }
 
-// ── Heats generation ──────────────────────────────────────────────────────────
+//  Heats generation
 
 export function generateHeatsDraw(seeds: SeedEntry[], config: FixtureFormatConfig): BracketState {
   const hc = config.heatsConfig ?? { numRounds: 2, advancePerRound: 4, resultLabel: "Result", placesAwarded: 3 };
@@ -326,7 +326,7 @@ export function generateHeatsDraw(seeds: SeedEntry[], config: FixtureFormatConfi
     const isFirst = i === 0;
     const isFinal = i === hc.numRounds - 1;
     const label   = isFinal ? "Final" : hc.numRounds === 2 ? "Heat" : i === 0 ? "Heat" : `Round ${i + 1}`;
-    // Round 1 has all participants; later rounds will be populated as admin advances
+  // Round 1 has all participants; later rounds will be populated as admin advances
     const results: HeatParticipantResult[] = isFirst
       ? seeds.map(s => ({ teamId: s.id, result: "", advanced: false }))
       : [];
@@ -341,7 +341,7 @@ export function generateHeatsDraw(seeds: SeedEntry[], config: FixtureFormatConfi
   };
 }
 
-// ── Heats: advance participants to next round ─────────────────────────────────
+//  Heats: advance participants to next round
 
 export function advanceHeatsRound(
   state: BracketState,
@@ -370,7 +370,7 @@ export function advanceHeatsRound(
   return { ...state, heatRounds: rounds };
 }
 
-// ── Heats: save result for a round participant ────────────────────────────────
+//  Heats: save result for a round participant
 
 export function saveHeatResult(
   state: BracketState,
@@ -390,11 +390,11 @@ export function saveHeatResult(
   return { ...state, heatRounds: rounds };
 }
 
-// ── Heats: assign final places ────────────────────────────────────────────────
+//  Heats: assign final places
 
 export function assignHeatPlaces(
   state: BracketState,
-  places: Record<string, number>   // teamId → place number
+  places: Record<string, number>   // teamId -> place number
 ): BracketState {
   const rounds = (state.heatRounds ?? []).map(r => {
     if (!r.isFinal) return r;
@@ -411,7 +411,7 @@ export function assignHeatPlaces(
   return { ...state, heatRounds: rounds };
 }
 
-// ── Main draw generation ──────────────────────────────────────────────────────
+//  Main draw generation
 
 export function generateDraw(seeds: SeedEntry[], config: FixtureFormatConfig): BracketState {
   const nextId = makeIdGen(0);
@@ -437,7 +437,7 @@ export function generateDraw(seeds: SeedEntry[], config: FixtureFormatConfig): B
   }
 }
 
-// ── Swap teams ────────────────────────────────────────────────────────────────
+//  Swap teams
 
 export function swapTeams(state: BracketState, idA: string, idB: string): BracketState {
   const allTeams = [
@@ -485,7 +485,7 @@ export function swapTeams(state: BracketState, idA: string, idB: string): Bracke
   };
 }
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
+//  Utilities
 
 export function isBracketLocked(state: BracketState): boolean {
   const isByeMatch = (m: MatchEntry) =>
@@ -514,7 +514,7 @@ export function getAllMatches(state: BracketState): MatchEntry[] {
   return [...state.groups.flatMap(g => g.matches), ...state.matches];
 }
 
-// ── Heats utilities ───────────────────────────────────────────────────────────
+//  Heats utilities
 
 export function getCurrentHeatRound(state: BracketState): HeatRound | null {
   if (state.format !== "heats") return null;

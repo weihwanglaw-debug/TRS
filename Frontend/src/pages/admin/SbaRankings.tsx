@@ -1,10 +1,10 @@
 /**
- * SbaRankings.tsx — SBA Rankings Management
+ * SbaRankings.tsx - SBA Rankings Management
  *
  * Standalone admin page (mirrors Events/Fixtures structure) with:
- *   • Import SBA Ranking Workbook (.xlsx) with result summary
- *   • Filterable grid: filter by ranking type, search by SBA ID or player name
- *   • Columns: Rank | Ranking Type | Player(s) | Club | SBA ID | Score | Tournaments | Updated
+ *  - Import SBA Ranking Workbook (.xlsx) with result summary
+ *  - Filterable grid: filter by ranking type, search by SBA ID or player name
+ *  - Columns: Rank | Ranking Type | Player(s) | Club | SBA ID | Score | Tournaments | Updated
  */
 
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -13,7 +13,7 @@ import { apiGetSbaRankings, apiGetSbaRankingTypes, apiImportSbaRankings } from "
 import type { SbaRanking, SbaRankingType } from "@/types/config";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+//  Types
 
 type SortKey = "ranking" | "rankingType" | "accumulatedScore" | "tournaments";
 type SortDir = "asc" | "desc";
@@ -26,7 +26,7 @@ interface ImportSummary {
   skippedSheets: string[];
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+//  Helpers
 
 function fmt(n: number) {
   return n.toLocaleString();
@@ -46,9 +46,9 @@ function fmtDateTime(value?: string) {
 }
 
 
-// ── Toast (inline, same pattern as other admin pages) ─────────────────────────
+//  Toast (inline, same pattern as other admin pages)
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+//  Page
 
 export default function SbaRankings() {
   const [rankings,     setRankings]     = useState<SbaRanking[]>([]);
@@ -76,7 +76,7 @@ export default function SbaRankings() {
   const showFeedback = (variant: ActionFeedbackVariant, title: string, description?: string) =>
     setFeedback({ open: true, variant, title, description });
 
-  // ── Data load ───────────────────────────────────────────────────────────────
+  //  Data load
 
   const loadRankings = async (type?: string) => {
     setLoading(true);
@@ -86,7 +86,7 @@ export default function SbaRankings() {
     if (r.error) showFeedback("error", "Failed to load SBA rankings", r.error.message);
   };
 
-  // Load ranking types once on mount — separate from rankings to avoid stale closure
+  // Load ranking types once on mount - separate from rankings to avoid stale closure
   useEffect(() => {
     if (typesLoaded.current) return;
     typesLoaded.current = true;
@@ -100,7 +100,7 @@ export default function SbaRankings() {
     loadRankings(filterType || undefined);
   }, [filterType]);
 
-  // ── Import ──────────────────────────────────────────────────────────────────
+  //  Import
 
   const handleImport = async (file: File | undefined | null) => {
     if (!file) return;
@@ -115,7 +115,7 @@ export default function SbaRankings() {
     loadRankings(filterType || undefined);
   };
 
-  // ── Filter + sort ────────────────────────────────────────────────────────────
+  //  Filter + sort
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -163,12 +163,12 @@ export default function SbaRankings() {
     sortKey !== k ? null :
     sortDir === "asc" ? <ChevronUp className="h-3 w-3 inline ml-1" /> : <ChevronDown className="h-3 w-3 inline ml-1" />;
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  //  Render
 
   return (
     <div>
 
-      {/* ── Toast stack ── */}
+  {/*  Toast stack  */}
       <ActionFeedbackDialog
         open={feedback.open}
         variant={feedback.variant}
@@ -177,20 +177,20 @@ export default function SbaRankings() {
         onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
       />
 
-      {/* ── Header ── */}
+  {/*  Header  */}
       <div className="flex items-center justify-between mb-8">
           <div className="admin-page-title" style={{ marginBottom: 0 }}>
             <h1>SBA Rankings</h1>
           </div>
         <label className={`btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-semibold cursor-pointer select-none ${importing ? "opacity-60 pointer-events-none" : ""}`}>
           {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
-          {importing ? "Importing…" : "Import XLSX"}
+          {importing ? "Importing..." : "Import XLSX"}
           <input ref={fileRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="hidden" onChange={e => handleImport(e.target.files?.[0])} />
         </label>
       </div>
 
-      {/* ── Import summary card ── */}
+  {/*  Import summary card  */}
       {summary && (
         <div className="mb-6 p-5" style={{ border: "1px solid var(--color-primary)", backgroundColor: "var(--color-row-hover)" }}>
           <div className="flex items-start justify-between gap-3">
@@ -229,10 +229,10 @@ export default function SbaRankings() {
         </div>
       )}
 
-      {/* ── Filters ── */}
+  {/*  Filters  */}
       <div className="p-5 mb-6" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
         <div className="grid grid-cols-1 md:flex md:flex-wrap items-end gap-4">
-        {/* Ranking type filter */}
+  {/* Ranking type filter */}
         <FG label="Ranking Type">
           <select
             className="field-input w-full md:w-56"
@@ -246,12 +246,12 @@ export default function SbaRankings() {
           </select>
         </FG>
 
-        {/* Search */}
+  {/* Search */}
         <FG label="Search">
         <div className="relative w-full md:w-80">
           <input
             className="field-input with-right-icon w-full"
-            placeholder="Search SBA ID or player name…"
+            placeholder="Search SBA ID or player name..."
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -265,14 +265,14 @@ export default function SbaRankings() {
         </div>
         </FG>
 
-        {/* Result count */}
+  {/* Result count */}
         <div className="flex items-center text-sm opacity-50 whitespace-nowrap px-1 pb-2">
-          {loading ? "Loading…" : `${filtered.length.toLocaleString()} ${filtered.length === 1 ? "entry" : "entries"}`}
+          {loading ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</span> : `${filtered.length.toLocaleString()} ${filtered.length === 1 ? "entry" : "entries"}`}
         </div>
         </div>
       </div>
 
-      {/* ── Grid ── */}
+  {/*  Grid  */}
       <div className="hidden md:block overflow-x-auto" style={{ border: "1px solid var(--color-table-border)" }}>
         <table className="trs-table w-full">
           <thead>
@@ -315,12 +315,12 @@ export default function SbaRankings() {
               return (
                 <tr key={r.id}>
 
-                  {/* Rank */}
+  {/* Rank */}
                   <td className="font-mono font-bold tabular-nums" style={{ width: 64 }}>
                     #{r.ranking}
                   </td>
 
-                  {/* Ranking Type */}
+  {/* Ranking Type */}
                   <td>
                     <span className="inline-flex items-center gap-1.5">
                       {isDoubles
@@ -330,7 +330,7 @@ export default function SbaRankings() {
                     </span>
                   </td>
 
-                  {/* Player(s) */}
+  {/* Player(s) */}
                   <td>
                     {isDoubles ? (
                       <div className="space-y-0.5">
@@ -342,19 +342,19 @@ export default function SbaRankings() {
                     )}
                   </td>
 
-                  {/* Date of Birth */}
+  {/* Date of Birth */}
                   <td className="text-xs opacity-70 whitespace-nowrap">
                     {isDoubles ? (
                       <div className="space-y-0.5">
-                        <p>{r.player1.dob || "—"}</p>
-                        <p className="opacity-70">{r.player2!.dob || "—"}</p>
+                        <p>{r.player1.dob || "-"}</p>
+                        <p className="opacity-70">{r.player2!.dob || "-"}</p>
                       </div>
                     ) : (
-                      r.player1.dob || "—"
+                      r.player1.dob || "-"
                     )}
                   </td>
 
-                  {/* SBA ID(s) */}
+  {/* SBA ID(s) */}
                   <td className="font-mono text-xs">
                     {isDoubles ? (
                       <div className="space-y-0.5">
@@ -366,25 +366,25 @@ export default function SbaRankings() {
                     )}
                   </td>
 
-                  {/* Club */}
+  {/* Club */}
                   <td className="text-xs opacity-70">
                     {isDoubles ? (
                       <div className="space-y-0.5">
-                        <p>{r.player1.club || "—"}</p>
-                        <p className="opacity-70">{r.player2!.club || "—"}</p>
+                        <p>{r.player1.club || "-"}</p>
+                        <p className="opacity-70">{r.player2!.club || "-"}</p>
                       </div>
                     ) : (
-                      r.player1.club || "—"
+                      r.player1.club || "-"
                     )}
                   </td>
 
-                  {/* Score */}
+  {/* Score */}
                   <td className="text-right font-mono tabular-nums font-semibold"
                     style={{ color: "var(--color-primary)" }}>
                     {fmt(r.accumulatedScore)}
                   </td>
 
-                  {/* Tournaments */}
+  {/* Tournaments */}
                   <td className="text-right tabular-nums text-xs opacity-70">
                     {r.tournaments}
                   </td>
@@ -455,7 +455,7 @@ export default function SbaRankings() {
         })}
       </div>
 
-      {/* Footer count */}
+  {/* Footer count */}
       {!loading && filtered.length > 0 && (
         <p className="text-xs opacity-40 mt-3 text-right">
           Showing {filtered.length.toLocaleString()} of {rankings.length.toLocaleString()} entries
@@ -465,7 +465,7 @@ export default function SbaRankings() {
   );
 }
 
-// ── Table header cell ─────────────────────────────────────────────────────────
+//  Table header cell
 
 function Th({ children, onClick, sortable, right }: {
   children: React.ReactNode;

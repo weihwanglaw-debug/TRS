@@ -15,8 +15,8 @@ function authHeader(): Record<string, string> {
 /**
  * POST /api/uploads
  * Multipart form-data:
- *   file: File
- *   folder: string (optional)
+ *  file: File
+ *  folder: string (optional)
  *
  * Returns JSON with { url } (preferred) or { path }.
  */
@@ -45,13 +45,13 @@ export async function apiUploadFile(
   const locationHeader = res.headers.get("location") ?? "";
 
   if (!contentType.includes("application/json")) {
-    // Backend may return empty 201 with Location header.
+  // Backend may return empty 201 with Location header.
     if (locationHeader) return ok(locationHeader);
     try {
       const text = (await res.text()).trim();
       if (text) return ok(text);
     } catch {
-      // ignore
+  // ignore
     }
     return err("UPLOAD_BAD_RESPONSE", "Upload succeeded but response was not a URL.");
   }

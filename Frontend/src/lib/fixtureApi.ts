@@ -1,21 +1,21 @@
 /**
- * fixtureApi.ts — Real API. All state lives in the backend Fixtures table.
+ * fixtureApi.ts - Real API. All state lives in the backend Fixtures table.
  * The fixture engine (fixtureEngine.ts) is still used locally to compute
- * new states — the backend stores and serves the JSON blob, not the logic.
+ * new states - the backend stores and serves the JSON blob, not the logic.
  */
 
 import type { SeedEntry, BracketState, MatchEntry, FixtureFormatConfig } from "@/types/config";
 import { API_BASE, adminHeaders, parseError, apiFetch } from "@/lib/api/_base";
 
-// ── Result types ──────────────────────────────────────────────────────────────
+//  Result types
 export interface ApiError { code: string; message: string }
 export type ApiResult<T> = { data: T; error: null } | { data: null; error: ApiError }
 
 function ok<T>(data: T): ApiResult<T>                     { return { data, error: null }; }
 function err(code: string, msg: string): ApiResult<never>  { return { data: null, error: { code, message: msg } }; }
 
-// ── GET /api/fixtures/status  ─────────────────────────────────────────────────
-// Returns { [programId]: boolean } — true means a fixture row exists in the DB.
+//  GET /api/fixtures/status
+// Returns { [programId]: boolean } - true means a fixture row exists in the DB.
 // Used by the Fixtures table and Dashboard to show Draw status without fetching full brackets.
 export async function apiGetFixtureStatus(
   programIds: string[],
@@ -29,7 +29,7 @@ export async function apiGetFixtureStatus(
   return ok(await res.json());
 }
 
-// ── GET /api/fixtures/:eventId/:programId ─────────────────────────────────────
+//  GET /api/fixtures/:eventId/:programId
 export async function apiGetFixture(
   eventId: string,
   programId: string,
@@ -39,7 +39,7 @@ export async function apiGetFixture(
   });
   if (res.status === 404) return ok(null);
   if (!res.ok) return err("FETCH_FAILED", (await parseError(res)).message);
-  // .NET Ok(null) returns an empty body (not "null" JSON) — guard against that
+  // .NET Ok(null) returns an empty body (not "null" JSON) - guard against that
   const text = await res.text();
   if (!text || text.trim() === "" || text.trim() === "null") return ok(null);
   let data: any;
@@ -52,7 +52,7 @@ export async function apiGetFixture(
   }
 }
 
-// ── POST /api/fixtures/generate ───────────────────────────────────────────────
+//  POST /api/fixtures/generate
 export async function apiGenerateDraw(
   eventId: string, programId: string,
   seeds: SeedEntry[], config: FixtureFormatConfig,
@@ -61,7 +61,7 @@ export async function apiGenerateDraw(
   if (seeds.length < 2) return err("NOT_ENOUGH", "At least 2 participants required.");
   const seedNums = seeds.map(s => s.seed).filter((s): s is number => s !== null);
   if (seedNums.length !== new Set(seedNums).size)
-    return err("DUPLICATE_SEEDS", "Duplicate seed numbers — each must be unique.");
+    return err("DUPLICATE_SEEDS", "Duplicate seed numbers - each must be unique.");
   const res = await apiFetch(`${API_BASE}/api/fixtures/${eventId}/${programId}/generate`, {
     method: "POST",
     headers: adminHeaders(),
@@ -75,7 +75,7 @@ export async function apiGenerateDraw(
   return ok(await res.json());
 }
 
-// ── DELETE /api/fixtures/:eventId/:programId ──────────────────────────────────
+//  DELETE /api/fixtures/:eventId/:programId
 export async function apiResetFixture(
   eventId: string,
   programId: string,
@@ -88,7 +88,7 @@ export async function apiResetFixture(
   return ok(null);
 }
 
-// ── PATCH score ───────────────────────────────────────────────────────────────
+//  PATCH score
 export async function apiSaveScore(
   eventId: string, programId: string, matchId: string,
   updates: Partial<Pick<MatchEntry, "games" | "winner" | "walkover" | "walkoverWinner" | "officials" | "remark" | "startTime" | "endTime">>,
@@ -111,7 +111,7 @@ export async function apiSaveScore(
   return ok(await res.json());
 }
 
-// ── PATCH schedule ────────────────────────────────────────────────────────────
+//  PATCH schedule
 export async function apiClearScore(
   eventId: string,
   programId: string,
@@ -138,7 +138,7 @@ export async function apiUpdateSchedule(
   return ok(await res.json());
 }
 
-// ── POST advance to knockout ──────────────────────────────────────────────────
+//  POST advance to knockout
 export async function apiAdvanceToKnockout(
   eventId: string,
   programId: string,
@@ -151,7 +151,7 @@ export async function apiAdvanceToKnockout(
   return ok(await res.json());
 }
 
-// ── POST next knockout round ──────────────────────────────────────────────────
+//  POST next knockout round
 export async function apiAdvanceKnockoutRound(
   eventId: string,
   programId: string,
@@ -164,7 +164,7 @@ export async function apiAdvanceKnockoutRound(
   return ok(await res.json());
 }
 
-// ── POST swap teams ───────────────────────────────────────────────────────────
+//  POST swap teams
 export async function apiResetLatestKnockoutRound(
   eventId: string,
   programId: string,
@@ -190,7 +190,7 @@ export async function apiSwapTeams(
   return ok(await res.json());
 }
 
-// ── Heats ─────────────────────────────────────────────────────────────────────
+//  Heats
 export async function apiSaveHeatResult(
   eventId: string, programId: string,
   roundNumber: number, teamId: string, result: string,

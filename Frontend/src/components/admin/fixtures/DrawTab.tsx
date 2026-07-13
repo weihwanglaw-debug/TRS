@@ -1,8 +1,8 @@
 /**
- * DrawTab.tsx — Bracket/groups display
+ * DrawTab.tsx - Bracket/groups display
  *
- * readOnly=true  → preview mode (wizard step 4): bracket preview, no score entry, no print
- * readOnly=false → live mode: live bracket/results display, print available
+ * readOnly=true  -> preview mode (wizard step 4): bracket preview, no score entry, no print
+ * readOnly=false -> live mode: live bracket/results display, print available
  */
 
 import React, { useState, useRef } from "react";
@@ -22,11 +22,11 @@ interface Props {
   onSwapInMemory?:  (idA: string, idB: string) => void;        // preview: mutates local state
 }
 
-// ── Print draw sheet (DOM-capture) ──────────────────────────────────────────
+//  Print draw sheet (DOM-capture)
 //
 // Captures the live rendered SVG bracket + group tables from the DOM,
 // resolves CSS variables to concrete values, then opens a silent print window.
-// "Download PDF" → opens blank tab, writes content, auto-triggers print dialog,
+// "Download PDF" -> opens blank tab, writes content, auto-triggers print dialog,
 // closes the tab after the dialog is dismissed.
 
 function resolveCssVars(el: Element): void {
@@ -46,12 +46,12 @@ function resolveCssVars(el: Element): void {
 
   // Fix SVG elements: fill/stroke attributes AND style.fill / style.stroke
   el.querySelectorAll("*").forEach(node => {
-    // Attributes
+  // Attributes
     ["fill", "stroke", "color"].forEach(attr => {
       const v = node.getAttribute(attr) ?? "";
       if (v.includes("var(--")) node.setAttribute(attr, resolve(v));
     });
-    // style.fill / style.stroke on SVG/HTML elements
+  // style.fill / style.stroke on SVG/HTML elements
     const s = (node as HTMLElement).style;
     if (!s) return;
     ["fill", "stroke", "color", "background", "background-color", "border-color"].forEach(prop => {
@@ -112,7 +112,7 @@ function openPrintWindow(
   eventName:   string,
   programName: string,
   groupHtml:   string,
-  svgHtml:     string,       // pure SVG string(s) — already safe to embed
+  svgHtml:     string,       // pure SVG string(s) - already safe to embed
   autoPrint:   boolean,
   isSplit?:    boolean,
   paperSize:   PrintPaperSize = "A4 landscape",
@@ -123,7 +123,7 @@ function openPrintWindow(
 
   const html = `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8">
-<title>${programName} — Draw Sheet</title>
+<title>${programName} - Draw Sheet</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; color: #111; background: white; padding: 28px 32px; font-size: 13px; }
@@ -199,14 +199,14 @@ function openPrintWindow(
     .no-print { display: none; }
     body { padding: 10px; }
     @page { margin: 8mm; size: ${paperSize}; }
-    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
 
-    /* Scale bracket SVG to fit page */
+  /* Scale bracket SVG to fit page */
     .bracket-inner { width: 100%; overflow: visible; }
     .bracket-inner > div { border: none !important; padding: 0 !important; border-radius: 0 !important; max-height: none !important; overflow: visible !important; }
     .bracket-inner svg { width: 100% !important; height: auto !important; max-width: 100% !important; }
 
-    /* Split mode: each half fills its page */
+  /* Split mode: each half fills its page */
     .bracket-inner.split svg { width: 100% !important; height: auto !important; }
     .page-break { display: block; page-break-after: always; break-after: page; height: 0; }
     .pg2-header { display: block; border-bottom: 3px solid #1E3A5F; padding-bottom: 10px; margin-bottom: 16px; }
@@ -219,14 +219,14 @@ function openPrintWindow(
 </head><body>
 
 <div class="no-print">
-  <span>${programName} — Draw Sheet</span>
+  <span>${programName} - Draw Sheet</span>
   <button onclick="window.print()">🖨 Print / Save as PDF</button>
 </div>
 
 <div class="ph">
   <div class="ph-left">
     <h1>${eventName}</h1>
-    <h2>${programName} — Draw Sheet</h2>
+    <h2>${programName} - Draw Sheet</h2>
   </div>
   <div class="ph-meta">Generated<br>${now}</div>
 </div>
@@ -235,13 +235,13 @@ ${groupHtml}
 
 ${svgHtml ? '<div class="bracket-wrap">' +
   (isSplit
-    ? '<div class="sec-title">Knockout Bracket — Top Half</div><div class="bracket-inner">' + svgHtml + '</div>'
+    ? '<div class="sec-title">Knockout Bracket - Top Half</div><div class="bracket-inner">' + svgHtml + '</div>'
     : '<div class="sec-title">Knockout Bracket</div><div class="bracket-inner">' + svgHtml + '</div>'
   ) + '</div>'
   : ""}
 
 <div class="pf">
-  <span>${eventName} · ${programName}</span>
+  <span>${eventName} - ${programName}</span>
   <span>Generated ${now}</span>
 </div>
 
@@ -249,9 +249,9 @@ ${autoPrint ? `<script>
 window.addEventListener("load", function() {
   setTimeout(function() {
     window.print();
-    // Close after print dialog dismissed (works in most modern browsers)
+  // Close after print dialog dismissed (works in most modern browsers)
     window.addEventListener("afterprint", function() { window.close(); });
-    // Fallback: close after 30 s in case afterprint doesn't fire
+  // Fallback: close after 30 s in case afterprint doesn't fire
     setTimeout(function() { window.close(); }, 30000);
   }, 600);
 });
@@ -266,9 +266,9 @@ window.addEventListener("load", function() {
   return null;
 }
 
-// ── Player swap panel ─────────────────────────────────────────────────────────
+//  Player swap panel
 
-// ── Player swap panel ─────────────────────────────────────────────────────────
+//  Player swap panel
 
 function GroupStandings({ state }: { state: BracketState }) {
   if (!state.groups.length) return null;
@@ -332,7 +332,7 @@ function GroupStandings({ state }: { state: BracketState }) {
   );
 }
 
-// ── Main export ───────────────────────────────────────────────────────────────
+//  Main export
 
 export function DrawTab({
   bracketState, eventName, programName,
@@ -379,7 +379,7 @@ export function DrawTab({
   };
   return (
     <div className="space-y-5">
-      {/* Action buttons — live mode only */}
+  {/* Action buttons - live mode only */}
       {!readOnly && (
         <div className="flex justify-end gap-2 flex-wrap items-center">
           <label className="flex items-center gap-2 text-xs font-semibold opacity-70">
@@ -409,7 +409,7 @@ export function DrawTab({
         description={notice}
       />
 
-      {/* Groups */}
+  {/* Groups */}
       {hasGroups && (
         <div>
           {!hasKo && (
@@ -436,7 +436,7 @@ export function DrawTab({
         </div>
       )}
 
-      {/* KO bracket */}
+  {/* KO bracket */}
       {hasKo && (
         <div>
           {hasGroups && (

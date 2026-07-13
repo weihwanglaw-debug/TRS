@@ -149,12 +149,11 @@ public class ReceiptService
                 }
                 else
                 {
-                    // Each item = 1 entry; qty = total players across all entries
-                    // Unit price = fee per entry (same for all)
-                    qty = totalParticipants > 0 ? totalParticipants : items.Count;
+                    // Each item = 1 entry; unit price = full entry fee.
+                    // Participant count is informational only and must not become receipt quantity.
+                    qty = items.Count;
                     unitPrice = items.Count > 0
-                        ? items[0].Amount / Math.Max(1,
-                            groupById.GetValueOrDefault(items[0].GroupId)?.Participants.Count ?? 1)
+                        ? Math.Round(totalAmount / items.Count, 2)
                         : 0;
                     feeType = "Per Entry";
                 }
@@ -204,12 +203,11 @@ public class ReceiptService
                 }
                 else
                 {
-                    // per_entry: qty = players in the refunded group
-                    var grp = groupById.GetValueOrDefault(g.Key.GrpId);
-                    refQty = -(grp?.Participants.Count ?? 1);
+                    // per_entry: each refund maps to one refunded entry.
+                    refQty = -g.Count();
                 }
 
-                // Unit price = refund per head
+                // Unit price = refund per billable unit.
                 decimal unitRef = refQty != 0
                     ? Math.Round(totalRefAmt / Math.Abs(refQty), 2)
                     : totalRefAmt;

@@ -138,7 +138,7 @@ export default function UserManagement() {
         <button onClick={openCreate} className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-semibold"><Plus className="h-4 w-4" /> Add User</button>
       </div>
 
-      {/* Role legend */}
+  {/* Role legend */}
       <div className="flex flex-wrap gap-4 mb-6 text-xs">
         <div className="flex items-center gap-2">
           <span className="px-2.5 py-1 text-xs font-semibold" style={{ backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" }}>Super Admin</span>
@@ -150,7 +150,7 @@ export default function UserManagement() {
         </div>
       </div>
 
-      {/* Desktop table */}
+  {/* Desktop table */}
       <div className="hidden md:block" style={{ border: "1px solid var(--color-table-border)" }}>
         <table className="trs-table w-full">
           <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last Login</th><th>Actions</th></tr></thead>
@@ -182,7 +182,7 @@ export default function UserManagement() {
         </table>
       </div>
 
-      {/* Mobile card list */}
+  {/* Mobile card list */}
       <div className="md:hidden space-y-3">
         {users.map(u => {
           const rb = roleBadge(u.role);
@@ -213,9 +213,9 @@ export default function UserManagement() {
         })}
       </div>
 
-      {/* FIX: wrap children in openAction guard — same pattern as EventEdit.tsx fix.
+  {/* FIX: wrap children in openAction guard - same pattern as EventEdit.tsx fix.
           disabled/style props that access openAction.user evaluate on every render,
-          including the render triggered when onClose() sets openAction → null.
+          including the render triggered when onClose() sets openAction to null.
           Without this guard they crash with "Cannot read properties of null (reading 'user')". */}
       <ActionDropdownPortal
         open={!!openAction}
@@ -244,10 +244,10 @@ export default function UserManagement() {
         )}
       </ActionDropdownPortal>
 
-      {/* Modals */}
+  {/* Modals */}
       <Dialog open={modal === "create" || modal === "edit"} onOpenChange={v => { if (!v) setModal(null); }}>
         <DialogContent className="max-w-md p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
-          <DialogHeader className="p-8 pb-0"><DialogTitle className="font-bold text-xl">{modal === "create" ? "Add User" : `Edit User — ${target?.name}`}</DialogTitle></DialogHeader>
+          <DialogHeader className="p-8 pb-0"><DialogTitle className="font-bold text-xl">{modal === "create" ? "Add User" : `Edit User - ${target?.name}`}</DialogTitle></DialogHeader>
           <div className="p-8 pt-4 space-y-4">
             <FF label="Full Name *" error={errors.name}><input className="field-input" value={fName} onChange={e => setFName(e.target.value)} placeholder="e.g. Jane Tan" /></FF>
             <FF label="Email *" error={errors.email}><input className="field-input" type="email" value={fEmail} onChange={e => setFEmail(e.target.value)} placeholder="jane@example.com" /></FF>
@@ -266,7 +266,7 @@ export default function UserManagement() {
 
       <Dialog open={modal === "reset"} onOpenChange={v => { if (!v) setModal(null); }}>
         <DialogContent className="max-w-md p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
-          <DialogHeader className="p-8 pb-0"><DialogTitle className="font-bold text-xl">Reset Password — {target?.name}</DialogTitle></DialogHeader>
+          <DialogHeader className="p-8 pb-0"><DialogTitle className="font-bold text-xl">Reset Password - {target?.name}</DialogTitle></DialogHeader>
           <div className="p-8 pt-4 space-y-4">
             <div className="p-3 text-sm" style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>Setting a new password will immediately invalidate the current one.</div>
             <FF label="New Password *" error={errors.pass}><div className="flex"><input className="field-input flex-1" type={showPass ? "text" : "password"} value={fPass} onChange={e => setFPass(e.target.value)} placeholder="Min. 8 characters" /><button type="button" onClick={() => setShowPass(!showPass)} className="field-input-icon px-3 opacity-60 hover:opacity-90" style={{ border: "1px solid var(--color-table-border)", borderLeft: "none" }}>{showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div></FF>

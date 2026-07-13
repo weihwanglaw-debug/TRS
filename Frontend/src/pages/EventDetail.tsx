@@ -6,6 +6,7 @@ import {
   ShoppingCart, Plus, Trash2, AlertCircle, Edit2,
   Search, ChevronLeft, ChevronRight, X, Trophy,
   BadgeInfo, CalendarDays, UserRound, FileText, Images, ListChecks, ClipboardList,
+  Loader2,
 } from "lucide-react";
 import type { TournamentEvent, Program, Participant, CartEntry } from "@/types/config";
 import { getEventStatus, formatDate } from "@/lib/eventUtils";
@@ -49,7 +50,7 @@ function blankParticipant(): Participant {
   return { id: generateId(), ...blankParticipantFormValues() };
 }
 
-// ── Gallery Component with swipe support ──
+//  Gallery Component with swipe support
 function EventGallery({ images }: { images: string[] }) {
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -111,7 +112,7 @@ function EventGallery({ images }: { images: string[] }) {
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center">
                   <Search className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 </div>
-                {/* Show remaining count on last visible */}
+  {/* Show remaining count on last visible */}
                 {hasMore && i === MAX_VISIBLE - 1 && (
                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                     <span className="text-white text-lg font-bold">+{images.length - MAX_VISIBLE}</span>
@@ -129,7 +130,7 @@ function EventGallery({ images }: { images: string[] }) {
         </>
       )}
 
-      {/* Lightbox with swipe */}
+  {/* Lightbox with swipe */}
       <AnimatePresence>
         {lightboxIdx !== null && (
           <motion.div
@@ -141,12 +142,12 @@ function EventGallery({ images }: { images: string[] }) {
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
           >
-            {/* Close */}
+  {/* Close */}
             <button className="absolute top-4 right-4 p-2.5 text-white/60 hover:text-white z-10 bg-black/30 hover:bg-black/50 transition-all" onClick={() => setLightboxIdx(null)}>
               <X className="h-5 w-5" />
             </button>
 
-            {/* Prev/Next arrows — hidden on mobile (use swipe) */}
+  {/* Prev/Next arrows - hidden on mobile (use swipe) */}
             {images.length > 1 && (
               <>
                 <button className="hidden md:flex absolute left-4 top-1/2 -translate-y-1/2 p-3 text-white/60 hover:text-white z-10 bg-black/30 hover:bg-black/50 transition-all items-center justify-center"
@@ -160,7 +161,7 @@ function EventGallery({ images }: { images: string[] }) {
               </>
             )}
 
-            {/* Image with slide animation */}
+  {/* Image with slide animation */}
             <motion.img
               key={lightboxIdx}
               src={images[lightboxIdx]}
@@ -174,9 +175,9 @@ function EventGallery({ images }: { images: string[] }) {
               draggable={false}
             />
 
-            {/* Bottom bar: counter + dots + swipe hint */}
+  {/* Bottom bar: counter + dots + swipe hint */}
             <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center gap-2 pb-5 pt-3 bg-gradient-to-t from-black/50 to-transparent">
-              {/* Dot indicators */}
+  {/* Dot indicators */}
               {images.length > 1 && images.length <= 12 && (
                 <div className="flex gap-1.5">
                   {images.map((_, i) => (
@@ -201,7 +202,7 @@ function EventGallery({ images }: { images: string[] }) {
   );
 }
 
-// ── Main component ──
+//  Main component
 function EventDetailSectionNav({ sections }: { sections: EventSectionNavItem[] }) {
   const [activeId, setActiveId] = useState(sections[0]?.id ?? "");
 
@@ -263,7 +264,7 @@ export default function EventDetail() {
 
   const [event,        setEvent]        = useState<TournamentEvent | null>(null);
   const [eventLoading, setEventLoading] = useState(true);
-  // eventIndex only used for fallback banner cycling — default 0 for async load
+  // eventIndex only used for fallback banner cycling - default 0 for async load
   const [eventIndex,   setEventIndex]   = useState(0);
 
   useEffect(() => {
@@ -272,26 +273,26 @@ export default function EventDetail() {
     apiGetEvent(id).then(r => {
       if (r.data) {
         setEvent(r.data);
-        // index used for fallback banner only — cycle by event id hash
+  // index used for fallback banner only - cycle by event id hash
         setEventIndex(id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 3);
       }
     }).finally(() => setEventLoading(false));
   }, [id]);
 
-  // ── Session storage key — scoped per event so different events don't clash ──
+  //  Session storage key - scoped per event so different events don't clash
   const SESSION_KEY = id ? `trs_cart_${id}` : null;
 
-  // ── Contact person (who submits — receives the receipt email) ─────────────
+  //  Contact person (who submits - receives the receipt email)
   interface ContactPerson { name: string; email: string; phone: string; }
 
-  // ── Restore cart + contact from sessionStorage on mount (payment retry flow) ──
+  //  Restore cart + contact from sessionStorage on mount (payment retry flow)
   const restoreSession = (): { cart: CartEntry[]; contact: ContactPerson } | null => {
     if (!SESSION_KEY) return null;
     try {
       const raw = sessionStorage.getItem(SESSION_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      // Strip documentFile (File objects can't survive serialization)
+  // Strip documentFile (File objects can't survive serialization)
       if (parsed.cart) {
         parsed.cart = (parsed.cart as CartEntry[]).map(entry => ({
           ...entry,
@@ -316,7 +317,7 @@ export default function EventDetail() {
   const [consentChecked, setConsentChecked] = useState(false);
   const [existingParticipants, setExistingParticipants] = useState<Participant[]>([]);
 
-  // ── Contact person state ──────────────────────────────────────────────────
+  //  Contact person state
   const [contact, setContact] = useState<ContactPerson>(
     savedSession?.contact ?? { name: "", email: "", phone: "" }
   );
@@ -411,13 +412,13 @@ export default function EventDetail() {
     ];
   }, [event, galleryImages.length, status, canShowRegistration, isAdminRegistrationMode]);
 
-  // ── Program selection with scroll ──
+  //  Program selection with scroll
   // Re-fetches the event before opening the form so that currentParticipants
-  // reflects the latest count — prevents showing a stale "Register" button
+  // reflects the latest count - prevents showing a stale "Register" button
   // for a program that filled up while the user was browsing.
   const handleSelectProgram = async (prog: Program) => {
     if (!id) return;
-    // Optimistically open the form immediately with the data we have
+  // Optimistically open the form immediately with the data we have
     setSelectedProgram(prog);
     const initial = Array.from({ length: prog.minPlayers }, () => blankParticipant());
     setParticipants(initial);
@@ -429,8 +430,8 @@ export default function EventDetail() {
     setTimeout(() => {
       registrationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 100);
-    // Refresh event data in background — if the program is now full,
-    // the refreshed selectedProgram will cause validate() to catch it.
+  // Refresh event data in background - if the program is now full,
+  // the refreshed selectedProgram will cause validate() to catch it.
     const fresh = await apiGetEvent(id);
     if (fresh.data) {
       setEvent(fresh.data);
@@ -439,7 +440,7 @@ export default function EventDetail() {
     }
   };
 
-  // ── Participant field updates ──
+  //  Participant field updates
 
   const errorKeysForParticipantPatch = (patch: Partial<Participant>): string[] => {
     const keys = new Set<string>();
@@ -530,27 +531,27 @@ export default function EventDetail() {
       return next;
     });
     setFormError("");
-    // Rebuild sbaStatus: participants above the removed index shift down by one
+  // Rebuild sbaStatus: participants above the removed index shift down by one
     setSbaStatus((prev) => {
       const next: Record<number, "idle" | "loading" | "found" | "not_found"> = {};
       Object.entries(prev).forEach(([key, val]) => {
         const i = Number(key);
         if (i < idx) next[i] = val;
         else if (i > idx) next[i - 1] = val; // shift down
-        // i === idx is dropped
+  // i === idx is dropped
       });
       return next;
     });
   };
 
-  // ── SBA ID retrieve — calls apiGetSbaMember() (sbaApi.ts) ──
+  //  SBA ID retrieve - calls apiGetSbaMember() (sbaApi.ts)
   // Mock: resolves from SBA_MASTER in sbaApi.ts
   // Real: swap sbaApi.ts body to fetch() from /api/sba/members/:id
   const retrieveBySbaId = async (idx: number, sbaId: string) => {
     if (!sbaId.trim()) return;
     setSbaStatus((prev) => ({ ...prev, [idx]: "loading" }));
-    // Registration lookup: match by SBA ID only — no ranking type filter.
-    // Ranking type is only applied during fixture seeding, not here.
+  // Registration lookup: match by SBA ID only - no ranking type filter.
+  // Ranking type is only applied during fixture seeding, not here.
     const r = await apiGetSbaMember(sbaId.trim());
     if (r.data) {
       const found = r.data;
@@ -569,11 +570,11 @@ export default function EventDetail() {
     }
   };
 
-  // ── Validation — delegates field rules to shared validateParticipant() ──
+  //  Validation - delegates field rules to shared validateParticipant()
   const validate = (): boolean => {
     if (!selectedProgram) return false;
 
-    // Program-level checks first
+  // Program-level checks first
     const cartEntriesForProgram = getCartEntryCount(selectedProgram.id, editingCartIndex);
     if (selectedProgram.currentParticipants + cartEntriesForProgram >= selectedProgram.maxParticipants) {
       setErrors({}); setFormError("This program is full."); return false;
@@ -584,17 +585,17 @@ export default function EventDetail() {
 
     participants.forEach((p, i) => {
       const px = `p${i}`;
-      // Per-participant field validation via shared function
+  // Per-participant field validation via shared function
       const perParticipantErrs = validateParticipant(p, {
         program: selectedProgram,
         allValues: participants,
         selfIndex: i,
       });
-      // Namespace errors by participant index so they map to the right Field
+  // Namespace errors by participant index so they map to the right Field
       for (const [k, v] of Object.entries(perParticipantErrs)) {
         allErrs[`${px}.${k}`] = v;
       }
-      // In-cart duplicate check (different from in-submission duplicate above)
+  // In-cart duplicate check (different from in-submission duplicate above)
       const cartDupe = cart.some((entry, ci) => {
         if (editingCartIndex !== null && ci === editingCartIndex) return false;
         return entry.programId === selectedProgram.id &&
@@ -609,7 +610,7 @@ export default function EventDetail() {
         allErrs[`${px}.fullName`] = "Already registered in this program";
     });
 
-    // Mixed gender composition — checked across all participants together
+  // Mixed gender composition - checked across all participants together
     if (selectedProgram.gender === "Mixed") {
       const allFilled = participants.every(p => p.gender);
       if (!allFilled) {
@@ -625,7 +626,7 @@ export default function EventDetail() {
     setErrors(allErrs);
     setFormError(formErr);
 
-    // Scroll to first error so user can see it
+  // Scroll to first error so user can see it
     const hasErrors = Object.keys(allErrs).length > 0 || !!formErr;
     if (hasErrors) {
       setTimeout(() => {
@@ -636,7 +637,7 @@ export default function EventDetail() {
     return !hasErrors;
   };
 
-  // ── Add to cart ──
+  //  Add to cart
   const addToCart = () => {
     if (!selectedProgram) return;
     const isPerPlayer = selectedProgram.feeStructure === "per_player";
@@ -673,7 +674,7 @@ export default function EventDetail() {
 
   const handleAddToCart = () => { if (validate()) addToCart(); };
 
-  // ── Persist checkout context to sessionStorage (survives gateway redirect) ──
+  //  Persist checkout context to sessionStorage (survives gateway redirect)
   const saveSession = (
     currentCart: CartEntry[],
     currentContact: { name: string; email: string; phone: string },
@@ -698,8 +699,8 @@ export default function EventDetail() {
 
   const clearSession = () => { if (SESSION_KEY) sessionStorage.removeItem(SESSION_KEY); };
 
-  // ── Build registration payload from cart + contact ────────────────────────
-  // documentUrlMap: keyed by "entryIndex-participantIndex" → uploaded URL
+  //  Build registration payload from cart + contact
+  // documentUrlMap: keyed by "entryIndex-participantIndex" -> uploaded URL
   const buildRegistrationPayload = (documentUrlMap: Record<string, string> = {}) => {
     const groups = cart.map((entry, i) => {
       const groupId = `PG-TEMP-${i}`;
@@ -723,14 +724,14 @@ export default function EventDetail() {
       const items = isPerPlayer
         ? parts.map((p, pi) => ({
             programName: entry.programName,
-            description: `${entry.programName} — ${p.fullName}`,
+            description: `${entry.programName} - ${p.fullName}`,
             playerName: p.fullName,
             amount: entry.feePerPlayer ?? 0,
             participantIndex: pi,  // backend uses this to link to the saved Participant row
           }))
         : [{
             programName: entry.programName,
-            description: `${entry.programName} — ${parts.map(p => p.fullName).join(" / ")}`,
+            description: `${entry.programName} - ${parts.map(p => p.fullName).join(" / ")}`,
             amount: entry.fee,
           }];
       return {
@@ -842,7 +843,7 @@ export default function EventDetail() {
     if (!event || !canSubmitCart) return;
 
     if (!isAdminPaymentBypass) {
-      // Validate contact fields
+  // Validate contact fields
       const cErrs: { name?: string; email?: string; phone?: string } = {};
       if (!contact.name.trim())  cErrs.name  = "Required";
       if (!contact.email.trim()) cErrs.email = "Required";
@@ -856,9 +857,9 @@ export default function EventDetail() {
     setSubmitting(true);
     setSubmitError("");
     try {
-      // ── Upload documents before building the payload ──────────────────────
-      // Collect all participants across all cart entries that have a documentFile.
-      // Upload each in parallel, build a map of "entryIdx-participantIdx" → URL.
+  //  Upload documents before building the payload
+  // Collect all participants across all cart entries that have a documentFile.
+  // Upload each in parallel, build a map of "entryIdx-participantIdx" -> URL.
       const docUploads: Promise<void>[] = [];
       const documentUrlMap: Record<string, string> = {};
       cart.forEach((entry, ei) => {
@@ -867,7 +868,7 @@ export default function EventDetail() {
             docUploads.push(
               apiUploadFile(p.documentFile, "registrations/documents").then(r => {
                 if (r.data) documentUrlMap[`${ei}-${pi}`] = r.data;
-                // Non-fatal: if upload fails we still submit; admin can note missing doc.
+  // Non-fatal: if upload fails we still submit; admin can note missing doc.
               })
             );
           }
@@ -879,7 +880,7 @@ export default function EventDetail() {
       const needsPayment = cart.some(e => e.fee > 0);
 
       if (!needsPayment) {
-        // Free registration — write to DB immediately, no gateway
+  // Free registration - write to DB immediately, no gateway
         const regResult = await apiCreateRegistration(registrationPayload);
         if (regResult.error) { setSubmitError(regResult.error.message); return; }
         clearSession();
@@ -889,13 +890,13 @@ export default function EventDetail() {
         return;
       }
 
-      // Admin registration — skip Payment Gateway, open confirmation modal
+  // Admin registration - skip Payment Gateway, open confirmation modal
       if (isAuthenticated) {
         setAdminConfirmOpen(true);
         return;
       }
 
-      // Ask backend to create a Stripe session only — no DB write yet
+  // Ask backend to create a Stripe session only - no DB write yet
       const attemptSignature = buildAttemptSignature();
       const attemptResult = await apiCreateEmbeddedPaymentAttempt(
         registrationPayload,
@@ -927,9 +928,9 @@ export default function EventDetail() {
     const entry = cart[idx];
     const prog = event?.programs.find((p) => p.id === entry.programId);
     if (!prog) return;
-    // documentFile is null after session restore (File objects can't be serialized).
-    // documentUrl is preserved in the participant record — ParticipantFieldsForm will
-    // show the existing file link so the user knows it is still attached.
+  // documentFile is null after session restore (File objects can't be serialized).
+  // documentUrl is preserved in the participant record - ParticipantFieldsForm will
+  // show the existing file link so the user knows it is still attached.
     setSelectedProgram(prog); setParticipants([...entry.participants]); setEditingCartIndex(idx);
     setErrors({}); setFormError(""); setSbaStatus({}); setSuggestions(null); setStep(2);
     setTimeout(() => registrationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
@@ -943,7 +944,7 @@ export default function EventDetail() {
       <div className="min-h-screen flex flex-col">
         <Header />
         <main className="flex-1 flex items-center justify-center">
-          <PageLoader label="Loading event…" />
+          <PageLoader label="Loading event..." />
         </main>
         <Footer />
       </div>
@@ -971,7 +972,7 @@ export default function EventDetail() {
       <EventDetailSectionNav sections={sectionNavItems} />
       <main className="flex-1" style={{ backgroundColor: "var(--color-page-bg)" }}>
 
-        {/* ── Banner Hero ── */}
+  {/*  Banner Hero  */}
         <div className="event-detail-hero relative">
           <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${bannerImage})` }} />
           <div className="event-detail-hero-overlay absolute inset-0" />
@@ -995,15 +996,15 @@ export default function EventDetail() {
 
         <div className="event-detail-body mx-auto py-12 px-8">
 
-          {/* ── Section 1: Event Info ── */}
+  {/*  Section 1: Event Info  */}
           <div id="event-info" className="event-detail-info-grid section-anchor grid md:grid-cols-2 gap-10 mb-12">
 
             <div className="event-detail-panel space-y-5">
               <h2 className="event-detail-section-heading font-bold text-xl mb-6">Event Information</h2>
-              <InfoRow icon={Calendar} label="Event Dates" value={`${formatDate(event.eventStartDate)} – ${formatDate(event.eventEndDate)}`} />
+              <InfoRow icon={Calendar} label="Event Dates" value={`${formatDate(event.eventStartDate)} - ${formatDate(event.eventEndDate)}`} />
               <InfoRow icon={MapPin} label="Venue" value={`${event.venue}, ${event.venueAddress}`} />
               <InfoRow icon={Users} label="Max Participants" value={String(event.maxParticipants)} />
-              <InfoRow icon={Calendar} label="Registration Period" value={`${formatDate(event.openDate)} – ${formatDate(event.closeDate)}`} />
+              <InfoRow icon={Calendar} label="Registration Period" value={`${formatDate(event.openDate)} - ${formatDate(event.closeDate)}`} />
               {event.sponsorInfo && (
                 <div className="flex items-start gap-3">
                   <Trophy className="h-5 w-5 mt-0.5 opacity-60 flex-shrink-0" style={{ color: "var(--color-primary)" }} />
@@ -1045,7 +1046,7 @@ export default function EventDetail() {
             </div>
           </div>
 
-          {/* Google Maps embed */}
+  {/* Google Maps embed */}
           {event.venueAddress && (
             <div className="event-detail-map mb-12 overflow-hidden">
               <iframe title="Venue Map" width="100%" height="100%" style={{ border: 0 }} loading="lazy" allowFullScreen
@@ -1054,13 +1055,13 @@ export default function EventDetail() {
             </div>
           )}
 
-          {/* ── Gallery Section ── */}
+  {/*  Gallery Section  */}
    
           <div id="event-gallery" className="section-anchor">
             <EventGallery images={galleryImages} />
           </div>
 
-          {/* ── Additional Information ── */}
+  {/*  Additional Information  */}
           {event.additionalInfo && event.additionalInfo.trim() !== "" && event.additionalInfo !== "<p></p>" && (
             <div className="event-detail-panel mb-12">
                  <h2 className="event-detail-section-heading font-bold text-xl mb-6">Additional Information</h2>
@@ -1072,7 +1073,7 @@ export default function EventDetail() {
             </div>
           )}
 
-          {/* ── Section 2: Program Cards ── */}
+  {/*  Section 2: Program Cards  */}
           <div id="event-categories" className="section-anchor" ref={programsRef}>
           <h2 className="event-detail-section-heading font-bold text-xl mb-6">           
             {event.sportType.toLowerCase() === "badminton" ? "Event Categories" : "Programs"}
@@ -1131,9 +1132,9 @@ export default function EventDetail() {
                       <div className="event-category-facts">
                         <div className="event-category-fact"><BadgeInfo className="event-category-fact-icon" /><span>{prog.type}</span></div>
                         <div className="event-category-fact"><UserRound className="event-category-fact-icon" /><span>{prog.gender}</span></div>
-                        <div className="event-category-fact"><CalendarDays className="event-category-fact-icon" /><span>{prog.minAge}–{prog.maxAge} yrs</span></div>
+                        <div className="event-category-fact"><CalendarDays className="event-category-fact-icon" /><span>{prog.minAge}-{prog.maxAge} yrs</span></div>
                         <div className="event-category-fact"><Users className="event-category-fact-icon" />
-                          <span>{prog.minPlayers === prog.maxPlayers ? prog.maxPlayers : `${prog.minPlayers}–${prog.maxPlayers}`} per entry</span>
+                          <span>{prog.minPlayers === prog.maxPlayers ? prog.maxPlayers : `${prog.minPlayers}-${prog.maxPlayers}`} per entry</span>
                         </div>
                       </div>
                     </div>
@@ -1149,7 +1150,7 @@ export default function EventDetail() {
             })}
           </div>
 
-          {/* ── Section 3: Registration Steps ── */}
+  {/*  Section 3: Registration Steps  */}
           {canShowRegistration && (
             <div className="event-detail-registration section-anchor" id="registration" ref={registrationRef}>
               <div className="h-px mb-12" style={{ backgroundColor: "var(--color-table-border)" }} />
@@ -1163,7 +1164,7 @@ export default function EventDetail() {
                 {step === 2 && selectedProgram && (
                   <motion.div key="step2" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
                     <div className="flex items-center justify-between mb-6">
-                      <h3 className="font-bold text-lg">{editingCartIndex !== null ? "Edit: " : ""}{selectedProgram.name} — Participant Details</h3>
+                      <h3 className="font-bold text-lg">{editingCartIndex !== null ? "Edit: " : ""}{selectedProgram.name} - Participant Details</h3>
                       <button
                         onClick={() => { setStep(cart.length > 0 ? 3 : 1); setSelectedProgram(null); setEditingCartIndex(null); }}
                         className="btn-outline px-4 py-2 text-sm font-medium"
@@ -1193,7 +1194,7 @@ export default function EventDetail() {
                             setParticipants((prev) =>
                               prev.map((pp, i) => i === idx ? { ...pp, ...patch } : pp)
                             );
-                            // Restore suggestion trigger: fire when fullName changes
+  // Restore suggestion trigger: fire when fullName changes
                             if (typeof patch.fullName === "string") {
                               const q = patch.fullName;
                               if (q.length >= 3) {
@@ -1292,7 +1293,7 @@ export default function EventDetail() {
                               <p className="text-sm opacity-70 mt-1">{entry.participants.map((p) => p.fullName).join(", ")}</p>
                               {entry.feeStructure === "per_player" && entry.feePerPlayer != null && (
                                 <p className="text-xs opacity-50 mt-0.5">
-                                  {entry.participants.length} player{entry.participants.length !== 1 ? "s" : ""} × {currency} ${entry.feePerPlayer.toFixed(2)}
+                                  {entry.participants.length} player{entry.participants.length !== 1 ? "s" : ""} x {currency} ${entry.feePerPlayer.toFixed(2)}
                                 </p>
                               )}
                             </div>
@@ -1309,8 +1310,8 @@ export default function EventDetail() {
                           <span className="font-bold text-lg">Total</span>
                           <span className="font-bold text-xl" style={{ color: "var(--color-primary)" }}>{currency} ${totalPrice.toFixed(2)}</span>
                         </div>
-                        {/* Session restored banner — shown when user returns after payment cancel */}
-                        {/* Contact person — receipt will be sent here */}
+  {/* Session restored banner - shown when user returns after payment cancel */}
+  {/* Contact person - receipt will be sent here */}
                         {!isAdminPaymentBypass && (
                         <div className="event-detail-panel p-5 mb-5" style={{ border: "1px solid var(--color-table-border)" }}>
                           <p className="text-xs font-semibold mb-4 opacity-60">CONTACT PERSON</p>
@@ -1359,7 +1360,7 @@ export default function EventDetail() {
                         </div>
                         )}
 
-                        {/* Payment method selector — only shown when payment is required */}
+  {/* Payment method selector - only shown when payment is required */}
                         {cartRequiresPayment && !isAdminPaymentBypass && (
                           <div className="event-detail-panel mb-5 p-5" style={{ border: "1px solid var(--color-table-border)" }}>
                             <p className="text-xs font-semibold mb-3 opacity-60">Payment Method</p>
@@ -1404,9 +1405,9 @@ export default function EventDetail() {
                           <button
                             disabled={!canSubmitCart || submitting}
                             onClick={handleCheckout}
-                            className="btn-primary px-8 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+                            className="btn-primary px-8 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2">
                             {submitting
-                              ? "Processing…"
+                              ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</>
                               : isAuthenticated
                               ? "Confirm Registration"
                               : cartRequiresPayment ? "Proceed to Payment" : "Confirm Registration"}
@@ -1440,7 +1441,7 @@ export default function EventDetail() {
         onConfirmed={handlePaymentConfirmed}
       />
 
-      {/* ── Admin Registration Confirmation Modal ── */}
+  {/*  Admin Registration Confirmation Modal  */}
       <Dialog open={adminConfirmOpen} onOpenChange={v => { if (!v) { setAdminConfirmOpen(false); setAdminConfirmNote(""); setAdminConfirmRef(""); } }}>
         <DialogContent className="max-w-md p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
           <DialogHeader className="p-8 pb-0">
@@ -1448,7 +1449,7 @@ export default function EventDetail() {
           </DialogHeader>
           <div className="p-8 pt-4 space-y-4">
             <div className="p-3 text-sm" style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
-              Admin registration — Payment will be bypassed. Select the payment outcome below.
+              Admin registration - Payment will be bypassed. Select the payment outcome below.
             </div>
             <div>
               <label className="block text-xs font-semibold mb-2 opacity-70">Payment Status *</label>
@@ -1508,7 +1509,7 @@ export default function EventDetail() {
                 if (!event || !adminConfirmNote.trim()) return;
                 setSubmitting(true);
                 try {
-                  // 1. Write registration to DB
+  // 1. Write registration to DB
                   const docUploads2: Promise<void>[] = [];
                   const docMap2: Record<string, string> = {};
                   cart.forEach((entry, ei) => {
@@ -1526,7 +1527,7 @@ export default function EventDetail() {
                   const payload2 = buildRegistrationPayload(docMap2);
                   const regResult = await apiCreateRegistration(payload2, { admin: true });
                   if (regResult.error) { setSubmitError(regResult.error.message); setAdminConfirmOpen(false); return; }
-                  // 2. Confirm with chosen payment status
+  // 2. Confirm with chosen payment status
                   const confirmResult = await apiConfirmRegistration(regResult.data!.id, {
                     paymentStatus: adminConfirmStatus,
                     method: showAdminPaymentDetails ? adminConfirmMethod : undefined,
@@ -1543,7 +1544,7 @@ export default function EventDetail() {
                   setSubmitting(false);
                 }
               }}>
-              {submitting ? "Processing…" : "Confirm Registration"}
+              {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</> : "Confirm Registration"}
             </button>
           </div>
         </DialogContent>

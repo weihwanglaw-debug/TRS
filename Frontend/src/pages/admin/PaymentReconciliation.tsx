@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect, useCallback } from "react";
-import { AlertCircle, CheckCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, CheckCircle, Loader2, RefreshCw } from "lucide-react";
 import { apiGetWebhookFailures, apiGetOrphanRefundHistory, apiMarkWebhookFailureReviewed, apiRecordExternalOrphanRefund, apiRefundOrphanedPayment } from "@/lib/api";
 import type { OrphanRefundHistory, RefundMethod, RefundSource, WebhookFailure } from "@/types/registration";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -9,7 +9,7 @@ import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 import AdminTabs from "@/components/admin/AdminTabs";
 
-// ── small helpers ─────────────────────────────────────────────────────────────
+//  small helpers
 
 function FG({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -41,7 +41,7 @@ function requiresRefundReference(method: RefundMethod): boolean {
   return method !== "Cash";
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+//  Main page
 
 function RefundStatusBadge({ status }: { status: string }) {
   const config: Record<string, [string, string, string]> = {
@@ -234,7 +234,7 @@ export default function PaymentReconciliation() {
         >
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           <span>
-            {failures.length} unmatched payment{failures.length !== 1 ? "s" : ""} — contact each payer and issue a refund.
+            {failures.length} unmatched payment{failures.length !== 1 ? "s" : ""} - contact each payer and issue a refund.
           </span>
         </div>
       )}
@@ -256,7 +256,7 @@ export default function PaymentReconciliation() {
             {loadingC && (
               <tr>
                 <td colSpan={7} className="text-center py-6">
-                  <LoadingSpinner size="sm" label="Loading…" />
+                  <LoadingSpinner size="sm" label="Loading..." />
                 </td>
               </tr>
             )}
@@ -276,21 +276,21 @@ export default function PaymentReconciliation() {
               <tr>
                 <td colSpan={7} className="text-center py-10 opacity-40">
                   <CheckCircle className="h-5 w-5 inline mr-2" />
-                  No unmatched payments — all clear.
+                  No unmatched payments - all clear.
                 </td>
               </tr>
             )}
             {failures.map(f => (
               <tr key={f.webhookLogId}>
                 <td>
-                  <p className="font-semibold text-sm">{f.contactName ?? "—"}</p>
+                  <p className="font-semibold text-sm">{f.contactName ?? "-"}</p>
                 </td>
                 <td>
-                  <p className="text-sm">{f.contactEmail ?? "—"}</p>
-                  <p className="text-xs opacity-50">{f.contactPhone ?? "—"}</p>
+                  <p className="text-sm">{f.contactEmail ?? "-"}</p>
+                  <p className="text-xs opacity-50">{f.contactPhone ?? "-"}</p>
                 </td>
                 <td className="font-semibold text-sm" style={{ color: "var(--color-primary)" }}>
-                  {f.currency} {f.amount != null ? f.amount.toFixed(2) : "—"}
+                  {f.currency} {f.amount != null ? f.amount.toFixed(2) : "-"}
                 </td>
                 <td className="text-xs opacity-60 whitespace-nowrap">
                   {formatDateTime(f.receivedAt)}
@@ -391,7 +391,7 @@ export default function PaymentReconciliation() {
         ))}
       </div>
 
-      {/* ══════════ REFUND MODAL ══════════ */}
+  {/* REFUND MODAL */}
         </>
       )}
 
@@ -538,9 +538,9 @@ export default function PaymentReconciliation() {
             <button
               onClick={handleMarkReviewed}
               disabled={!reviewNote.trim() || savingReview}
-              className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40"
+              className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 inline-flex items-center justify-center gap-2"
             >
-              {savingReview ? "Saving..." : "Mark Reviewed"}
+              {savingReview ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</> : "Mark Reviewed"}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -555,7 +555,7 @@ export default function PaymentReconciliation() {
             <DialogTitle className="font-bold text-lg">Refund Unmatched Payment</DialogTitle>
             {refundTarget && (
               <p className="text-xs mt-1">
-                {refundTarget.currency} {refundTarget.amount?.toFixed(2)} ·{" "}
+                {refundTarget.currency} {refundTarget.amount?.toFixed(2)} -{" "}
                 {refundTarget.contactName ?? refundTarget.contactEmail ?? refundTarget.gatewaySessionId}
               </p>
             )}
@@ -563,22 +563,22 @@ export default function PaymentReconciliation() {
 
           {refundTarget && (
             <div className="p-7 space-y-4">
-              {/* Payer info summary */}
+  {/* Payer info summary */}
               <div
                 className="p-4 grid gap-2 text-sm"
                 style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}
               >
                 <div className="flex justify-between">
                   <span>Name</span>
-                  <span className="font-medium">{refundTarget.contactName ?? "—"}</span>
+                  <span className="font-medium">{refundTarget.contactName ?? "-"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Email</span>
-                  <span className="font-medium font-mono text-xs">{refundTarget.contactEmail ?? "—"}</span>
+                  <span className="font-medium font-mono text-xs">{refundTarget.contactEmail ?? "-"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Phone</span>
-                  <span className="font-medium">{refundTarget.contactPhone ?? "—"}</span>
+                  <span className="font-medium">{refundTarget.contactPhone ?? "-"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Amount</span>
@@ -629,7 +629,7 @@ export default function PaymentReconciliation() {
                   rows={2}
                   value={refundReason}
                   onChange={e => setRefundReason(e.target.value)}
-                  placeholder="e.g. No matching registration found — payer contacted and confirmed"
+                  placeholder="e.g. No matching registration found - payer contacted and confirmed"
                 />
               </FG>
 
@@ -651,10 +651,10 @@ export default function PaymentReconciliation() {
             <button
               onClick={handleRefund}
               disabled={!refundReason.trim() || savingRefund || (refundSource === "External" && requiresRefundReference(refundMethod) && !refundReference.trim())}
-              className="px-5 py-2.5 text-sm font-semibold disabled:opacity-40"
+              className="px-5 py-2.5 text-sm font-semibold disabled:opacity-40 inline-flex items-center justify-center gap-2"
               style={{ backgroundColor: "var(--badge-open-text)", color: "white" }}
             >
-              {savingRefund ? "Processing..." : refundSource === "External" ? "Save" : "Execute Refund"}
+              {savingRefund ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</> : refundSource === "External" ? "Save" : "Execute Refund"}
             </button>
           </DialogFooter>
         </DialogContent>

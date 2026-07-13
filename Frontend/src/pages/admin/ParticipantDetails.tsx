@@ -6,8 +6,8 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
-import { Save, Search } from "lucide-react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Loader2, Save, Search } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -141,8 +141,8 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
   const handleSave = async () => {
     setSaveError("");
 
-    // Client-side validation - same rules as registration form
-    // Admin gets no exemption: wrong data is wrong data
+  // Client-side validation - same rules as registration form
+  // Admin gets no exemption: wrong data is wrong data
     const errs = validateParticipant(form, {
       program: {
         minAge: 0, maxAge: 0,        // age range not enforced on admin edit
@@ -153,7 +153,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
 
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
-      // Scroll to top of modal so errors are visible
+  // Scroll to top of modal so errors are visible
       topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
@@ -161,7 +161,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
     setErrors({});
     setSaving(true);
     try {
-      // Upload new document if chosen
+  // Upload new document if chosen
       let finalDocumentUrl = p.documentUrl;
       if (newDocFile) {
         const uploadResult = await apiUploadFile(newDocFile, "participants");
@@ -191,7 +191,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
         customFieldValues: fields.customFields.length ? form.customFieldValues : undefined,
       });
 
-      // Server-side duplicate check - map DUPLICATE_PARTICIPANT back to field error
+  // Server-side duplicate check - map DUPLICATE_PARTICIPANT back to field error
       if (r.error) {
         if (r.error.code === "DUPLICATE_PARTICIPANT") {
           setErrors({ fullName: r.error.message });
@@ -250,7 +250,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
         </DialogHeader>
 
         <div className="p-8 space-y-5">
-          {/* Summary error banner - shows when errors exist */}
+  {/* Summary error banner - shows when errors exist */}
           {Object.keys(errors).length > 0 && (
             <div className="p-3 text-sm font-medium"
               style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
@@ -273,7 +273,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
             onFileChange={file => { setNewDocFile(file); }}
             existingDocUrl={p.documentUrl}
             newFile={newDocFile}
-            // No SBA lookup in admin edit - plain text input only
+  // No SBA lookup in admin edit - plain text input only
             sbaEnabled={false}
           />
         </div>
@@ -285,7 +285,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
           <button onClick={handleSave}
             disabled={saving || !form.fullName.trim()}
             className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 flex items-center gap-2">
-            <Save className="h-4 w-4" />
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {saving ? "Saving..." : "Save Changes"}
           </button>
         </DialogFooter>
@@ -299,6 +299,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
 export default function ParticipantDetails() {
   const { regId }      = useParams<{ regId: string }>();
   const [searchParams] = useSearchParams();
+  const navigate       = useNavigate();
 
   const initEventId   = searchParams.get("eventId")   ?? "";
   const initProgramId = searchParams.get("programId") ?? "";
@@ -314,6 +315,10 @@ export default function ParticipantDetails() {
   const [events,  setEvents]  = useState<TournamentEvent[]>([]);
 
   const [detailRow, setDetailRow] = useState<ParticipantRow | null>(null);
+
+  const openRegistration = (registrationId: string) => {
+    navigate(`/admin/registrations?search=${encodeURIComponent(registrationId)}`);
+  };
 
   useEffect(() => {
     apiGetEvents().then(r => { if (r.data) setEvents(r.data); });
@@ -427,7 +432,7 @@ export default function ParticipantDetails() {
         <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>Participant Details</h1></div>
       </div>
 
-      {/* Filters */}
+  {/* Filters */}
       <div className="p-5 mb-6"
         style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
         <div className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4">
@@ -469,11 +474,11 @@ export default function ParticipantDetails() {
       </div>
 
       <p className="text-xs opacity-50 mb-3">
-        {loading ? "Loading..." : `${visibleEntries.length} entr${visibleEntries.length !== 1 ? "ies" : "y"} - ${visibleRows.length} participant${visibleRows.length !== 1 ? "s" : ""}${
+        {loading ? <span className="inline-flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</span> : `${visibleEntries.length} entr${visibleEntries.length !== 1 ? "ies" : "y"} - ${visibleRows.length} participant${visibleRows.length !== 1 ? "s" : ""}${
           rows.length !== visibleRows.length ? ` (filtered from ${rows.length})` : ""}`}
       </p>
 
-      {/* Table */}
+  {/* Table */}
       {loading ? (
         <LoadingSpinner size="sm" label="Loading participants..." />
       ) : error ? (
@@ -494,7 +499,16 @@ export default function ParticipantDetails() {
                   <tbody>
                     {visibleEntries.map(entry => (
                       <tr key={entry.key}>
-                        <td className="font-mono text-xs">{entry.registrationId}</td>
+                        <td>
+                          <button
+                            type="button"
+                            onClick={() => openRegistration(entry.registrationId)}
+                            className="font-mono text-xs font-semibold hover:underline"
+                            style={{ color: "var(--color-primary)" }}
+                          >
+                            {entry.registrationId}
+                          </button>
+                        </td>
                         <td className="text-sm">{entry.eventName}</td>
                         <td className="text-sm">{entry.programName}</td>
                         <td>
@@ -524,7 +538,14 @@ export default function ParticipantDetails() {
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div>
                         <p className="text-xs opacity-50">{entry.programName} - {entry.eventName}</p>
-                        <p className="text-xs opacity-40 font-mono mt-0.5">Reg {entry.registrationId}</p>
+                        <button
+                          type="button"
+                          onClick={() => openRegistration(entry.registrationId)}
+                          className="text-xs font-mono mt-0.5 hover:underline"
+                          style={{ color: "var(--color-primary)" }}
+                        >
+                          Reg {entry.registrationId}
+                        </button>
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         <StatusBadge status={entry.group.groupStatus} />

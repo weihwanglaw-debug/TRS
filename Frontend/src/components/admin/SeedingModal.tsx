@@ -5,11 +5,11 @@
  * renders them for manual seeding, then persists via apiUpdateGroupSeed().
  *
  * Mock:  both API functions operate on in-memory stores
- * Real:  swap registrationsApi.ts bodies — no changes needed here
+ * Real:  swap registrationsApi.ts bodies - no changes needed here
  */
 
 import { useState, useEffect, useMemo } from "react";
-import { Download, Loader2 } from "lucide-react";
+import { AlertTriangle, Download, Loader2 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -90,7 +90,7 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
         const seed = row.editSeed === "" ? null : parseInt(row.editSeed);
         const result = await apiUpdateGroupSeed(row.registrationId, row.groupId, isNaN(seed as number) ? null : seed);
         if (result.error) { setError(result.error.message); return; }
-        // update local state to reflect saved value
+  // update local state to reflect saved value
         setRows(prev => prev.map(r => r.groupId === row.groupId
           ? { ...r, currentSeed: seed, editSeed: seed != null ? String(seed) : "" }
           : r
@@ -124,7 +124,7 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
         </DialogHeader>
 
         <div className="p-8 pt-6">
-          {/* Mode tabs */}
+  {/* Mode tabs */}
           <div className="flex gap-2 mb-6">
             {(["manual", "import"] as const).map((m) => (
               <button key={m} onClick={() => setMode(m)}
@@ -153,7 +153,7 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
             <div>
               {loading && (
                 <div className="flex items-center gap-2 py-8 justify-center opacity-40 text-sm">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading participants…
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading participants...
                 </div>
               )}
               {error && (
@@ -172,7 +172,10 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
                   {hasDups && (
                     <p className="text-xs px-3 py-2 mb-3 font-semibold"
                       style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
-                      ⚠ Duplicate seed numbers — each must be unique.
+                      <span className="inline-flex items-center gap-2">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        <span>Duplicate seed numbers - each must be unique.</span>
+                      </span>
                     </p>
                   )}
                   <div className="overflow-auto" style={{ border: "1px solid var(--color-table-border)", maxHeight: 300 }}>
@@ -191,7 +194,7 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
                                 <div className="flex items-center gap-1">
                                   <input type="number" min={1} className="field-input py-1 text-sm text-center"
                                     style={{ width: "3.5rem", borderColor: isDup ? "var(--badge-closed-text)" : undefined }}
-                                    value={row.editSeed} placeholder="—"
+                                    value={row.editSeed} placeholder="-"
                                     onChange={e => setSeedVal(row.groupId, e.target.value)} />
                                   {row.editSeed !== "" && (
                                     <button onClick={() => setSeedVal(row.groupId, "")}
@@ -222,8 +225,8 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
         <DialogFooter className="p-8 pt-0">
           <button onClick={onClose} className="btn-outline px-5 py-2.5 text-sm font-medium">Cancel</button>
           <button onClick={handleSave} disabled={!canSave}
-            className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
-            {saving ? "Saving…" : "Save Seeding"}
+            className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2">
+            {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</> : "Save Seeding"}
           </button>
         </DialogFooter>
       </DialogContent>

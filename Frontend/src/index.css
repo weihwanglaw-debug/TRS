@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Theme A: Slate · Coral ───────────────────────────── */
+/*  Theme A: Slate - Coral  */
 [data-theme="a"] {
   --color-hero-bg: #2b3a4a;
   --color-hero-text: #f0f4f8;
@@ -76,7 +76,7 @@
   --sidebar-ring: 12 78% 60%;
 }
 
-/* ── Theme B: Obsidian · Rose ─────────────────────────── */
+/*  Theme B: Obsidian - Rose  */
 [data-theme="b"] {
   --color-hero-bg: linear-gradient(135deg, #0f0f10, #1a1a1e);
   --color-hero-text: #fafafa;
@@ -167,7 +167,7 @@
   }
 }
 
-/* ── Utility classes ─────────────────────────────────── */
+/*  Utility classes  */
 .section-anchor {
   scroll-margin-top: 5rem;
 }
@@ -191,7 +191,7 @@
   color: var(--color-primary);
 }
 
-/* Back button — obvious style */
+/* Back button - obvious style */
 .btn-back {
   display: inline-flex;
   align-items: center;
@@ -1582,7 +1582,7 @@
   }
 }
 
-/* ── Admin page title ────────────────────────────────── */
+/*  Admin page title  */
 .admin-page-title {
   display: flex;
   align-items: center;
@@ -1633,14 +1633,14 @@
 .trs-table tbody tr {
   transition: background-color 0.12s ease;
 }
-/* Alternating rows — very subtle primary tint on even rows */
+/* Alternating rows - very subtle primary tint on even rows */
 [data-theme="a"] .trs-table tbody tr:nth-child(even) {
   background-color: rgb(161 159 158 / 14%)
 }
 [data-theme="b"] .trs-table tbody tr:nth-child(even) {
   background-color: rgba(244, 63, 94, 0.05);
 }
-/* Hover — slightly stronger, text stays readable */
+/* Hover - slightly stronger, text stays readable */
 [data-theme="a"] .trs-table tbody tr:hover {
   background-color: rgba(232, 105, 74, 0.09);
 }
@@ -1670,7 +1670,7 @@
   margin-bottom: 1.5rem;
 }
 
-/* Tab bar — underline style, consistent across all admin modules */
+/* Tab bar - underline style, consistent across all admin modules */
 .tab-bar {
   display: flex;
   gap: 0;

@@ -1,5 +1,5 @@
 /**
- * configApi.ts — System-wide master configuration.
+ * configApi.ts - System-wide master configuration.
  *
  * Real backend: GET /config, PUT /config
  *
@@ -7,7 +7,7 @@
  * the global consent statement. It is shared across all events.
  *
  * Mock: reads from config.json; writes go to LiveConfigContext (in-memory).
- *       In production, PUT /api/config persists to the database config table.
+ *  In production, PUT /api/config persists to the database config table.
  *
  * Consumers: LiveConfigContext.tsx, Masterconfig.tsx
  */
@@ -16,7 +16,7 @@ import { ok, err, delay, API_BASE, publicHeaders, adminHeaders, apiFetch } from 
 import type { ApiResult } from "./_base";
 import type { LiveConfig } from "@/contexts/LiveConfigContext";
 
-// ── API functions ─────────────────────────────────────────────────────────────
+//  API functions
 
 /**
  * GET /config
@@ -43,7 +43,7 @@ export async function apiUpdateConfig(
   const res = await apiFetch(`${API_BASE}/api/config`, {
     method: "PUT",
     headers: adminHeaders(),
-    body: JSON.stringify({ updates: patch }),  // ← wrapped to match backend UpdateConfigRequest
+    body: JSON.stringify({ updates: patch }),  // <- wrapped to match backend UpdateConfigRequest
   });
   if (!res.ok) return err("UPDATE_FAILED", "Failed to save configuration.");
   return ok(await res.json());

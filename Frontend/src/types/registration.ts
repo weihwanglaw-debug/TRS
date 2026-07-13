@@ -1,60 +1,60 @@
 /**
- * registration.ts — Complete registration data schema
+ * registration.ts - Complete registration data schema
  *
  * Hierarchy:
- *   Registration (one form submission, one contact, covers N programs)
- *   └── ParticipantGroup[] (one per program — this is the fixture SeedEntry unit)
- *       ├── Participant[]   (1 = singles, 2 = doubles, N = team)
- *       └── PaymentItem     (fee for this program slot)
+ *  Registration (one form submission, one contact, covers N programs)
+ *  - ParticipantGroup[] (one per program - this is the fixture SeedEntry unit)
+ *  - Participant[]  (1 = singles, 2 = doubles, N = team)
+ *  - PaymentItem  (fee for this program slot)
  *
  * Key links:
- *   ParticipantGroup.id  === SeedEntry.id  (fixture system uses this)
- *   Registration.id      === receipt grouping
+ *  ParticipantGroup.id  === SeedEntry.id  (fixture system uses this)
+ *  Registration.id  === receipt grouping
  *
  * Payment model (mirrors DB schema exactly):
- *   One Payment per Registration — one checkout session, one receipt.
- *   One PaymentItem per ParticipantGroup — individual line items.
- *   Refunds are a separate first-class entity tied to a PaymentItem,
- *   NOT embedded inside it. This matches the DB Refunds table.
+ *  One Payment per Registration - one checkout session, one receipt.
+ *  One PaymentItem per ParticipantGroup - individual line items.
+ *  Refunds are a separate first-class entity tied to a PaymentItem,
+ *  NOT embedded inside it. This matches the DB Refunds table.
  *
- * ── STATUS CODE ALIGNMENT WITH DB ────────────────────────────────────────────
+ *  STATUS CODE ALIGNMENT WITH DB
  *
- *   PaymentStatus  (Payment.paymentStatus)       DB column: Payments.PaymentStatus VARCHAR(2)
- *     "Pending"           → 'P'   Checkout created, awaiting payment
- *     "Success"           → 'S'   Fully paid, webhook confirmed
- *     "PartiallyRefunded" → 'PR'  At least one item refunded, not all
- *     "FullyRefunded"     → 'FR'  All items refunded
- *     "Failed"            → 'F'   Gateway failure / timeout
- *     "Cancelled"         → 'X'   User abandoned or admin voided
+ *  PaymentStatus  (Payment.paymentStatus)  DB column: Payments.PaymentStatus VARCHAR(2)
+ *  "Pending"  -> 'P'  Checkout created, awaiting payment
+ *  "Success"  -> 'S'  Fully paid, webhook confirmed
+ *  "PartiallyRefunded" -> 'PR'  At least one item refunded, not all
+ *  "FullyRefunded"  -> 'FR'  All items refunded
+ *  "Failed"  -> 'F'  Gateway failure / timeout
+ *  "Cancelled"  -> 'X'  User abandoned or admin voided
  *
- *   ItemStatus     (PaymentItem.itemStatus)       DB column: PaymentItems.ItemStatus VARCHAR(2)
- *     "Pending"           → 'P'   Item in cart, payment not confirmed
- *     "Success"           → 'S'   Payment confirmed by webhook
- *     "Refunded"          → 'R'   Refund confirmed by gateway
- *     "Cancelled"         → 'X'   Cancelled without refund
+ *  ItemStatus  (PaymentItem.itemStatus)  DB column: PaymentItems.ItemStatus VARCHAR(2)
+ *  "Pending"  -> 'P'  Item in cart, payment not confirmed
+ *  "Success"  -> 'S'  Payment confirmed by webhook
+ *  "Refunded"  -> 'R'  Refund confirmed by gateway
+ *  "Cancelled"  -> 'X'  Cancelled without refund
  *
- *   RefundStatus   (Refund.refundStatus)          DB column: Refunds.RefundStatus CHAR(1)
- *     "Pending"           → 'P'   Refund initiated, awaiting gateway
- *     "Success"           → 'S'   Gateway confirmed refund
- *     "Failed"            → 'F'   Gateway rejected refund
+ *  RefundStatus  (Refund.refundStatus)  DB column: Refunds.RefundStatus CHAR(1)
+ *  "Pending"  -> 'P'  Refund initiated, awaiting gateway
+ *  "Success"  -> 'S'  Gateway confirmed refund
+ *  "Failed"  -> 'F'  Gateway rejected refund
  *
- * ── TRANSITION RULES (enforce in service layer, not in frontend) ─────────────
- *   PaymentStatus:  Pending → Success | Failed | Cancelled
- *                   Success → PartiallyRefunded → FullyRefunded
- *   ItemStatus:     Pending → Success → Refunded
- *                              Success → Cancelled
- *   RefundStatus:   Pending → Success | Failed
+ *  TRANSITION RULES (enforce in service layer, not in frontend)
+ *  PaymentStatus:  Pending -> Success | Failed | Cancelled
+ *  Success -> PartiallyRefunded -> FullyRefunded
+ *  ItemStatus:  Pending -> Success -> Refunded
+ *  Success -> Cancelled
+ *  RefundStatus:  Pending -> Success | Failed
  *
- *   After any PaymentItem → Refunded:
- *     ALL items Refunded  → Payment.paymentStatus = FullyRefunded
- *     SOME items Refunded → Payment.paymentStatus = PartiallyRefunded
+ *  After any PaymentItem -> Refunded:
+ *  ALL items Refunded  -> Payment.paymentStatus = FullyRefunded
+ *  SOME items Refunded -> Payment.paymentStatus = PartiallyRefunded
  */
 
 export type RegStatus = "Pending" | "Confirmed" | "CancelPending" | "RefundFailed" | "Cancelled";
 
-// ── Payment / refund status codes ─────────────────────────────────────────────
+//  Payment / refund status codes
 // These match the DB schema exactly. UI badge components translate to
-// human-readable labels (e.g. "Success" → "Paid", "FullyRefunded" → "Refunded").
+// human-readable labels (e.g. "Success" -> "Paid", "FullyRefunded" -> "Refunded").
 
 export type PaymentStatus =
   | "P"    // Pending
@@ -94,8 +94,8 @@ export type PaymentMethod =
 
 export type PaymentGateway = "Stripe" | "PayNow" | "Manual";
 
-// ── UI display helpers ────────────────────────────────────────────────────────
-// Translate DB-aligned codes → human labels for badge components.
+//  UI display helpers
+// Translate DB-aligned codes -> human labels for badge components.
 // Keep translation HERE so badge components don't each do their own mapping.
 
 export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
@@ -125,11 +125,11 @@ export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
   Others:      "Others",
 };
 
-// ── Participant (one person) ───────────────────────────────────────────────────
+//  Participant (one person)
 
 export interface RegistrationParticipant {
-  id:                  string;   // "PART-001" → DB: Participants.ParticipantID
-  participantGroupId:  string;   // FK → ParticipantGroup.id
+  id:                  string;   // "PART-001" -> DB: Participants.ParticipantID
+  participantGroupId:  string;   // FK -> ParticipantGroup.id
   fullName:            string;
   dob:                 string;   // "YYYY-MM-DD"
   gender:              string;
@@ -147,16 +147,16 @@ export interface RegistrationParticipant {
   customFieldValues:   Record<string, string>;
 }
 
-// ── ParticipantGroup (one fixture entry — singles/doubles/team) ────────────────
+//  ParticipantGroup (one fixture entry - singles/doubles/team)
 // The id of this entity is reused as SeedEntry.id in the fixture system.
 // This is the critical link: fixture entries are identified by ParticipantGroup.id.
 
 export interface ParticipantGroup {
-  id:              string;   // "PG-001" → DB: ParticipantGroups.GroupID
-                             // ↑ Also used as SeedEntry.id in fixture engine
-  registrationId:  string;   // FK → Registration.id
-  eventId:         string;   // FK → Event.id (denormalised)
-  programId:       string;   // FK → Program.id
+  id:              string;   // "PG-001" -> DB: ParticipantGroups.GroupID
+  // Also Also used as SeedEntry.id in fixture engine
+  registrationId:  string;   // FK -> Registration.id
+  eventId:         string;   // FK -> Event.id (denormalised)
+  programId:       string;   // FK -> Program.id
   programName:     string;   // Snapshotted at checkout (receipt stability)
   fee:             number;   // Total fee for this group slot
   groupStatus:     RegStatus;
@@ -167,36 +167,36 @@ export interface ParticipantGroup {
   namesDisplay:    string;   // e.g. "Lee Wei Jie / Tan Ah Kow"
 }
 
-// ── PaymentItem (one per ParticipantGroup) ────────────────────────────────────
+//  PaymentItem (one per ParticipantGroup)
 // Maps to DB: PaymentItems table.
 // itemStatus tracks individual confirmation/refund state per line.
 
 export interface PaymentItem {
-  id:                  string;       // "PI-001" → DB: PaymentItems.PaymentItemID
-  paymentId:           string;       // FK → Payment.id
-  participantGroupId:  string;       // FK → ParticipantGroup.id
+  id:                  string;       // "PI-001" -> DB: PaymentItems.PaymentItemID
+  paymentId:           string;       // FK -> Payment.id
+  participantGroupId:  string;       // FK -> ParticipantGroup.id
   participantId?:      string;       // Only set when feeStructure = "per_player"
   programName:         string;       // Snapshotted at checkout
-  description:         string;       // e.g. "Men's Doubles – Ali & Bob"
+  description:         string;       // e.g. "Men's Doubles - Ali & Bob"
   playerName?:         string;       // Display label when per_player
-  amount:              number;       // Snapshotted fee — not affected by future changes
+  amount:              number;       // Snapshotted fee - not affected by future changes
   itemStatus:          ItemStatus;   // DB: PaymentItems.ItemStatus
 }
 
-// ── Refund (first-class entity — NOT embedded in PaymentItem) ─────────────────
+//  Refund (first-class entity - NOT embedded in PaymentItem)
 // Maps to DB: Refunds table.
 // One Refund row per refund action on a specific PaymentItem.
 // DB constraint: only one Pending refund per PaymentItem at a time.
 
 export interface Refund {
-  id:               string;        // "REF-001" → DB: Refunds.RefundID
-  paymentId:        string;        // FK → Payment.id
-  paymentItemId:    string;        // FK → PaymentItem.id
+  id:               string;        // "REF-001" -> DB: Refunds.RefundID
+  paymentId:        string;        // FK -> Payment.id
+  paymentItemId:    string;        // FK -> PaymentItem.id
   gateway:          PaymentGateway;
   refundSource?:    RefundSource | null;
   refundMethod?:    RefundMethod | null;
-  gatewayRefundId?: string;        // Stripe: re_xxxx — populated when Success
-  refundAmount:     number;        // May be ≤ PaymentItem.amount
+  gatewayRefundId?: string;        // Stripe: re_xxxx - populated when Success
+  refundAmount:     number;        // May be <= PaymentItem.amount
   refundReason?:    string;        // e.g. "Withdrawal from program"
   refundStatus:     RefundStatus;  // DB: Refunds.RefundStatus
   requestedBy?:     string;        // Admin username
@@ -205,15 +205,15 @@ export interface Refund {
   processedAt?:     string;        // Populated when Success
 }
 
-// ── Payment (one per Registration, one checkout session) ──────────────────────
+//  Payment (one per Registration, one checkout session)
 // Maps to DB: Payments table.
 // Gateway fields are populated when the checkout session is created.
-// Receipt number is generated only when paymentStatus → Success.
+// Receipt number is generated only when paymentStatus -> Success.
 
 export interface Payment {
-  id:                    string;          // "PAY-001" → DB: Payments.PaymentID
-  registrationId:        string;          // FK → Registration.id
-  eventId:               string;          // FK → Event.id (denormalised)
+  id:                    string;          // "PAY-001" -> DB: Payments.PaymentID
+  registrationId:        string;          // FK -> Registration.id
+  eventId:               string;          // FK -> Event.id (denormalised)
   // Gateway
   gateway:               PaymentGateway;  // DB: Payments.PaymentGateway
   gatewaySessionId?:     string;          // DB: Payments.GatewaySessionID (Stripe: cs_xxxx)
@@ -248,10 +248,10 @@ export interface PaymentAuditEntry {
   createdAt:   string;
 }
 
-// ── Registration (one form submission) ────────────────────────────────────────
+//  Registration (one form submission)
 
 export interface Registration {
-  id:              string;   // "REG-001" → DB: EventRegistrations.RegistrationID
+  id:              string;   // "REG-001" -> DB: EventRegistrations.RegistrationID
   eventId:         string;
   eventName:       string;   // Denormalised for display
   submittedAt:     string;   // ISO datetime
@@ -268,7 +268,7 @@ export interface Registration {
 
 
 
-// ── Dashboard / stats aggregate ───────────────────────────────────────────────
+//  Dashboard / stats aggregate
 // Returned by apiGetRegistrationStats(). Defined here (not in registrationsApi.ts)
 // so it can be imported from the canonical types file alongside Registration, Payment, etc.
 
@@ -278,7 +278,7 @@ export interface RegistrationStats {
   pending:            number;
   cancelled:          number;
   totalRevenue:       number;
-  pendingPayments:    number;   // kept for backward compat — same as caseA
+  pendingPayments:    number;   // kept for backward compat - same as caseA
   // Payment reconciliation counts (new)
   caseA:  number;   // Confirmed reg, pending payment
   caseB:  number;   // Pending reg, payment succeeded
@@ -322,7 +322,7 @@ export interface OrphanRefundHistory {
   contactPhone:     string | null;
 }
 
-// ── Derived helpers ───────────────────────────────────────────────────────────
+//  Derived helpers
 
 /** Flatten a registration into SeedEntry-compatible objects for the fixture wizard */
 export function groupsToSeedEntries(groups: ParticipantGroup[]) {

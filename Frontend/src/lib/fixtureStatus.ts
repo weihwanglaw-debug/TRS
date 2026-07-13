@@ -1,22 +1,22 @@
 /**
  * fixtureStatus.ts
  *
- * Pure computation helpers — NO localStorage.
+ * Pure computation helpers - NO localStorage.
  * All bracket data now comes from the real backend via fixtureApi.ts.
  *
  * Two layers:
- *   1. computeProgramFixtureStatus()  — pure: given a BracketState (or null) + context,
- *      returns the status. Called after apiGetFixture() resolves.
+ *  1. computeProgramFixtureStatus()  - pure: given a BracketState (or null) + context,
+ *  returns the status. Called after apiGetFixture() resolves.
  *
- *   2. computeFixtureDashboardStats() — pure: given events + a fixture-exists map
- *      (from apiGetFixtureStatus()), returns dashboard counts without fetching brackets.
+ *  2. computeFixtureDashboardStats() - pure: given events + a fixture-exists map
+ *  (from apiGetFixtureStatus()), returns dashboard counts without fetching brackets.
  */
 
 import type { TournamentEvent, BracketState } from "@/types/config";
 import { getAllMatches } from "@/lib/fixtureEngine";
 import { singaporeDateKey } from "@/lib/eventUtils";
 
-// ── Per-program status ────────────────────────────────────────────────────────
+//  Per-program status
 
 export type ProgramFixtureStatus =
   | "reg_open"      // registration still open
@@ -42,7 +42,7 @@ function todayStr(): string {
 
 /**
  * Compute fixture status from an already-fetched BracketState (or null).
- * Call this after apiGetFixture() resolves — never reads localStorage.
+ * Call this after apiGetFixture() resolves - never reads localStorage.
  */
 export function computeProgramFixtureStatus(
   program:     { id: string; name: string },
@@ -114,7 +114,7 @@ export function computeProgramFixtureStatus(
   };
 }
 
-// ── Dashboard stats ───────────────────────────────────────────────────────────
+//  Dashboard stats
 // fixtureExists: programId -> boolean, from apiGetFixtureStatus()
 
 export interface FixtureDashboardStats {

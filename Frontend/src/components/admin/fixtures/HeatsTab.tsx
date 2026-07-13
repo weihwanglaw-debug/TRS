@@ -1,12 +1,12 @@
 /**
- * HeatsTab.tsx — Individual results management for Heats format
+ * HeatsTab.tsx - Individual results management for Heats format
  *
  * Shows each round as a card. Admin enters free-text result per participant,
  * then selects who advances. Final round: assigns places (1st, 2nd, 3rd...).
  */
 
 import React, { useEffect, useState } from "react";
-import { CheckCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowRight, CheckCircle, ChevronDown, ChevronUp } from "lucide-react";
 import type { BracketState, HeatRound } from "@/types/config";
 
 interface Props {
@@ -29,7 +29,7 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
   const getTeamLabel = (teamId: string) => seeds.find(s => s.id === teamId)?.club ?? teamId;
   const getPlayers   = (teamId: string) => seeds.find(s => s.id === teamId)?.participants.join(" / ") ?? "";
 
-  // ── Round card ────────────────────────────────────────────────────────────
+  //  Round card
 
   function RoundCard({ round }: { round: HeatRound }) {
     const isFinal   = round.isFinal;
@@ -45,7 +45,7 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
     const [open, setOpen]     = useState(isActive || round.isComplete);
     const [error, setError]   = useState<string | null>(null);
 
-    // If the backend state changes (another admin, or after saves), resync editing values.
+  // If the backend state changes (another admin, or after saves), resync editing values.
     useEffect(() => {
       setEditing(Object.fromEntries(round.results.map(r => [r.teamId, r.result])));
       setAdvancing(new Set(round.results.filter(r => r.advanced).map(r => r.teamId)));
@@ -109,7 +109,7 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
           backgroundColor: "var(--color-row-hover)",
           opacity: !isActive && !round.isComplete ? 0.55 : 1,
         }}>
-        {/* Header */}
+  {/* Header */}
         <button className="w-full flex items-center justify-between px-5 py-4"
           style={{ backgroundColor: round.isComplete ? "var(--color-row-hover)" : isActive ? "var(--color-row-hover)" : "transparent" }}
           onClick={() => setOpen(!open)}>
@@ -124,7 +124,7 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
                 {round.isComplete && <span className="ml-2 text-xs font-normal opacity-50">Complete</span>}
               </p>
               {isActive && !round.isComplete && (
-                <p className="text-xs" style={{ color: "var(--color-primary)" }}>Active — enter results</p>
+                <p className="text-xs" style={{ color: "var(--color-primary)" }}>Active - enter results</p>
               )}
               {!isActive && !round.isComplete && (
                 <p className="text-xs opacity-40">Waiting for previous round</p>
@@ -177,9 +177,9 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
                       <td className="text-xs opacity-60">{getPlayers(res.teamId)}</td>
                       <td>
                         {round.isComplete
-                          ? <span className="font-mono text-sm">{res.result || <span className="opacity-30">—</span>}</span>
+                          ? <span className="font-mono text-sm">{res.result || <span className="opacity-30">-</span>}</span>
                           : <input type="text" className="field-input py-1 text-sm w-full"
-                              placeholder={`Enter ${resultLabel.toLowerCase()}…`}
+                              placeholder={`Enter ${resultLabel.toLowerCase()}...`}
                               value={editing[res.teamId] ?? ""}
                               onChange={e => setEditing({ ...editing, [res.teamId]: e.target.value })} />}
                       </td>
@@ -202,7 +202,7 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
                       {isFinal && (
                         <td>
                           {round.isComplete
-                            ? <span className="font-bold text-sm">{res.place ? `${res.place}${["st","nd","rd"][res.place-1] ?? "th"}` : "—"}</span>
+                            ? <span className="font-bold text-sm">{res.place ? `${res.place}${["st","nd","rd"][res.place-1] ?? "th"}` : "-"}</span>
                             : (
                               <select className="field-input py-1 text-sm w-28"
                                 value={places[res.teamId] ?? ""}
@@ -212,7 +212,7 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
                                   else next[res.teamId] = +e.target.value;
                                   setPlaces(next);
                                 }}>
-                                <option value="">—</option>
+                                <option value="">-</option>
                                 {Array.from({ length: placesAwarded }, (_, i) => i + 1).map(n => (
                                   <option key={n} value={n}>{n}{["st","nd","rd"][n-1] ?? "th"} Place</option>
                                 ))}
@@ -226,7 +226,7 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
               </table>
             </div>
 
-            {/* Action bar */}
+  {/* Action bar */}
             {!round.isComplete && isActive && (
               <div className="flex flex-wrap items-center gap-3 p-4"
                 style={{ borderTop: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
@@ -244,7 +244,7 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
                       disabled={saving || !canAdvance || !allResultsEntered}
                       className="btn-primary flex items-center gap-2 px-5 py-2 text-sm font-semibold disabled:opacity-40">
                       {saving ? <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : null}
-                      Advance Selected →
+                      Advance Selected <ArrowRight className="h-4 w-4" />
                     </button>
                   </>
                 ) : (
@@ -273,14 +273,14 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
     );
   }
 
-  // ── Final results summary ─────────────────────────────────────────────────
+  //  Final results summary
 
   const finalRound = rounds.find(r => r.isFinal && r.isComplete);
   const placed     = finalRound?.results.filter(r => r.place != null).sort((a, b) => (a.place ?? 99) - (b.place ?? 99)) ?? [];
 
   return (
     <div className="space-y-4">
-      {/* Summary if final complete */}
+  {/* Summary if final complete */}
       {finalRound && placed.length > 0 && (
         <div className="p-5" style={{ border: "2px solid var(--badge-open-text)", backgroundColor: "var(--badge-open-bg)" }}>
           <p className="text-xs font-bold uppercase tracking-wide mb-3" style={{ color: "var(--badge-open-text)" }}>
@@ -302,7 +302,7 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
         </div>
       )}
 
-      {/* Heats config summary */}
+  {/* Heats config summary */}
       <div className="flex flex-wrap items-center gap-2 px-1 pb-2">
         <span className="text-xs font-bold uppercase tracking-wide px-2.5 py-1"
           style={{ color: "var(--color-primary)", backgroundColor: "var(--badge-open-bg)" }}>
@@ -321,7 +321,7 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
         ))}
       </div>
 
-      {/* Round cards */}
+  {/* Round cards */}
       {rounds.map(round => (
         <RoundCard key={round.id} round={round} />
       ))}

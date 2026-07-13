@@ -2,7 +2,7 @@
  * bracketPrintSvg.ts
  *
  * Generates a 100% pure SVG string (zero HTML / foreignObject) from raw
- * MatchEntry data.  Used exclusively for printing — the screen view keeps its
+ * MatchEntry data.  Used exclusively for printing - the screen view keeps its
  * React / HTML card implementation.
  *
  * Every visual element is a native SVG primitive (rect, text, line, path) so
@@ -11,7 +11,7 @@
 
 import type { MatchEntry } from "@/types/config";
 
-// ─── Layout (mirrors BracketView constants — keep in sync) ───────────────────
+//  Layout (mirrors BracketView constants - keep in sync)
 const CW     = 240;   // card width
 const CH     = 88;    // card height
 const SH     = 38;    // slot height
@@ -24,7 +24,7 @@ const R      = 5;     // corner radius
 // Font stack embedded so the SVG is self-contained
 const FONT = "Segoe UI, Arial, Helvetica, sans-serif";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+//  Helpers
 
 function esc(s: string): string {
   return s
@@ -45,7 +45,7 @@ function winnerSlotCY(isTop: boolean): number {
   return isTop ? SH / 2 : SH + DH + SH / 2;
 }
 
-// ─── Data builder (same logic as BracketView.buildRounds) ────────────────────
+//  Data builder (same logic as BracketView.buildRounds)
 
 type RoundData = { title: string; matches: (MatchEntry | null)[] };
 
@@ -77,7 +77,7 @@ function buildRounds(koMatches: MatchEntry[]): RoundData[] {
   return rounds;
 }
 
-// ─── Coordinate helpers ───────────────────────────────────────────────────────
+//  Coordinate helpers
 
 function bH(firstCount: number): number {
   return firstCount * CH + Math.max(0, firstCount - 1) * 16 + RPAD * 2;
@@ -92,14 +92,14 @@ function colX(ci: number): number {
   return ci * (CW + CGAP);
 }
 
-// ─── SVG element builders ─────────────────────────────────────────────────────
+//  SVG element builders
 
-/** Truncate a string to fit within maxPx at the given font size (rough estimate: ~0.6× ratio) */
+/** Truncate a string to fit within maxPx at the given font size (rough estimate: ~0.6x ratio) */
 function truncate(text: string, maxPx: number, fontSize: number): string {
   const approxCharW = fontSize * 0.58;
   const maxChars    = Math.floor(maxPx / approxCharW);
   if (text.length <= maxChars) return text;
-  return text.slice(0, maxChars - 1) + "…";
+  return text.slice(0, maxChars - 1) + "...";
 }
 
 function svgCard(
@@ -112,8 +112,8 @@ function svgCard(
   const t1w     = games.filter(g => g.p1 !== "" && g.p2 !== "" && +g.p1 > +g.p2).length;
   const t2w     = games.filter(g => g.p1 !== "" && g.p2 !== "" && +g.p2 > +g.p1).length;
 
-  const score1  = !match ? null : match.walkover ? (match.walkoverWinner === "team1" ? "W/O" : "—") : isDone ? String(t1w) : null;
-  const score2  = !match ? null : match.walkover ? (match.walkoverWinner === "team2" ? "W/O" : "—") : isDone ? String(t2w) : null;
+  const score1  = !match ? null : match.walkover ? (match.walkoverWinner === "team1" ? "W/O" : "-") : isDone ? String(t1w) : null;
+  const score2  = !match ? null : match.walkover ? (match.walkoverWinner === "team2" ? "W/O" : "-") : isDone ? String(t2w) : null;
   const winner  = match?.winner ?? null;  // "team1" | "team2" | null
 
   const showNames = !!match && match.team1.participants.length + match.team2.participants.length <= 4;
@@ -129,7 +129,7 @@ function svgCard(
     match.courtNo,
     match.matchDate ? new Date(match.matchDate).toLocaleDateString("en-SG", { day: "2-digit", month: "short" }) : "",
     match.startTime,
-  ].filter(Boolean).join(" · ") : "";
+  ].filter(Boolean).join(" - ") : "";
 
   const isNull   = !match;
   const cardFill = isNull ? "#f8fafc" : "#ffffff";
@@ -154,7 +154,7 @@ function svgCard(
     const displayLabel = label ? truncate(label, TEXT_MAX, 11.5) : "TBD";
     const displaySub   = sub   ? truncate(sub,   TEXT_MAX, 9.5)  : null;
 
-    // Score badge
+  // Score badge
     const scoreBadge = score != null ? (() => {
       const bx = x + CW - SCORE_W - 6;
       const by = slotY + (SH - 18) / 2;
@@ -242,7 +242,7 @@ function svgConnector(
   return out;
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+//  Public API
 
 export interface PrintSvgOptions {
   primary?: string;    // brand colour, default #e05a2b
@@ -251,7 +251,7 @@ export interface PrintSvgOptions {
 
 /**
  * Returns a self-contained SVG string ready to embed in a print HTML page.
- * No React, no foreignObject — pure SVG primitives only.
+ * No React, no foreignObject - pure SVG primitives only.
  */
 export function buildBracketPrintSvg(
   koMatches: MatchEntry[],
@@ -273,7 +273,7 @@ export function buildBracketPrintSvg(
 
   let body = "";
 
-  // ── Headers ──
+  //  Headers
   rounds.forEach((round, ci) => {
     const x = colX(ci);
     body += `
@@ -285,7 +285,7 @@ export function buildBracketPrintSvg(
       stroke="${primary}" stroke-width="2"/>`;
   });
 
-  // ── Connectors (behind cards) ──
+  //  Connectors (behind cards)
   body += `<g transform="translate(0,${HDR})">`;
   rounds.slice(0, -1).forEach((round, ci) => {
     const nextRound  = rounds[ci + 1];
@@ -313,7 +313,7 @@ export function buildBracketPrintSvg(
   });
   body += `</g>`;
 
-  // ── Cards ──
+  //  Cards
   body += `<g transform="translate(0,${HDR})">`;
   rounds.forEach((round, ci) =>
     round.matches.forEach((match, i) => {

@@ -50,7 +50,7 @@ export default function AdminEvents() {
         </button>
       </div>
 
-      {/* Filters */}
+  {/* Filters */}
       <div className="p-5 mb-6" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
         <div className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4">
           <FG label="Event Status">
@@ -76,7 +76,7 @@ export default function AdminEvents() {
         {hasFilter && <p className="text-xs mt-3 opacity-50">Showing {filtered.length} of {events.length} events</p>}
       </div>
 
-      {/* Desktop table */}
+  {/* Desktop table */}
       <div className="hidden md:block overflow-x-auto" style={{ border: "1px solid var(--color-table-border)" }}>
         <table className="trs-table">
           <thead>
@@ -92,8 +92,8 @@ export default function AdminEvents() {
                 <tr key={event.id}>
                   <td className="font-medium">{event.name}</td>
                   <td className="text-sm opacity-70">{event.isSports ? event.sportType || "Sports" : "Non-sports"}</td>
-                  <td className="text-sm">{formatDate(event.eventStartDate)} – {formatDate(event.eventEndDate)}</td>
-                  <td className="text-sm opacity-70">{formatDate(event.openDate)} – {formatDate(event.closeDate)}</td>
+                  <td className="text-sm">{formatDate(event.eventStartDate)} - {formatDate(event.eventEndDate)}</td>
+                  <td className="text-sm opacity-70">{formatDate(event.openDate)} - {formatDate(event.closeDate)}</td>
                   <td><StatusBadge status={status} /></td>
                   <td className="text-sm">{event.programs.length}</td>
                   <td>
@@ -117,7 +117,7 @@ export default function AdminEvents() {
         </table>
       </div>
 
-      {/* Mobile card list */}
+  {/* Mobile card list */}
       <div className="md:hidden space-y-3">
         {filtered.map(event => {
           const status = getEventStatus(event);
@@ -126,7 +126,7 @@ export default function AdminEvents() {
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm truncate">{event.name}</p>
-                  <p className="text-xs opacity-50 mt-0.5">{event.isSports ? event.sportType : "Non-sports"} · {event.programs.length} programs</p>
+                  <p className="text-xs opacity-50 mt-0.5">{event.isSports ? event.sportType : "Non-sports"} - {event.programs.length} programs</p>
                 </div>
                 <div className="flex items-center gap-2 ml-2">
                   <StatusBadge status={status} />
@@ -144,8 +144,8 @@ export default function AdminEvents() {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs opacity-70">
-                <div><span className="opacity-50">Event: </span>{formatDate(event.eventStartDate)} – {formatDate(event.eventEndDate)}</div>
-                <div><span className="opacity-50">Reg: </span>{formatDate(event.openDate)} – {formatDate(event.closeDate)}</div>
+                <div><span className="opacity-50">Event: </span>{formatDate(event.eventStartDate)} - {formatDate(event.eventEndDate)}</div>
+                <div><span className="opacity-50">Reg: </span>{formatDate(event.openDate)} - {formatDate(event.closeDate)}</div>
               </div>
             </div>
           );

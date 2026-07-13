@@ -1,10 +1,10 @@
-﻿/**
- * ScoreModal.tsx — Versus result entry
+/**
+ * ScoreModal.tsx - Versus result entry
  *
  * Two big panels (Team 1 vs Team 2). Admin clicks one to mark as winner.
  * Game scores are optional (record-keeping only).
  * Remark field added.
- * Walkover toggle → winner selection.
+ * Walkover toggle -> winner selection.
  */
 
 import React, { useRef } from "react";
@@ -26,7 +26,7 @@ interface Props {
   onChangeDraft: (patch: Partial<MatchEntry>) => void;
 }
 
-// ── Team panel — clickable to select as winner ────────────────────────────────
+//  Team panel - clickable to select as winner
 
 function TeamPanel({
   team, side, winner, walkover, walkoverWinner, onClick,
@@ -52,7 +52,7 @@ function TeamPanel({
         backgroundColor: isWinner ? "var(--color-row-hover)" : "transparent",
         outline: "none",
       }}>
-      {/* Seed badge */}
+  {/* Seed badge */}
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="flex items-center gap-1.5 flex-wrap">
           {team.seed != null && (
@@ -70,7 +70,7 @@ function TeamPanel({
         </div>
       </div>
 
-      {/* Team display */}
+  {/* Team display */}
       <p className="font-bold text-base mb-1 leading-tight" style={{ color: isWinner ? "var(--color-primary)" : undefined }}>
         {mainLabel}
       </p>
@@ -78,7 +78,7 @@ function TeamPanel({
         {subLabel && <p className="text-xs opacity-60 leading-relaxed">{subLabel}</p>}
       </div>
 
-      {/* Click hint when no winner selected */}
+  {/* Click hint when no winner selected */}
       {!isWinner && !walkover && winner === null && (
         <p className="text-xs opacity-30 mt-3">Click to select as winner</p>
       )}
@@ -86,7 +86,7 @@ function TeamPanel({
   );
 }
 
-// ── Main modal ────────────────────────────────────────────────────────────────
+//  Main modal
 
 export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, onChangeDraft }: Props) {
   if (!draft) return null;
@@ -147,7 +147,7 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
 
   const selectWinner = (side: "team1" | "team2") => {
     if (draft.walkover) return;
-    // Toggle off if already selected
+  // Toggle off if already selected
     set({ winner: draft.winner === side ? null : side });
   };
 
@@ -180,10 +180,10 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
 
         <div className="px-7 py-5 space-y-5">
 
-          {/* ── Team panels ── */}
+  {/*  Team panels  */}
           <div>
             <p className={`${sectionLabelClass} mb-3`} style={labelTextStyle}>
-              {draft.walkover ? "Walkover — Select Winner" : "Select Winner — click a team"}
+              {draft.walkover ? "Walkover - Select Winner" : "Select Winner - click a team"}
             </p>
             <div className="grid grid-cols-[1fr_48px_1fr] gap-0">
               <TeamPanel team={draft.team1} side="team1"
@@ -220,19 +220,19 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
             )}
           </div>
 
-          {/* ── Walkover toggle ── */}
+  {/*  Walkover toggle  */}
           <div className="flex items-center justify-between gap-3 px-4 py-3"
             style={{ border: "1px solid var(--color-table-border)" }}>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <AlertTriangle className="h-4 w-4 opacity-50 flex-shrink-0" />
-              Walkover — one side did not show
+              Walkover - one side did not show
             </label>
             <Switch
               checked={draft.walkover}
               onCheckedChange={v => set({ walkover: v, walkoverWinner: "", winner: null })} />
           </div>
 
-          {/* ── Actual time ── */}
+  {/*  Actual time  */}
           <div>
             <p className={`${sectionLabelClass} mb-3`} style={labelTextStyle}>Actual Time</p>
             <div className="grid grid-cols-2 gap-3">
@@ -261,7 +261,7 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
             </div>
           </div>
 
-          {/* ── Game scores ── */}
+  {/*  Game scores  */}
           {!draft.walkover && (
             <div>
               <div className="flex items-center justify-between mb-3">
@@ -287,7 +287,7 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
                   <input type="number" min="0" className="field-input text-center font-bold"
                     value={g.p1} placeholder="0"
                     onChange={e => updateGame(idx, "p1", e.target.value)} />
-                  <span className="text-center opacity-20 font-bold text-lg">–</span>
+                  <span className="text-center opacity-20 font-bold text-lg">-</span>
                   <input type="number" min="0" className="field-input text-center font-bold"
                     value={g.p2} placeholder="0"
                     onChange={e => updateGame(idx, "p2", e.target.value)} />
@@ -310,7 +310,7 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
             </div>
           )}
 
-          {/* ── Remark ── */}
+  {/*  Remark  */}
           <div>
             <label className={`${sectionLabelClass} block mb-2`} style={labelTextStyle}>
               Remark
@@ -322,7 +322,7 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
               placeholder="Optional match note"
             />
           </div>
-          {/* ── Officials ── */}
+  {/*  Officials  */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <p className={sectionLabelClass} style={labelTextStyle}>Officials</p>

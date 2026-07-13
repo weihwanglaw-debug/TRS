@@ -174,7 +174,7 @@ export default function BadmintonClubs() {
             </div>
           </FG>
           <div className="flex items-center text-sm opacity-50 whitespace-nowrap px-1 pb-2">
-            {loading ? "Loading..." : `${filtered.length.toLocaleString()} ${filtered.length === 1 ? "club" : "clubs"}`}
+            {loading ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</span> : `${filtered.length.toLocaleString()} ${filtered.length === 1 ? "club" : "clubs"}`}
           </div>
         </div>
       </div>
@@ -300,8 +300,8 @@ export default function BadmintonClubs() {
           </div>
           <DialogFooter className="p-8 pt-0">
             <button onClick={() => setModal(null)} className="btn-outline px-5 py-2.5 text-sm font-medium">Cancel</button>
-            <button onClick={saveClub} disabled={saving} className="btn-primary px-5 py-2.5 text-sm font-semibold">
-              {saving ? "Saving..." : "Save Club"}
+            <button onClick={saveClub} disabled={saving} className="btn-primary px-5 py-2.5 text-sm font-semibold inline-flex items-center justify-center gap-2">
+              {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</> : "Save Club"}
             </button>
           </DialogFooter>
         </DialogContent>

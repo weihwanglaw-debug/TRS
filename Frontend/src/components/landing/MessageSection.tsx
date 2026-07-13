@@ -2,44 +2,65 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { motion } from "framer-motion";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
+import { apiSendLandingMessage } from "@/lib/api";
 
-const TOPICS = [
-  "Registration support",
-  "Program eligibility",
-  "Partner venue booking",
-  "General question",
-];
+const DEFAULT_MESSAGE_TITLE = "Questions before joining?";
+const DEFAULT_MESSAGE_BODY =
+  "Players, parents, coaches, and club representatives can leave a message for the tournament team.\nUse this space for event questions, program clarification, venue help, or registration support.";
 
 export default function MessageSection() {
   const { cfg } = useLiveConfig();
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
-  const [topic, setTopic] = useState(TOPICS[0]);
+  const [topic, setTopic] = useState("");
   const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [status, setStatus] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const messageTitle = cfg.messageTitle?.trim() || DEFAULT_MESSAGE_TITLE;
+  const messageBody = cfg.messageBody?.trim() || DEFAULT_MESSAGE_BODY;
 
   const clearForm = () => {
     setName("");
     setContact("");
-    setTopic(TOPICS[0]);
+    setTopic("");
     setMessage("");
+    setStatus(null);
   };
 
-  const submitMessage = (event: FormEvent<HTMLFormElement>) => {
+  const submitMessage = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setStatus(null);
 
-    const appName = cfg.appName?.trim() || "System";
-    const subject = encodeURIComponent(`[${appName}] ${topic}`);
-    const body = encodeURIComponent(
-      [
-        `Name: ${name}`,
-        `Email or phone: ${contact}`,
-        `Topic: ${topic}`,
-        "",
-        message,
-      ].join("\n"),
-    );
-    const recipient = cfg.contactEmail || "tournaments@sba.org.sg";
-    window.location.href = `mailto:${recipient}?subject=${subject}&body=${body}`;
+    if (!name.trim() || !contact.trim() || !topic.trim() || !message.trim()) {
+      setStatus({ type: "error", text: "Please complete all fields before sending." });
+      return;
+    }
+
+    setSending(true);
+    try {
+      const result = await apiSendLandingMessage({
+        name: name.trim(),
+        contact: contact.trim(),
+        topic: topic.trim(),
+        message: message.trim(),
+      });
+
+      if (result.error) {
+        setStatus({ type: "error", text: result.error.message });
+        return;
+      }
+
+      setStatus({ type: "success", text: "Message sent. The tournament team will follow up with you." });
+      setName("");
+      setContact("");
+      setTopic("");
+      setMessage("");
+    } catch {
+      setStatus({ type: "error", text: "Message could not be sent. Please try again later." });
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -55,11 +76,10 @@ export default function MessageSection() {
             Leave a message /
           </p>
           <h2 className="landing-section-title" style={{ marginLeft: 0, textAlign: "left" }}>
-            Questions before joining?
+            {messageTitle}
           </h2>
-          <p>
-            Players, parents, coaches, and club representatives can leave a message for the tournament team.
-            Use this space for event questions, program clarification, venue help, or registration support.
+          <p style={{ whiteSpace: "pre-line" }}>
+            {messageBody}
           </p>
           <a className="landing-button" href="#events-section" style={{ background: "rgb(0 0 0 / 0)", border: "2px solid rgb(255 255 255 / 30%)" }}>
             View Events
@@ -82,7 +102,6 @@ export default function MessageSection() {
                 id="landing-message-name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Your name"
               />
             </div>
             <div className="trs-field">
@@ -91,20 +110,15 @@ export default function MessageSection() {
                 id="landing-message-contact"
                 value={contact}
                 onChange={(event) => setContact(event.target.value)}
-                placeholder="alex@example.com"
               />
             </div>
             <div className="trs-field">
               <label htmlFor="landing-message-topic">Topic</label>
-              <select
+              <input
                 id="landing-message-topic"
                 value={topic}
                 onChange={(event) => setTopic(event.target.value)}
-              >
-                {TOPICS.map((option) => (
-                  <option key={option}>{option}</option>
-                ))}
-              </select>
+              />
             </div>
             <div className="trs-field">
               <label htmlFor="landing-message-body">Message</label>
@@ -112,18 +126,25 @@ export default function MessageSection() {
                 id="landing-message-body"
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
-                placeholder="I would like to check which program is suitable before registering."
               />
             </div>
           </div>
           <div className="mt-6 flex flex-wrap gap-3">
-            <button className="landing-button" type="submit">
-              Send Message
+            <button className="landing-button" type="submit" disabled={sending}>
+              {sending ? "Sending..." : "Send Message"}
             </button>
-            <button className="landing-button secondary" type="button" onClick={clearForm}>
+            <button className="landing-button secondary" type="button" onClick={clearForm} disabled={sending}>
               Clear
             </button>
           </div>
+          {status && (
+            <p
+              className="mt-4 text-sm font-semibold"
+              style={{ color: status.type === "success" ? "var(--feedback-success)" : "var(--feedback-error)" }}
+            >
+              {status.text}
+            </p>
+          )}
         </motion.form>
       </div>
     </section>

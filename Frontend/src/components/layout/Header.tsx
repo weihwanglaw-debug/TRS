@@ -26,7 +26,7 @@ export default function Header() {
     navigate("/");
   };
 
-  // Scroll listener for transparent → solid header
+  // Scroll listener for transparent -> solid header
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 40);
     window.addEventListener("scroll", handler, { passive: true });
@@ -72,7 +72,7 @@ export default function Header() {
               }
         }
       >
-        {/* Logo */}
+  {/* Logo */}
         <Link
           to="/"
           onClick={(event) => {
@@ -91,7 +91,7 @@ export default function Header() {
           <span>{cfg.appName}</span>
         </Link>
 
-        {/* Right side */}
+  {/* Right side */}
         <div className="flex items-center gap-3">
           <nav className="hidden items-center gap-8 md:flex" aria-label="Admin navigation">
             {!isAuthenticated ? (

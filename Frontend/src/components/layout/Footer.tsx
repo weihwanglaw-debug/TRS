@@ -19,7 +19,7 @@ export default function Footer() {
       style={{ background: "var(--color-hero-bg)", color: "var(--color-hero-text)" }}
     >
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-        {/* Social icons — static config; not editable via MasterConfig */}
+  {/* Social icons - static config; not editable via MasterConfig */}
         <div className="flex items-center gap-4">
           {config.footer.socialLinks.map((link) => {
             const Icon = iconMap[link.platform] || Mail;
@@ -38,7 +38,7 @@ export default function Footer() {
           })}
         </div>
 
-        {/* Contact email — from live config */}
+  {/* Contact email - from live config */}
         <a
           href={`mailto:${cfg.contactEmail}`}
           className="text-sm hover:underline opacity-80"
@@ -57,7 +57,7 @@ export default function Footer() {
         )}
       </div>
 
-      {/* Copyright — from live config */}
+  {/* Copyright - from live config */}
       <div className="max-w-6xl mx-auto mt-8 pt-4 border-t border-white/20 text-center text-xs opacity-60">
         {cfg.copyrightText}
       </div>

@@ -1,17 +1,17 @@
 /**
- * Fixtures.tsx — Fixture Management
+ * Fixtures.tsx - Fixture Management
  *
  * Program-level table. Each row = one program.
  * Columns: Event | Program | Mode | Event Date | Fixture | Action
  *
  * fixtureMode:
- *   internal     → full wizard + Bracket/Table tabs
- *   external     → seeding assignment + CSV export only
- *   not_required → read-only row, no action
+ *  internal  -> full wizard + Bracket/Table tabs
+ *  external  -> seeding assignment + CSV export only
+ *  not_required -> read-only row, no action
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Loader2, Download, Search, X, Shuffle } from "lucide-react";
+import { ArrowLeft, ArrowRight, Loader2, Download, Search, X, Shuffle } from "lucide-react";
 import type { TournamentEvent, SeedEntry, BracketState, MatchEntry, WizardConfig, SbaRanking } from "@/types/config";
 import { isBracketLocked, isPhaseComplete, getAllMatches, getCurrentHeatRound } from "@/lib/fixtureEngine";
 import {
@@ -43,7 +43,7 @@ import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/u
 import AdminTabs from "@/components/admin/AdminTabs";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+//  Types
 
 type Tab = "draw" | "results" | "heats";
 
@@ -60,7 +60,7 @@ interface ProgramRow {
   closeDate:   string;
   participants: SeedEntry[];
 }
-// ── Status badges ─────────────────────────────────────────────────────────────
+//  Status badges
 
 function DrawBadge({ programId, closeDate, mode, fixtureExists }: {
   programId: string; closeDate: string; mode: string; fixtureExists: Record<string, boolean>;
@@ -106,7 +106,7 @@ function fixtureFormatLabel(format?: string) {
   }
 }
 
-// ── External seeding panel ────────────────────────────────────────────────────
+//  External seeding panel
 
 function ExternalPanel({ participants, sbaRankings, isBadminton, onSeedsSaved, onExport, toastSuccess, toastError }: {
   participants: SeedEntry[]; sbaRankings: SbaRanking[]; isBadminton: boolean;
@@ -225,8 +225,8 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, onSeedsSaved, o
             </button>
             <button onClick={() => setSeeding(false)} className="btn-outline px-4 py-2.5 text-sm font-semibold">Change seed count</button>
             <button disabled={hasDups || outRange || saving || !hasChange} onClick={() => persistSeeds(false)}
-              className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
-              {saving ? 'Saving...' : 'Save Seeds'}
+              className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 inline-flex items-center justify-center gap-2">
+              {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</> : "Save Seeds"}
             </button>
           </div>
         </div>
@@ -295,9 +295,9 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, onSeedsSaved, o
   );
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+
 // Main page
-// ═════════════════════════════════════════════════════════════════════════════
+
 
 export default function AdminFixtures() {
   const [allEvents,          setAllEvents]          = useState<TournamentEvent[]>([]);
@@ -310,7 +310,7 @@ export default function AdminFixtures() {
     apiGetEvents({ includeInactive: false }).then(async r => {
       const evs = (r.data ?? []).filter(e => e.isSports);
       setAllEvents(evs);
-      // Bulk-check which programs already have a fixture in the DB
+  // Bulk-check which programs already have a fixture in the DB
       const progIds = evs.flatMap(e => e.programs.map(p => p.id));
       if (progIds.length > 0) {
         const fxR = await apiGetFixtureStatus(progIds);
@@ -351,7 +351,7 @@ export default function AdminFixtures() {
     ), [allEvents]
   );
 
-  // ── Filters ───────────────────────────────────────────────────────────────
+  //  Filters
   const [filterName, setFilterName] = useState("");
   const [filterMode, setFilterMode] = useState<"" | "internal" | "external" | "not_required">("");
   const [filterFrom, setFilterFrom] = useState("");
@@ -368,7 +368,7 @@ export default function AdminFixtures() {
 
   const hasFilters = filterName || filterMode || filterFrom || filterTo;
 
-  // ── Selected program ──────────────────────────────────────────────────────
+  //  Selected program
   const [selRow,       setSelRow]       = useState<ProgramRow | null>(null);
   const [bracketState, setBracketState] = useState<BracketState | null>(null);
   const [showWizard,   setShowWizard]   = useState(false);
@@ -381,11 +381,11 @@ export default function AdminFixtures() {
   const [generateConfirmOpen, setGenerateConfirmOpen] = useState(false);
   const [pendingWizardResult, setPendingWizardResult] = useState<WizardResult | null>(null);
 
-  // ── Score modal ───────────────────────────────────────────────────────────
+  //  Score modal
   const [scoreModal, setScoreModal] = useState<MatchEntry | null>(null);
   const [draft,      setDraft]      = useState<MatchEntry | null>(null);
 
-  // ── Derived ───────────────────────────────────────────────────────────────
+  //  Derived
   const isBadminton  = selRow?.sportType?.toLowerCase() === "badminton";
   const locked       = bracketState ? isBracketLocked(bracketState) : false;
   const koMatches    = bracketState?.matches ?? [];
@@ -400,13 +400,13 @@ export default function AdminFixtures() {
   const canResetLatestRound = showResetLatestRound && currKoRound.every(m => !hasEnteredResult(m));
   const isHeats      = bracketState?.format === "heats";
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  //  Helpers
   const apiErr = (e: ApiError | null) => { if (e) feedbackApi.error(e.message); };
   const withLoading = async <T,>(fn: () => Promise<T>): Promise<T> => {
     setLoading(true); try { return await fn(); } finally { setLoading(false); }
   };
 
-  // ── Load bracket when row selected ───────────────────────────────────────
+  //  Load bracket when row selected
   useEffect(() => {
     if (!selRow) { setBracketState(null); return; }
     let cancelled = false;
@@ -426,7 +426,7 @@ export default function AdminFixtures() {
   }, [selRow?.sbaRankingType]);
 
   // Load confirmed participant groups from registrations API when a program row is selected.
-  // The event API always returns participantSeeds = [] — real seeds live in registrations.
+  // The event API always returns participantSeeds = [] - real seeds live in registrations.
   const loadSelectedProgramParticipants = useCallback(async (row: ProgramRow) => {
     setLoadingParticipants(true);
     try {
@@ -450,7 +450,7 @@ export default function AdminFixtures() {
   }, [selRow, loadSelectedProgramParticipants]);
 
 
-  // ── Bracket cached results display in table — refresh on save ────────────
+  //  Bracket cached results display in table - refresh on save
   // refreshTable re-fetches fixture existence so badges update immediately after actions
   const refreshTable = useCallback(() => {
     const progIds = allEvents.flatMap(e => e.programs.map(p => p.id));
@@ -461,7 +461,7 @@ export default function AdminFixtures() {
     }
   }, [allEvents]);
 
-  // ── Wizard complete ───────────────────────────────────────────────────────
+  //  Wizard complete
   const handleWizardComplete = (result: WizardResult) => {
     setPendingWizardResult(result);
     setGenerateConfirmOpen(true);
@@ -482,7 +482,7 @@ export default function AdminFixtures() {
     feedbackApi.success("Fixture saved. Program registration is now closed.");
   };
 
-  // ── Reset ─────────────────────────────────────────────────────────────────
+  //  Reset
   const handleReset = async () => {
     if (!selRow) return;
     await withLoading(() => apiResetFixture(selRow.eventId, selRow.programId));
@@ -490,7 +490,7 @@ export default function AdminFixtures() {
     setBracketState(null); setShowWizard(false); setFixtureExists(prev => ({ ...prev, [selRow.programId]: false })); refreshTable(); feedbackApi.success("Fixture reset.");
   };
 
-  // ── Next round ────────────────────────────────────────────────────────────
+  //  Next round
   const handleNextRound = async () => {
     if (!selRow) return;
     const result = groupsDone
@@ -513,7 +513,7 @@ export default function AdminFixtures() {
     feedbackApi.success("Latest round reset.");
   };
 
-  // ── Score modal ───────────────────────────────────────────────────────────
+  //  Score modal
   const openScore  = (m: MatchEntry) => {
     const isBye = m.team1.label === "BYE" || m.team2.label === "BYE"
       || m.team1.id.startsWith("bye-") || m.team2.id.startsWith("bye-");
@@ -559,7 +559,7 @@ export default function AdminFixtures() {
     feedbackApi.success("Result cleared.");
   };
 
-  // ── Schedule update ───────────────────────────────────────────────────────
+  //  Schedule update
   const handleUpdateSchedule = async (matchId: string, s: { courtNo: string; matchDate: string; startTime: string; endTime: string }) => {
     if (!selRow) return;
     const result = await apiUpdateSchedule(selRow.eventId, selRow.programId, matchId, s);
@@ -567,7 +567,7 @@ export default function AdminFixtures() {
     setBracketState(result.data!);
   };
 
-  // ── Swap ──────────────────────────────────────────────────────────────────
+  //  Swap
   const handleSwap = async (idA: string, idB: string) => {
     if (!selRow) return;
     const result = await apiSwapTeams(selRow.eventId, selRow.programId, idA, idB);
@@ -575,7 +575,7 @@ export default function AdminFixtures() {
     setBracketState(result.data!); feedbackApi.success("Players swapped.");
   };
 
-  // ── Heats handlers ────────────────────────────────────────────────────────
+  //  Heats handlers
   const handleSaveHeatResult = async (roundNumber: number, teamId: string, result: string) => {
     if (!selRow) return;
     const r = await apiSaveHeatResult(selRow.eventId, selRow.programId, roundNumber, teamId, result);
@@ -640,7 +640,7 @@ export default function AdminFixtures() {
   };
   const backToList = () => { setSelRow(null); setBracketState(null); setShowWizard(false); };
 
-  // ── Tab list ──────────────────────────────────────────────────────────────
+  //  Tab list
   const tabs: { key: Tab; label: string }[] = bracketState?.format === "heats"
     ? [{ key: "heats", label: "Heats" }]
     : [
@@ -652,9 +652,9 @@ export default function AdminFixtures() {
         })() },
       ];
 
-  // ─────────────────────────────────────────────────────────────────────────
+
   // RENDER
-  // ─────────────────────────────────────────────────────────────────────────
+
 
   return (
     <div className="print:p-0">
@@ -662,7 +662,7 @@ export default function AdminFixtures() {
         <div style={{ position: "fixed", inset: 0, zIndex: 9998, backgroundColor: "var(--overlay-backdrop-soft)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)", padding: "16px 24px", display: "flex", alignItems: "center", gap: 10, fontSize: 13, fontWeight: 600 }}>
             <Loader2 className="h-4 w-4 animate-spin" style={{ color: "var(--color-primary)" }} />
-            Processing…
+            Processing...
           </div>
         </div>
       )}
@@ -677,19 +677,19 @@ export default function AdminFixtures() {
         <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>Fixture Management</h1></div>
       </div>
 
-      {/* ════════════════════════════════════════════════════════════════════
-          PROGRAM LIST
-      ════════════════════════════════════════════════════════════════════ */}
+
+      {/* PROGRAM LIST */}
+
       {!selRow && (
         <div className="print:hidden">
-          {/* Filter bar */}
+  {/* Filter bar */}
           <div className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4 p-5 mb-6"
             style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
             <div className="flex-1 min-w-48">
               <label className="block text-xs font-semibold mb-1.5 opacity-60">Search</label>
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 opacity-40" />
-                <input className="field-input with-left-icon w-full" placeholder="Event or program name…"
+                <input className="field-input with-left-icon w-full" placeholder="Event or program name..."
                   value={filterName} onChange={e => setFilterName(e.target.value)} />
               </div>
             </div>
@@ -758,11 +758,11 @@ export default function AdminFixtures() {
                           {row.mode === "internal" ? "Internal" : row.mode === "external" ? "External" : "Not Required"}
                         </span>
                       </td>
-                      <td className="text-xs opacity-60 whitespace-nowrap">{row.startDate} → {row.endDate}</td>
+                      <td className="text-xs opacity-60 whitespace-nowrap">{row.startDate} to {row.endDate}</td>
                       <td><DrawBadge programId={row.programId} closeDate={row.closeDate} mode={row.mode} fixtureExists={fixtureExists} /></td>
                       <td>
                         {row.mode === "not_required"
-                          ? <span className="text-xs opacity-30">—</span>
+                          ? <span className="text-xs opacity-30">-</span>
                           : <button onClick={() => selectRow(row)} className="btn-primary px-4 py-1.5 text-xs font-semibold">Manage</button>}
                       </td>
                     </tr>
@@ -821,16 +821,16 @@ export default function AdminFixtures() {
         </div>
       )}
 
-      {/* ════════════════════════════════════════════════════════════════════
-          PROGRAM DETAIL
-      ════════════════════════════════════════════════════════════════════ */}
+
+      {/* PROGRAM DETAIL */}
+
       {selRow && (
         <>
           <button onClick={backToList} className="btn-back flex items-center gap-1.5 text-xs px-3 py-1.5 mb-5 print:hidden">
-            ← All Programs
+            <ArrowLeft className="h-3.5 w-3.5" /> All Programs
           </button>
 
-          {/* Program header */}
+  {/* Program header */}
           <div className="p-5 mb-5 print:hidden"
             style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -882,7 +882,7 @@ export default function AdminFixtures() {
             </div>
           </div>
 
-          {/* External mode */}
+  {/* External mode */}
           {selRow.mode === "external" && (
             <ExternalPanel
               participants={selRowParticipants} sbaRankings={sbaRankings}
@@ -894,10 +894,10 @@ export default function AdminFixtures() {
             />
           )}
 
-          {/* Internal mode */}
+  {/* Internal mode */}
           {selRow.mode === "internal" && (
             <>
-              {/* No fixture yet */}
+  {/* No fixture yet */}
               {!bracketState && !showWizard && (
                 <div className="py-12 flex flex-col items-center gap-4"
                   style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
@@ -905,12 +905,12 @@ export default function AdminFixtures() {
                   {loadingParticipants ? (
                     <LoadingSpinner size="sm" label="Loading registered entries..." />
                   ) : selRowParticipants.length >= 2
-                    ? <button onClick={() => setShowWizard(true)} className="btn-primary px-6 py-2.5 text-sm font-semibold">Generate Fixture →</button>
+                    ? <button onClick={() => setShowWizard(true)} className="btn-primary inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold">Generate Fixture <ArrowRight className="h-4 w-4" /></button>
                     : <p className="text-xs opacity-30">Need at least 2 registered entries.</p>}
                 </div>
               )}
 
-              {/* Wizard */}
+  {/* Wizard */}
               {showWizard && !bracketState && (
                 <div className="p-6">
                   <FixtureWizard
@@ -923,7 +923,7 @@ export default function AdminFixtures() {
                 </div>
               )}
 
-              {/* Fixture tabs */}
+  {/* Fixture tabs */}
               {bracketState && (
                 <>
                   <AdminTabs<Tab> tabs={tabs} activeKey={activeTab} onChange={setActiveTab} className="print:hidden" />

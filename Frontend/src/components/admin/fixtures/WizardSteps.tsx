@@ -1,5 +1,5 @@
 /**
- * WizardSteps.tsx — 2-screen fixture wizard
+ * WizardSteps.tsx - 2-screen fixture wizard
  *
  * Screen 1: Participant list + format + seeding (all on one page)
  * Screen 2: Preview bracket + swap + Confirm & Save
@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from "react";
-import { ChevronRight, ChevronLeft, Shuffle, CheckCircle, ArrowLeftRight } from "lucide-react";
+import { AlertTriangle, ChevronRight, ChevronLeft, Shuffle, CheckCircle, ArrowLeftRight, Loader2 } from "lucide-react";
 import type { SeedEntry, WizardConfig, SbaRanking, BracketState, TeamEntry, HeatsConfig, StandingPoints } from "@/types/config";
 import { generateDraw, swapTeams, computeGroupStandings } from "@/lib/fixtureEngine";
 import { NoticeDialog } from "@/components/ui/NoticeDialog";
@@ -27,13 +27,13 @@ interface Props {
   onCancel:     () => void;
 }
 
-// ── Format definitions ────────────────────────────────────────────────────────
+//  Format definitions
 
 const FORMATS: { value: WizardConfig["format"]; label: string; desc: string; needsSeeds: boolean }[] = [
-  { value: "knockout",       label: "Knockout",        desc: "Single elimination — each loss = out.", needsSeeds: true  },
-  { value: "group_knockout", label: "Group + Knockout", desc: "Round-robin groups → top teams advance to KO bracket.", needsSeeds: true  },
+  { value: "knockout",       label: "Knockout",        desc: "Single elimination - each loss = out.", needsSeeds: true  },
+  { value: "group_knockout", label: "Group + Knockout", desc: "Round-robin groups, then top teams advance to KO bracket.", needsSeeds: true  },
   { value: "round_robin",    label: "Round Robin",      desc: "Everyone plays everyone. Final standings only.", needsSeeds: false },
-  { value: "heats",          label: "Heats",            desc: "Individual rounds — no head-to-head. Results decide who advances.", needsSeeds: false },
+  { value: "heats",          label: "Heats",            desc: "Individual rounds - no head-to-head. Results decide who advances.", needsSeeds: false },
 ];
 
 function matchSbaRanking(seed: SeedEntry, rankings: SbaRanking[]) {
@@ -56,7 +56,7 @@ function orderSeedsForReview(seeds: SeedEntry[]) {
   });
 }
 
-// ── Screen 1: Configure ───────────────────────────────────────────────────────
+//  Screen 1: Configure
 
 function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCancel }: {
   participants: SeedEntry[];
@@ -137,7 +137,7 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
   return (
     <div className="space-y-6">
 
-      {/* Format selector */}
+  {/* Format selector */}
       <div>
         <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">Game Format</p>
         <div className="grid grid-cols-2 gap-3">
@@ -160,7 +160,7 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
         </div>
       </div>
 
-      {/* Format-specific config */}
+  {/* Format-specific config */}
       {format === "group_knockout" && (
         <div className="grid grid-cols-2 gap-4 p-4"
           style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
@@ -179,7 +179,7 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
               onChange={e => setAdvancePerGroup(+e.target.value)}>
               {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
-            <p className="text-xs opacity-40 mt-1">→ {numGroups * advancePerGroup} teams advance to KO</p>
+            <p className="text-xs opacity-40 mt-1">{numGroups * advancePerGroup} teams advance to KO</p>
           </div>
         </div>
       )}
@@ -239,7 +239,7 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
         </div>
       )}
 
-      {/* Seeding */}
+  {/* Seeding */}
       {fmt.needsSeeds && (
         <div>
           <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">Seeding</p>
@@ -273,14 +273,19 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
           {showSeeds && (hasDups || outRange) && (
             <p className="text-xs font-semibold mb-3 px-3 py-2"
               style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)", border: "1px solid var(--badge-closed-text)" }}>
-              {hasDups ? "⚠ Duplicate seed numbers." : ""}
-              {outRange ? ` ⚠ Seeds must be 1–${numSeeds}.` : ""}
+              <span className="inline-flex items-center gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  {hasDups ? "Duplicate seed numbers." : ""}
+                  {outRange ? ` Seeds must be 1-${numSeeds}.` : ""}
+                </span>
+              </span>
             </p>
           )}
         </div>
       )}
 
-      {/* Participant list */}
+  {/* Participant list */}
       <div>
         <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">
           Participants ({count})
@@ -317,7 +322,7 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
                       <td className="text-right font-mono text-xs whitespace-nowrap">
                         {sba
                           ? <span style={{ color: "var(--color-primary)", fontWeight: 600 }}>{sba.accumulatedScore.toLocaleString()}</span>
-                          : <span className="opacity-25">—</span>}
+                          : <span className="opacity-25">-</span>}
                       </td>
                     )}
                     {showSeeds && (
@@ -333,7 +338,7 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
                               color: "var(--color-body-text)",
                               fontWeight: 700,
                             }}
-                            value={s.seed ?? ""} placeholder="—"
+                            value={s.seed ?? ""} placeholder="-"
                             onChange={e => setSeedValue(s.id, e.target.value)} />
                           {s.seed !== null && (
                             <button onClick={() => setSeedValue(s.id, "")}
@@ -353,7 +358,10 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
       {count < 2 && (
         <p className="text-xs px-3 py-2 font-semibold"
           style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
-          ⚠ At least 2 entries required.
+          <span className="inline-flex items-center gap-2">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span>At least 2 entries required.</span>
+          </span>
         </p>
       )}
 
@@ -378,7 +386,7 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
   );
 }
 
-// ── Screen 2: Preview + Swap + Confirm ───────────────────────────────────────
+//  Screen 2: Preview + Swap + Confirm
 
 function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
   bracket:   BracketState;
@@ -474,7 +482,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
     <div style={{ border: "1px solid var(--color-table-border)" }}>
       <div className="px-4 py-2 font-bold text-xs uppercase tracking-wide"
         style={{ backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" }}>
-        Participants — {bracket.heatRounds?.[0]?.results.length ?? 0} in Round 1
+        Participants - {bracket.heatRounds?.[0]?.results.length ?? 0} in Round 1
       </div>
       <table className="trs-table">
         <thead><tr><th>#</th><th>Club / School</th><th>Players</th><th>Seed</th></tr></thead>
@@ -486,7 +494,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
               <td className="text-xs opacity-60">{s.participants.join(" / ")}</td>
               <td>{s.seed != null
                 ? <span className="text-xs font-bold px-1.5 py-0.5" style={{ backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" }}>#{s.seed}</span>
-                : <span className="opacity-25 text-xs">—</span>}
+                : <span className="opacity-25 text-xs">-</span>}
               </td>
             </tr>
           ))}
@@ -523,7 +531,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
                     </td>
                     <td>{s.team.seed != null
                       ? <span className="text-xs font-bold px-1.5 py-0.5" style={{ backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" }}>#{s.team.seed}</span>
-                      : <span className="opacity-25 text-xs">—</span>}
+                      : <span className="opacity-25 text-xs">-</span>}
                     </td>
                   </tr>
                   );
@@ -618,7 +626,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
         </div>
       )}
 
-      {/* Swap panel */}
+  {/* Swap panel */}
       <div className="hidden">
         <p className="text-xs font-bold uppercase tracking-wide opacity-50 mb-3">Swap Positions</p>
         {swapMsg && (
@@ -631,7 +639,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
           <div className="flex-1 min-w-36">
             <label className="block text-xs font-semibold mb-1.5 opacity-60">Player A</label>
             <select className="field-input w-full" value={selA} onChange={e => setSelA(e.target.value)}>
-              <option value="">Select…</option>
+              <option value="">Select...</option>
               {allTeams.map(t => (
                 <option key={t.id} value={t.id} disabled={t.id === selB}>
                   {t.seed != null ? `[#${t.seed}] ` : ""}{t.label}
@@ -643,7 +651,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
           <div className="flex-1 min-w-36">
             <label className="block text-xs font-semibold mb-1.5 opacity-60">Player B</label>
             <select className="field-input w-full" value={selB} onChange={e => setSelB(e.target.value)}>
-              <option value="">Select…</option>
+              <option value="">Select...</option>
               {allTeams.map(t => (
                 <option key={t.id} value={t.id} disabled={t.id === selA}>
                   {t.seed != null ? `[#${t.seed}] ` : ""}{t.label}
@@ -658,14 +666,14 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
         </div>
       </div>
 
-      {/* Bracket preview */}
+  {/* Bracket preview */}
       <div className="space-y-3">
         {bracket.format === "heats"         && <HeatsPreview />}
         {bracket.groups.length > 0          && <GroupPreview />}
         {bracket.matches.length > 0         && <KoPreview />}
       </div>
 
-      {/* Actions */}
+  {/* Actions */}
       <div className="flex justify-between items-center pt-2"
         style={{ borderTop: "1px solid var(--color-table-border)" }}>
         <button onClick={onBack} className="btn-outline flex items-center gap-2 px-5 py-2.5 text-sm">
@@ -674,7 +682,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
         <button onClick={onConfirm} disabled={saving}
           className="btn-primary flex items-center gap-2 px-6 py-2.5 text-sm font-semibold disabled:opacity-40">
           {saving
-            ? <><div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Saving…</>
+            ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</>
             : <><CheckCircle className="h-4 w-4" /> Confirm &amp; Save</>}
         </button>
       </div>
@@ -682,7 +690,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
   );
 }
 
-// ── Wizard container ──────────────────────────────────────────────────────────
+//  Wizard container
 
 export function FixtureWizard({ participants, sbaRankings, isBadminton, onComplete, onCancel }: Props) {
   const [screen,  setScreen]  = useState<1 | 2>(1);

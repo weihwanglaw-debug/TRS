@@ -1,9 +1,9 @@
 /**
- * exportCsv.ts — Client-side CSV export utilities
+ * exportCsv.ts - Client-side CSV export utilities
  *
  * Two exports:
- *   exportParticipantsCsv()   — fixture seeding list (SeedEntry[])
- *   exportRegistrationsCsv()  — full admin registrations export (Registration[])
+ *  exportParticipantsCsv()  - fixture seeding list (SeedEntry[])
+ *  exportRegistrationsCsv()  - full admin registrations export (Registration[])
  *
  * Both work entirely client-side. The data comes from the API layer;
  * no changes needed here when switching to a real backend.
@@ -32,7 +32,7 @@ function safeFilename(s: string) {
   return s.replace(/[/\\?%*:|"<>]/g, "-");
 }
 
-// ── Fixture seeding list ───────────────────────────────────────────────────────
+//  Fixture seeding list
 
 export function exportParticipantsCsv(
   eventName:   string,
@@ -60,7 +60,7 @@ export function exportParticipantsCsv(
   );
 }
 
-// ── Full registrations export (admin) ─────────────────────────────────────────
+//  Full registrations export (admin)
 // One row per participant (not per registration) for easy filtering in Excel.
 
 export function exportRegistrationsCsv(

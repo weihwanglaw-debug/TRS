@@ -3,11 +3,11 @@
  *
  * Mock:  delegates to mockUserStore (login) + localStorage (session)
  * Real:  swap the three commented fetch() blocks:
- *          apiLogin()          → POST /auth/login
- *          apiGetMe(token)     → GET  /auth/me   (session restore on boot)
- *          apiLogout()         → POST /auth/logout
+ *  apiLogin()  -> POST /auth/login
+ *  apiGetMe(token)  -> GET  /auth/me  (session restore on boot)
+ *  apiLogout()  -> POST /auth/logout
  *
- * mustChangePassword is enforced here — any component that needs the flag
+ * mustChangePassword is enforced here - any component that needs the flag
  * can read it from user?.mustChangePassword.
  *
  * Token storage: localStorage("trs_token") for Bearer auth.
@@ -44,20 +44,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user,  setUser]  = useState<AdminUser | null>(null);
   const [ready, setReady] = useState(false);   // prevents flash of unauthenticated state
 
-  // ── Session restore on boot ────────────────────────────────────────────────
+  //  Session restore on boot
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) { setReady(true); return; }
 
-    // Validate token against backend on every page load.
-    // If the token is expired or invalid, wipe it and show the login page.
+  // Validate token against backend on every page load.
+  // If the token is expired or invalid, wipe it and show the login page.
     apiGetMe(token).then(r => {
       if (r.data) setUser(r.data);
       else { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY); }
     }).finally(() => setReady(true));
   }, []);
 
-  // ── Login ──────────────────────────────────────────────────────────────────
+  //  Login
   const login = async (email: string, password: string): Promise<string | null> => {
     const r = await apiLogin(email, password);
     if (r.error) return r.error.message;
@@ -69,7 +69,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return null;
   };
 
-  // ── Logout ─────────────────────────────────────────────────────────────────
+  //  Logout
   const logout = async () => {
     await apiLogout();            // no-op in mock; invalidates session in real backend
     setUser(null);
@@ -79,7 +79,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const mustChangePassword = !!(user?.mustChangePassword);
 
-  if (!ready) return <PageLoader label="Authenticating…" />;
+  if (!ready) return <PageLoader label="Authenticating..." />;
 
   return (
     <AuthContext.Provider value={{ isAuthenticated: !!user, user, mustChangePassword, login, logout }}>

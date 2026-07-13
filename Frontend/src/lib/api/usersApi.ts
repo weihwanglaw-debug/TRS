@@ -1,8 +1,8 @@
 /**
- * usersApi.ts — Admin user management (CRUD).
+ * usersApi.ts - Admin user management (CRUD).
  *
  * Real backend: GET/POST /admin/users, PUT/DELETE /admin/users/:id,
- *               POST /admin/users/:id/reset-password
+ *  POST /admin/users/:id/reset-password
  *
  * Mock: delegates to mockUserStore (same in-memory store as AuthContext).
  * Swap: replace function bodies with fetch() calls.
@@ -14,7 +14,7 @@ import { ok, err, delay, API_BASE, adminHeaders, parseError, apiFetch } from "./
 import type { ApiResult }  from "./_base";
 import type { AdminUser }  from "@/types/config";
 
-// ── API functions ─────────────────────────────────────────────────────────────
+//  API functions
 
 /**
  * GET /admin/users

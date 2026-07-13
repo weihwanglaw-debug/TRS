@@ -1,21 +1,21 @@
 /**
- * _base.ts — Shared API primitives.
+ * _base.ts - Shared API primitives.
  *
  * Every API module uses these types and helpers so the entire surface
  * is consistent.
  *
- * ── AUTH STRATEGY ─────────────────────────────────────────────────────────────
+ *  AUTH STRATEGY
  *
- *   publicHeaders()   No Authorization header.
- *                     Use for: public registration, checkout, payment result.
+ *  publicHeaders()  No Authorization header.
+ *  Use for: public registration, checkout, payment result.
  *
- *   adminHeaders()    Includes Authorization: Bearer <token>.
- *                     Use for: all /admin/* endpoints, refunds, status patches.
+ *  adminHeaders()  Includes Authorization: Bearer <token>.
+ *  Use for: all /admin/* endpoints, refunds, status patches.
  *
- * ── BASE URL ──────────────────────────────────────────────────────────────────
+ *  BASE URL
  *
- *   .env.development  →  VITE_API_BASE_URL=https://localhost:7183
- *   .env.production   →  VITE_API_BASE_URL=https://api.yourdomain.com
+ *  .env.development  ->  VITE_API_BASE_URL=https://localhost:7183
+ *  .env.production  ->  VITE_API_BASE_URL=https://api.yourdomain.com
  */
 
 export const API_BASE: string =
@@ -32,7 +32,7 @@ export function assetUrl(path: string | null | undefined): string {
   return `${API_BASE}${path}`;
 }
 
-// ── Result envelope ───────────────────────────────────────────────────────────
+//  Result envelope
 
 export interface ApiError {
   code: string;
@@ -46,7 +46,7 @@ export type ApiResult<T> =
 export function ok<T>(data: T): ApiResult<T>               { return { data, error: null }; }
 export function err(code: string, message: string): ApiResult<never> { return { data: null, error: { code, message } }; }
 
-// ── Auth helpers ──────────────────────────────────────────────────────────────
+//  Auth helpers
 
 export function getToken(): string {
   return localStorage.getItem("trs_token") ?? "";
@@ -63,18 +63,18 @@ export function adminHeaders(): Record<string, string> {
   return base;
 }
 
-// ── 401 interceptor ───────────────────────────────────────────────────────────
+//  401 interceptor
 //
 // ALL API calls go through apiFetch() instead of raw fetch().
 // If the backend returns 401 (expired/invalid token), we:
-//   1. Clear the stored token and user
-//   2. Redirect to login immediately
+//  1. Clear the stored token and user
+//  2. Redirect to login immediately
 //
 // This prevents the silent "broken session" where the user keeps
 // clicking and getting empty results because their JWT expired.
 //
 // Public endpoints (login, checkout, payment result) never send a token
-// so they can never get a 401 — the redirect only fires for admin calls.
+// so they can never get a 401 - the redirect only fires for admin calls.
 
 export async function apiFetch(
   url: string,
@@ -83,9 +83,9 @@ export async function apiFetch(
   const res = await fetch(url, options);
 
   if (res.status === 401) {
-    // Token expired or invalid — wipe session and redirect to login.
-    // Skip if already on a login/public page to prevent redirect loops
-    // (e.g. apiGetMe() during boot calls this and we're already on /login).
+  // Token expired or invalid - wipe session and redirect to login.
+  // Skip if already on a login/public page to prevent redirect loops
+  // (e.g. apiGetMe() during boot calls this and we're already on /login).
     localStorage.removeItem("trs_token");
     localStorage.removeItem("trs_user");
     const path = window.location.pathname;
@@ -99,7 +99,7 @@ export async function apiFetch(
   return res;
 }
 
-// ── Backend error parser ──────────────────────────────────────────────────────
+//  Backend error parser
 
 export async function parseError(
   res: Response,
@@ -115,12 +115,12 @@ export async function parseError(
   }
 }
 
-// ── Mock delay ────────────────────────────────────────────────────────────────
+//  Mock delay
 
 const DELAY_MS = Number(import.meta.env?.VITE_MOCK_DELAY_MS ?? 60);
 export const delay = () => new Promise(r => setTimeout(r, DELAY_MS));
 
-// ── Pagination helpers ────────────────────────────────────────────────────────
+//  Pagination helpers
 
 export interface PageParams {
   page: number;

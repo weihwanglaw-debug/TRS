@@ -5,15 +5,15 @@ import { Switch } from "@/components/ui/switch";
 import { apiGetSbaRankingTypes } from "@/lib/api";
 import type { Program, SbaRankingType } from "@/types/config";
 
-// ── Program type definitions ─────────────────────────────────────────────────
+//  Program type definitions
 
 /**
  * Canonical program type values stored in Programs.Type.
- *   singles  – 1 player per entry  (racket sports: individual events)
- *   doubles  – 2 players per entry (racket sports: pair events)
- *   team     – N players per entry (team sports: basketball, football, etc.)
- *   individual – 1 player per entry, no head-to-head (swimming heats, athletics, etc.)
- *   mixed    – catch-all for non-sports or custom programs
+ *  singles  - 1 player per entry  (racket sports: individual events)
+ *  doubles  - 2 players per entry (racket sports: pair events)
+ *  team  - N players per entry (team sports: basketball, football, etc.)
+ *  individual - 1 player per entry, no head-to-head (swimming heats, athletics, etc.)
+ *  mixed  - catch-all for non-sports or custom programs
  */
 export type ProgramType = "singles" | "doubles" | "team" | "individual" | "mixed";
 
@@ -61,7 +61,7 @@ function sbaTypeToProgType(sbaType: SbaRankingType | undefined): ProgramType {
   return sbaType.players === 2 ? "doubles" : "singles";
 }
 
-// ── Supporting types ─────────────────────────────────────────────────────────
+//  Supporting types
 
 const FIELD_TYPES = [
   { value: "text",   label: "Text" },
@@ -77,13 +77,13 @@ interface Props {
   onClose:       () => void;
   onSave:        (program: Program) => void;
   program:       Program | null;
-  isBadminton?:  boolean;   // true → show SBA ranking type dropdown + SBA ID field
-  isRacketSport?: boolean;  // true → singles/doubles type selection
-  isTeamSport?:  boolean;   // true → team type, configurable squad size
+  isBadminton?:  boolean;   // true -> show SBA ranking type dropdown + SBA ID field
+  isRacketSport?: boolean;  // true -> singles/doubles type selection
+  isTeamSport?:  boolean;   // true -> team type, configurable squad size
   sportType?:    string;    // display label only (e.g. "Basketball")
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
+//  Component
 
 export default function ProgramModal({
   open, onClose, onSave, program,
@@ -136,7 +136,7 @@ export default function ProgramModal({
   useEffect(() => {
     if (!open) return;
     if (program) {
-      // Edit: restore saved values
+  // Edit: restore saved values
       setForm({
         name:            program.name,
         type:            (program.type as ProgramType) || defaultType.value,
@@ -169,7 +169,7 @@ export default function ProgramModal({
         })),
       });
     } else {
-      // Create: reset to defaults for current sport context
+  // Create: reset to defaults for current sport context
       setForm({
         name: "", type: defaultType.value, sbaRankingType: "",
         gender: "Mixed", minAge: 18, maxAge: 45,
@@ -200,7 +200,7 @@ export default function ProgramModal({
   };
 
   /** Called when user picks an SBA ranking type (badminton only).
-   *  Derives program type, player count, gender, and age from SBA metadata. */
+  *  Derives program type, player count, gender, and age from SBA metadata. */
   const selectSbaType = (value: string) => {
     const selected = sbaTypes.find(t => t.value === value);
     const progType = sbaTypeToProgType(selected);
@@ -232,9 +232,9 @@ export default function ProgramModal({
     if (!form.type)                                  errs.type     = "Program type is required";
     if (form.gender === "Mixed" && (form.minPlayers !== 2 || form.maxPlayers !== 2))
                                errs.players  = "Mixed gender requires exactly 2 players per entry (1 Male + 1 Female).";
-    if (form.minAge > form.maxAge)                   errs.ageRange = "Min age must be ≤ max age";
-    if (form.minPlayers > form.maxPlayers)           errs.players  = "Min players must be ≤ max players";
-    if (form.minParticipants > form.maxParticipants) errs.parts    = "Min participants must be ≤ max";
+    if (form.minAge > form.maxAge)                   errs.ageRange = "Min age must be <= max age";
+    if (form.minPlayers > form.maxPlayers)           errs.players  = "Min players must be <= max players";
+    if (form.minParticipants > form.maxParticipants) errs.parts    = "Min participants must be <= max";
     if (parseFloat(form.fee) < 0)                    errs.fee      = "Fee cannot be negative";
     setFormErrors(errs);
     if (Object.keys(errs).length > 0) return;
@@ -242,7 +242,7 @@ export default function ProgramModal({
     onSave({
       id:             program?.id || "",
       name:           form.name,
-      type:           form.type,                          // ← fixed: actual type value, not form.name
+      type:           form.type,                          // <- fixed: actual type value, not form.name
       sbaRankingType: form.sbaRankingType || null,
       gender:         form.gender,
       minAge:         form.minAge,
@@ -277,7 +277,7 @@ export default function ProgramModal({
     });
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  //  Render
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
@@ -287,18 +287,18 @@ export default function ProgramModal({
         <DialogHeader className="p-8 pb-4">
           <DialogTitle className="font-bold text-xl">{isEdit ? "Edit Program" : "Create Program"}</DialogTitle>
           <p className="text-xs opacity-50 mt-1">
-            Fixture format (Knockout, Round Robin, etc.) is chosen when generating the draw — not here.
+            Fixture format (Knockout, Round Robin, etc.) is chosen when generating the draw - not here.
             Fixture mode is configured at the event level.
           </p>
         </DialogHeader>
 
         <div className="px-8 pb-8 space-y-7">
 
-          {/* Basic info */}
+  {/* Basic info */}
           <Sec title="Basic Info">
             <div className="grid sm:grid-cols-2 gap-5">
 
-              {/* Program Name — for badminton: SBA category picker drives the name */}
+  {/* Program Name - for badminton: SBA category picker drives the name */}
               <div className="sm:col-span-2">
                 <Lbl>Program Name *</Lbl>
                 {isBadminton ? (
@@ -314,12 +314,12 @@ export default function ProgramModal({
                 {formErrors.sbaType && <Err>{formErrors.sbaType}</Err>}
               </div>
 
-              {/* Program Type — hidden for badminton (auto-derived from SBA type) */}
+  {/* Program Type - hidden for badminton (auto-derived from SBA type) */}
               {!isBadminton && (
                 <div>
                   <Lbl>Program Type *</Lbl>
                   {programTypes.length === 1 ? (
-                    // Only one option (e.g. pure team sports) — show as read-only chip
+  // Only one option (e.g. pure team sports) - show as read-only chip
                     <div className="field-input opacity-60 cursor-default select-none">
                       {programTypes[0].label}
                     </div>
@@ -335,7 +335,7 @@ export default function ProgramModal({
                 </div>
               )}
 
-              {/* Gender */}
+  {/* Gender */}
               <div>
                 <Lbl>Gender</Lbl>
                 <select className="field-input" value={form.gender} onChange={e => {
@@ -343,7 +343,7 @@ export default function ProgramModal({
                     setForm(p => ({
                       ...p,
                       gender:     g,
-                      // Mixed doubles must be exactly 2 players — enforce immediately
+  // Mixed doubles must be exactly 2 players - enforce immediately
                       minPlayers: g === "Mixed" ? 2 : p.minPlayers,
                       maxPlayers: g === "Mixed" ? 2 : p.maxPlayers,
                     }));
@@ -357,7 +357,7 @@ export default function ProgramModal({
             </div>
           </Sec>
 
-          {/* Age */}
+  {/* Age */}
           <Sec title="Age Eligibility">
             <div className="grid grid-cols-2 gap-5">
               <div>
@@ -374,14 +374,14 @@ export default function ProgramModal({
             {formErrors.ageRange && <Err>{formErrors.ageRange}</Err>}
           </Sec>
 
-          {/* Capacity */}
+  {/* Capacity */}
           <Sec title="Capacity">
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
               <div><Lbl>Min Entries</Lbl><input type="number" className="field-input" value={form.minParticipants} onChange={e => s("minParticipants", +e.target.value)} /></div>
               <div><Lbl>Max Entries</Lbl><input type="number" className="field-input" value={form.maxParticipants} onChange={e => s("maxParticipants", +e.target.value)} /></div>
               <div>
                 <Lbl>Min Players / Entry</Lbl>
-                {/* For racket sports with a fixed type, these are auto-set and read-only */}
+  {/* For racket sports with a fixed type, these are auto-set and read-only */}
                 <input type="number" className="field-input"
                   value={form.minPlayers}
                   readOnly={isRacketSport || isBadminton}
@@ -406,7 +406,7 @@ export default function ProgramModal({
             {formErrors.parts   && <Err>{formErrors.parts}</Err>}
           </Sec>
 
-          {/* Fee */}
+  {/* Fee */}
           <Sec title="Fee">
             <label className="flex items-center justify-between gap-3 text-sm cursor-pointer p-3 mb-4"
               style={{ border: "1px solid var(--color-table-border)" }}>
@@ -433,7 +433,7 @@ export default function ProgramModal({
                   <div className="flex gap-0">
                     {([
                       { value: "per_entry",  label: "Per Entry",  desc: "One flat fee for the whole group/team" },
-                      { value: "per_player", label: "Per Player", desc: "Fee × each player in the entry" },
+                      { value: "per_player", label: "Per Player", desc: "Fee x each player in the entry" },
                     ] as const).map(opt => (
                       <button key={opt.value} type="button"
                         onClick={() => s("feeStructure", opt.value)}
@@ -451,17 +451,17 @@ export default function ProgramModal({
                   </div>
                   {form.feeStructure === "per_player" && form.maxPlayers > 1 && (
                     <p className="text-xs mt-2 opacity-60">
-                      e.g. {form.maxPlayers} players × ${parseFloat(form.fee || "0").toFixed(2)} = ${(form.maxPlayers * parseFloat(form.fee || "0")).toFixed(2)} per entry
+                      e.g. {form.maxPlayers} players x ${parseFloat(form.fee || "0").toFixed(2)} = ${(form.maxPlayers * parseFloat(form.fee || "0")).toFixed(2)} per entry
                     </p>
                   )}
                 </div>
               </div>
             ) : (
-              <p className="text-xs opacity-50">Free entry — no payment will be collected.</p>
+              <p className="text-xs opacity-50">Free entry - no payment will be collected.</p>
             )}
           </Sec>
 
-          {/* Optional fields */}
+  {/* Optional fields */}
           <Sec title="Optional Fields">
             <div className="space-y-3">
               {[
@@ -469,7 +469,7 @@ export default function ProgramModal({
                 { key: "enableDocumentUpload", requiredKey: "requireDocumentUpload", label: "Document Upload" },
                 { key: "enableGuardianInfo",   requiredKey: "requireGuardianInfo",   label: "Guardian Info" },
                 { key: "enableRemark",         requiredKey: "requireRemark",         label: "Remark Field" },
-                // SBA ID lookup — only for badminton events
+  // SBA ID lookup - only for badminton events
                 ...(isBadminton ? [{ key: "enableSbaId", requiredKey: "requireSbaId", label: "SBA ID Lookup" }] : []),
               ].map(opt => (
                 <div key={opt.key}
@@ -496,13 +496,13 @@ export default function ProgramModal({
             </div>
           </Sec>
 
-          {/* Custom fields */}
+  {/* Custom fields */}
           <Sec title="Custom Fields">
             <div className="space-y-3">
               {form.customFields.map((cf, idx) => (
                 <div key={idx} className="p-4 space-y-3 relative"
                   style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
-                  {/* Delete button — top-right of the card */}
+  {/* Delete button - top-right of the card */}
                   <button onClick={() => delCF(idx)}
                     className="absolute top-3 right-3 opacity-30 hover:opacity-70 transition-opacity"
                     title="Remove field">
@@ -556,7 +556,7 @@ export default function ProgramModal({
         {Object.keys(formErrors).length > 0 && (
           <div className="px-8 pb-2 space-y-1">
             {Object.values(formErrors).map((e, i) => (
-              <p key={i} className="text-xs" style={{ color: "var(--badge-open-text)" }}>• {e}</p>
+              <p key={i} className="text-xs" style={{ color: "var(--badge-open-text)" }}>- {e}</p>
             ))}
           </div>
         )}
@@ -572,7 +572,7 @@ export default function ProgramModal({
   );
 }
 
-// ── Small layout helpers ──────────────────────────────────────────────────────
+//  Small layout helpers
 
 function Sec({ title, children }: { title: string; children: React.ReactNode }) {
   return (

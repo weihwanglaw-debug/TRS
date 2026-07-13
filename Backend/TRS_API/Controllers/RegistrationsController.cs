@@ -59,9 +59,13 @@ public class RegistrationsController : ControllerBase
         if (!string.IsNullOrEmpty(payStatus))
             // Translate long-form frontend code ("Success") -> DB short code ("S") before filtering
             q = q.Where(r => r.Payments.Any(p => p.PaymentStatus == PayStatusToDb(payStatus)));
-        if (!string.IsNullOrEmpty(search))
-            q = q.Where(r => r.ContactName.Contains(search) || r.ContactEmail.Contains(search)
-                || r.Payments.Any(p => p.ReceiptNumber!.Contains(search)));
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            q = q.Where(r =>
+                r.ContactName.Contains(term) ||
+                r.RegistrationId.ToString().Contains(term));
+        }
 
         var total = await q.CountAsync();
         var items = await q.OrderByDescending(r => r.SubmittedAt)

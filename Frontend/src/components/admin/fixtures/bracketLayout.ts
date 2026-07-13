@@ -1,39 +1,39 @@
 /**
- * bracketLayout.ts — SVG bracket coordinate system
+ * bracketLayout.ts - SVG bracket coordinate system
  *
  * All pure functions. No React. Fully testable.
  *
  * Coordinate origin: top-left of the SVG body area (below headers).
  *
- *   cardLX(ci)              → left X of any card in column ci
- *   cardCY(i, count, h)     → centre Y of the i-th card in a column
- *   cardTY(i, count, h)     → top Y of the i-th card
- *   bodyH(n)                → total body height for n first-round matches
+ *  cardLX(ci)  -> left X of any card in column ci
+ *  cardCY(i, count, h)  -> centre Y of the i-th card in a column
+ *  cardTY(i, count, h)  -> top Y of the i-th card
+ *  bodyH(n)  -> total body height for n first-round matches
  */
 
 import type { MatchEntry } from "@/types/config";
 import { getRoundLabel } from "@/lib/fixtureEngine";
 
-// ── Card dimensions ────────────────────────────────────────────────────────────
+//  Card dimensions
 export const CARD_W = 180;   // card width  (px)
-export const CARD_H = 72;    // card height = 2 × SLOT_H + DIV_H
+export const CARD_H = 72;    // card height = 2 x SLOT_H + DIV_H
 export const SLOT_H = 32;    // each team slot
 export const DIV_H  = 8;     // score divider bar between the two slots
 
-// ── Bracket geometry ───────────────────────────────────────────────────────────
+//  Bracket geometry
 export const STUB  = 20;                        // horizontal connector arm on each side
 export const COL_W = CARD_W + STUB * 2 + 8;    // column pitch  (card + both stubs + gap)
 export const HDR_H = 40;                        // round-header area above the body
 export const VPAD  = 16;                        // vertical padding at top & bottom of body
 export const GAP   = 16;                        // minimum gap between cards in round 1
 
-// ── Connector style ────────────────────────────────────────────────────────────
+//  Connector style
 export const LINE_COLOR  = "#94a3b8";
 export const LINE_W      = 2;
 export const LINE_WIN    = "var(--color-primary)";
 export const LINE_WIN_W  = 2.5;
 
-// ── Coordinate functions ───────────────────────────────────────────────────────
+//  Coordinate functions
 
 /** Total SVG body height for n first-round matches. */
 export function bodyH(n: number): number {
@@ -56,7 +56,7 @@ export function cardLX(ci: number): number {
   return ci * COL_W + STUB;
 }
 
-// ── KO spec builder ────────────────────────────────────────────────────────────
+//  KO spec builder
 
 export type Spec = {
   round: number;
@@ -78,7 +78,7 @@ export function buildSpecs(koMatches: MatchEntry[], totalAdvancing: number): Spe
       const rm = koMatches.filter(m => m.round === r);
       specs.push({ round: r, label: rm[0].roundLabel, count: rm.length, matches: rm });
     }
-    // Project remaining rounds until we reach the final (1 match)
+  // Project remaining rounds until we reach the final (1 match)
     let rem = specs[specs.length - 1].count;
     let nr  = Math.max(...existing) + 1;
     while (rem > 1) {
@@ -87,7 +87,7 @@ export function buildSpecs(koMatches: MatchEntry[], totalAdvancing: number): Spe
       nr++;
     }
   } else {
-    // No matches yet — project all rounds from advancing count
+  // No matches yet - project all rounds from advancing count
     let n = totalAdvancing, r = 1;
     while (n > 1) {
       const mc = Math.ceil(n / 2);

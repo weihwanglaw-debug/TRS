@@ -22,6 +22,8 @@ const CONFIG_ROWS: ConfigRow[] = [
   { id: "heroTitle",     group: "Hero",       label: "Hero Title",                                type: "text"     },
   { id: "heroSubtitle",  group: "Hero",       label: "Hero Subtitle",                             type: "textarea" },
   { id: "heroImageUrl",  group: "Hero",       label: "Hero Background Image URL",                 type: "url"      },
+  { id: "messageTitle",  group: "Message",    label: "Landing Message Title",                     type: "text"     },
+  { id: "messageBody",   group: "Message",    label: "Landing Message Body",                      type: "textarea" },
   { id: "currency",      group: "Payment",    label: "Currency Code",                             type: "text"     },
   { id: "contactEmail",  group: "Footer",     label: "Contact Email",                             type: "text"     },
   { id: "copyrightText", group: "Footer",     label: "Copyright Text",                            type: "text"     },
@@ -35,7 +37,7 @@ const CONFIG_ROWS: ConfigRow[] = [
   { id: "adButtonLabel", group: "Ad Banner",  label: "Ad Button Label",                           type: "text"     },
 ];
 
-const GROUPS = ["All", "Branding", "Hero", "Payment", "Footer", "Consent", "Ad Banner"];
+const GROUPS = ["All", "Branding", "Hero", "Message", "Payment", "Footer", "Consent", "Ad Banner"];
 const GROUP_TABS = GROUPS.map(group => ({ key: group, label: group }));
 
 export default function MasterConfig() {
@@ -102,7 +104,7 @@ export default function MasterConfig() {
               {group}
             </p>
 
-            {/* Desktop: table */}
+  {/* Desktop: table */}
             <div className="hidden md:block" style={{ border: "1px solid var(--color-table-border)" }}>
               <table className="trs-table w-full">
                 <thead>
@@ -143,7 +145,7 @@ export default function MasterConfig() {
                             <button onClick={() => commitEdit(row.id)} title="Save"
                               className="p-1.5 transition-opacity hover:opacity-70"
                               style={{ color: "var(--badge-open-text)" }}>
-                              {saving ? "…" : <Check className="h-4 w-4" />}
+                              {saving ? "..." : <Check className="h-4 w-4" />}
                             </button>
                             <button onClick={cancelEdit} title="Cancel"
                               className="p-1.5 opacity-40 hover:opacity-80">
@@ -164,7 +166,7 @@ export default function MasterConfig() {
               </table>
             </div>
 
-            {/* Mobile: cards */}
+  {/* Mobile: cards */}
             <div className="md:hidden space-y-3">
               {groupRows.map(row => (
                 <div key={row.id} className="p-4" style={{ border: "1px solid var(--color-table-border)" }}>
@@ -176,7 +178,7 @@ export default function MasterConfig() {
                     {editId === row.id ? (
                       <div className="flex items-center gap-1">
                         <button onClick={() => commitEdit(row.id)} className="p-1.5" style={{ color: "var(--badge-open-text)" }}>
-                          {saving ? "…" : <Check className="h-4 w-4" />}
+                          {saving ? "..." : <Check className="h-4 w-4" />}
                         </button>
                         <button onClick={cancelEdit} className="p-1.5 opacity-40"><X className="h-4 w-4" /></button>
                       </div>

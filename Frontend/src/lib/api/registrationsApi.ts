@@ -1,34 +1,34 @@
 /**
- * registrationsApi.ts — Registration, Payment & Refund management.
+ * registrationsApi.ts - Registration, Payment & Refund management.
  *
- * ── AUTH SPLIT ────────────────────────────────────────────────────────────────
+ *  AUTH SPLIT
  *
- *   PUBLIC  (no login required):
- *     apiCreateRegistration()    POST /api/registrations
- *     apiCreateEmbeddedPaymentAttempt() POST /api/Payment/embedded-attempt
- *     apiGetRegistration()       GET  /api/registrations/:id   (receipt lookup)
+ *  PUBLIC  (no login required):
+ *  apiCreateRegistration()  POST /api/registrations
+ *  apiCreateEmbeddedPaymentAttempt() POST /api/Payment/embedded-attempt
+ *  apiGetRegistration()  GET  /api/registrations/:id  (receipt lookup)
  *
- *   ADMIN   (requires Bearer token):
- *     apiGetRegistrations()      GET  /api/registrations        (admin list)
- *     apiUpdateRegistrationStatus()
- *     apiUpdateGroupStatus()
- *     apiUpdateGroupSeed()
- *     apiGetPayment()
- *     apiUpdatePayment()
- *     apiGetRefunds()
- *     apiInitiateRefund()
- *     apiExportRegistrations()
- *     apiGetRegistrationStats()
+ *  ADMIN  (requires Bearer token):
+ *  apiGetRegistrations()  GET  /api/registrations  (admin list)
+ *  apiUpdateRegistrationStatus()
+ *  apiUpdateGroupStatus()
+ *  apiUpdateGroupSeed()
+ *  apiGetPayment()
+ *  apiUpdatePayment()
+ *  apiGetRefunds()
+ *  apiInitiateRefund()
+ *  apiExportRegistrations()
+ *  apiGetRegistrationStats()
  *
- * ── REAL BACKEND ──────────────────────────────────────────────────────────────
+ *  REAL BACKEND
  * To go live: delete the MOCK block in each function and uncomment the REAL block.
  * No changes needed in EventDetail.tsx, Registrations.tsx, etc.
  *
- * Status code alignment (frontend type → DB value):
- *   PaymentStatus: "Pending"→'P'  "Success"→'S'  "PartiallyRefunded"→'PR'
- *                  "FullyRefunded"→'FR'  "Failed"→'F'  "Cancelled"→'X'
- *   ItemStatus:    "Pending"→'P'  "Success"→'S'  "Refunded"→'R'
- *   RefundStatus:  "Pending"→'P'  "Success"→'S'  "Failed"→'F'
+ * Status code alignment (frontend type -> DB value):
+ *  PaymentStatus: "Pending"->'P'  "Success"->'S'  "PartiallyRefunded"->'PR'
+ *  "FullyRefunded"->'FR'  "Failed"->'F'  "Cancelled"->'X'
+ *  ItemStatus:  "Pending"->'P'  "Success"->'S'  "Refunded"->'R'
+ *  RefundStatus:  "Pending"->'P'  "Success"->'S'  "Failed"->'F'
  */
 
 import { ok, err, delay, paginate, API_BASE, publicHeaders, adminHeaders, parseError, apiFetch } from "./_base";
@@ -40,7 +40,7 @@ import type {
   EmbeddedPaymentAttempt, EmbeddedPaymentAttemptStatus,
 } from "@/types/registration";
 
-// ── Filter params ─────────────────────────────────────────────────────────────
+//  Filter params
 
 export interface RegistrationFilters {
   eventId?:   string;
@@ -52,9 +52,9 @@ export interface RegistrationFilters {
   dateTo?:    string;
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// PUBLIC ENDPOINTS — no login required
-// ═════════════════════════════════════════════════════════════════════════════
+
+// PUBLIC ENDPOINTS - no login required
+
 
 /**
  * POST /api/registrations
@@ -97,7 +97,7 @@ export async function apiConfirmSession(
 
   // 409 Conflict = backend returned CHECKOUT_CONTEXT_MISSING.
   // The webhook beat the browser back and already finalised this session.
-  // The registration is in DB (or being written) — treat as PROCESSING, not failure.
+  // The registration is in DB (or being written) - treat as PROCESSING, not failure.
   if (res.status === 409) {
     return ok({ registrationId: "", alreadyProcessed: true });
   }
@@ -184,9 +184,9 @@ export async function apiGetRegistration(id: string): Promise<ApiResult<Registra
   return ok(await res.json());
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// ADMIN ENDPOINTS — require Bearer token
-// ═════════════════════════════════════════════════════════════════════════════
+
+// ADMIN ENDPOINTS - require Bearer token
+
 
 /**
  * GET /api/registrations
@@ -300,7 +300,7 @@ export async function apiGetPaymentAudit(registrationId: string): Promise<ApiRes
 /**
  * PATCH /api/registrations/:id/payment
  * Admin: manually record or update payment (Cash, Bank Transfer, PayNow receipt).
- * When status = "Success": backend stamps paidAt, generates receiptNo, flips items → S,
+ * When status = "Success": backend stamps paidAt, generates receiptNo, flips items -> S,
  * queues SendConfirmationEmail + GenerateReceipt background jobs.
  */
 export async function apiUpdatePayment(
@@ -336,13 +336,13 @@ export async function apiGetRefunds(registrationId: string): Promise<ApiResult<R
 /**
  * POST /api/registrations/:id/payment/refunds
  * Admin: initiates a refund on a specific PaymentItem.
- * Backend queues ProcessGatewayRefund job → Stripe → webhook flips status.
+ * Backend queues ProcessGatewayRefund job -> Stripe -> webhook flips status.
  *
  * DB constraints enforced:
- *   1. PaymentItem.ItemStatus must be 'S' (only paid items refundable)
- *   2. No existing Pending refund for the same PaymentItemID
- *      (UQ_Refunds_OneActivePerItem filtered unique index)
- *   3. refundAmount ≤ PaymentItem.Amount
+ *  1. PaymentItem.ItemStatus must be 'S' (only paid items refundable)
+ *  2. No existing Pending refund for the same PaymentItemID
+ *  (UQ_Refunds_OneActivePerItem filtered unique index)
+ *  3. refundAmount <= PaymentItem.Amount
  */
 export async function apiInitiateRefund(
   registrationId: string,
@@ -547,9 +547,9 @@ export async function apiUpdateParticipant(
  * Admin: confirm a registration directly, bypassing online payment.
  *
  * paymentStatus:
- *   "S"  = Paid — admin has collected payment manually
- *   "W"  = Waived — fee waived (VIP, staff, error correction)
- *   "PC" = Pending Collection — registered now, pays later
+ *  "S"  = Paid - admin has collected payment manually
+ *  "W"  = Waived - fee waived (VIP, staff, error correction)
+ *  "PC" = Pending Collection - registered now, pays later
  *
  * method: required only when paymentStatus is "S"
  * paymentReference: optional manual receipt/txn ref number for "S"
@@ -623,7 +623,7 @@ export async function apiGetReconciliationStats(): Promise<
   return ok(await res.json());
 }
  
-// ── GET /api/admin/payment-reconciliation/webhook-failures ────────────────────
+//  GET /api/admin/payment-reconciliation/webhook-failures
 // Returns Case-C rows for the "Unmatched Stripe Payments" tab.
 export async function apiGetWebhookFailures(): Promise<ApiResult<WebhookFailure[]>> {
   const res = await apiFetch(
@@ -634,7 +634,7 @@ export async function apiGetWebhookFailures(): Promise<ApiResult<WebhookFailure[
   return ok(await res.json());
 }
  
-// ── POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund ────────
+//  POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund
 // Issues a Stripe refund for an unmatched payment (Case C).
 export async function apiGetOrphanRefundHistory(): Promise<ApiResult<OrphanRefundHistory[]>> {
   const res = await apiFetch(

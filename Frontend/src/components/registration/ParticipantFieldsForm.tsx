@@ -2,31 +2,31 @@
  * ParticipantFieldsForm.tsx
  *
  * Shared participant field renderer used by:
- *   - EventDetail.tsx  (public registration form, one form per participant card)
- *   - ParticipantDetails.tsx  (admin edit modal, single participant)
+ *  - EventDetail.tsx  (public registration form, one form per participant card)
+ *  - ParticipantDetails.tsx  (admin edit modal, single participant)
  *
  * Responsibilities:
- *   - Render all fields controlled by ProgramFields config
- *   - Display per-field validation errors (passed in from parent)
- *   - Emit file selection via onFileChange (parent decides when/how to upload)
- *   - Show existing document URL when no new file is staged
- *   - SBA lookup UI (optional — only shown in registration flow)
+ *  - Render all fields controlled by ProgramFields config
+ *  - Display per-field validation errors (passed in from parent)
+ *  - Emit file selection via onFileChange (parent decides when/how to upload)
+ *  - Show existing document URL when no new file is staged
+ *  - SBA lookup UI (optional - only shown in registration flow)
  *
  * Does NOT own:
- *   - State (fully controlled via values + onChange)
- *   - API calls
- *   - Scroll / focus logic
- *   - Submit / save buttons
+ *  - State (fully controlled via values + onChange)
+ *  - API calls
+ *  - Scroll / focus logic
+ *  - Submit / save buttons
  */
 
 import { useEffect, useMemo, useState } from "react";
 import type { Program, CustomField, ProgramFields, BadmintonClub } from "@/types/config";
-import { CheckCircle, XCircle, Paperclip } from "lucide-react";
+import { CheckCircle, XCircle, Paperclip, Loader2 } from "lucide-react";
 import { apiGetBadmintonClubs, assetUrl } from "@/lib/api";
 import { singaporeDateKey } from "@/lib/eventUtils";
 import { isValidPhoneInput, sanitizePhoneInput } from "@/lib/phoneInput";
 
-// ── Constants (shared with both consumers) ────────────────────────────────────
+//  Constants (shared with both consumers)
 
 export const MONTHS = [
   "January","February","March","April","May","June",
@@ -42,7 +42,7 @@ const ALLOWED_DOCUMENT_TYPES = ["application/pdf", "image/jpeg", "image/png", "i
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
 
-// ── Field values shape ────────────────────────────────────────────────────────
+//  Field values shape
 // Both consumers read/write this same shape.
 
 export interface ParticipantFormValues {
@@ -61,7 +61,7 @@ export interface ParticipantFormValues {
   guardianContact?:  string;
   remark?:           string;
   customFieldValues: Record<string, string>;
-  // Transient — not persisted in DB, only used during registration flow
+  // Transient - not persisted in DB, only used during registration flow
   documentFile?:     File | null;
 }
 
@@ -75,7 +75,7 @@ export function blankParticipantFormValues(): ParticipantFormValues {
   };
 }
 
-// ── Validation ────────────────────────────────────────────────────────────────
+//  Validation
 // Single validate function used by both consumers.
 // Returns a flat errors map keyed by field name.
 // Caller passes the result into <ParticipantFieldsForm errors={...} />.
@@ -84,7 +84,7 @@ export interface ValidateParticipantOptions {
   program:    Pick<Program, "minAge" | "maxAge" | "gender" | "fields">;
   /** All values in the same submission (for in-cart duplicate check). */
   allValues?: ParticipantFormValues[];
-  /** Index of this participant within allValues — skipped in dupe check. */
+  /** Index of this participant within allValues - skipped in dupe check. */
   selfIndex?: number;
 }
 
@@ -154,7 +154,7 @@ export function validateParticipant(
           (program.minAge > 0 || program.maxAge > 0) &&
           (age < program.minAge || age > program.maxAge)
         ) {
-          errs.dob = `Age must be ${program.minAge}–${program.maxAge}`;
+          errs.dob = `Age must be ${program.minAge}-${program.maxAge}`;
         }
       }
     }
@@ -224,7 +224,7 @@ export function validateParticipant(
   return errs;
 }
 
-// ── Build DOB string from parts ───────────────────────────────────────────────
+//  Build DOB string from parts
 
 export function buildDobString(day: string, month: string, year: string): string {
   if (!day || !month || !year) return "";
@@ -243,7 +243,7 @@ export function parseDobString(dob: string): { dobDay: string; dobMonth: string;
   };
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+//  Sub-components
 
 export function FieldWrapper({
   label, error, children,
@@ -273,7 +273,7 @@ function CustomFieldInput({
     return (
       <select className="field-input" value={value}
         disabled={disabled} onChange={e => onChange(e.target.value)}>
-        <option value="">Select…</option>
+        <option value="">Select...</option>
         {opts.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
     );
@@ -296,13 +296,13 @@ function CustomFieldInput({
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+//  Main component
 
 export interface ParticipantFieldsFormProps {
   values:         ParticipantFormValues;
   onChange:       (patch: Partial<ParticipantFormValues>) => void;
   programFields:  ProgramFields;
-  errors:         Record<string, string>;       // field → error message
+  errors:         Record<string, string>;       // field -> error message
   disabled?:      boolean;
 
   // Document upload
@@ -310,18 +310,18 @@ export interface ParticipantFieldsFormProps {
   existingDocUrl?: string;                       // stored URL shown when no new file staged
   newFile?:        File | null;                  // new file staged (from parent state)
 
-  // SBA lookup — only shown in registration flow
+  // SBA lookup - only shown in registration flow
   sbaEnabled?:      boolean;
   sbaStatus?:       "idle" | "loading" | "found" | "not_found";
   onSbaRetrieve?:   () => void;
   onSbaIdChange?:   (v: string) => void;        // separate handler for SBA ID so parent
-                                                 // can manage sbaStatus reset logic
+  // can manage sbaStatus reset logic
 
-  // Autofill suggestion dropdown — registration flow only
+  // Autofill suggestion dropdown - registration flow only
   suggestions?:    ParticipantFormValues[];
   onApplySuggestion?: (s: ParticipantFormValues) => void;
 
-  // Nationality options — registration flow provides full country list
+  // Nationality options - registration flow provides full country list
   nationalityOptions?: { code: string; label: string }[];
 
   eventType?: string;
@@ -393,12 +393,12 @@ export default function ParticipantFieldsForm({
   return (
     <div className="grid sm:grid-cols-2 gap-5">
 
-      {/* ── SBA ID (conditional) ── */}
+  {/*  SBA ID (conditional)  */}
       {programFields.enableSbaId && (
         <div className="sm:col-span-2">
           <FieldWrapper label={`SBA ID${programFields.requireSbaId ? " *" : ""}`} error={errors.sbaId}>
             {sbaEnabled && onSbaRetrieve ? (
-              // Registration flow: SBA lookup button
+  // Registration flow: SBA lookup button
               <>
                 <div className="flex gap-2">
                   <input
@@ -420,9 +420,9 @@ export default function ParticipantFieldsForm({
                     type="button"
                     onClick={onSbaRetrieve}
                     disabled={disabled || sbaStatus === "loading"}
-                    className="btn-primary px-4 py-2 text-sm font-semibold"
+                    className="btn-primary px-4 py-2 text-sm font-semibold inline-flex items-center justify-center gap-2"
                   >
-                    {sbaStatus === "loading" ? "Loading…" : "Retrieve"}
+                    {sbaStatus === "loading" ? <><Loader2 className="h-4 w-4 animate-spin" /> Loading...</> : "Retrieve"}
                   </button>
                 </div>
                 {sbaStatus === "found" && (
@@ -440,7 +440,7 @@ export default function ParticipantFieldsForm({
                 )}
               </>
             ) : (
-              // Admin edit: plain text input, no lookup button
+  // Admin edit: plain text input, no lookup button
               <input className="field-input font-mono" value={values.sbaId ?? ''}
                 disabled={disabled}
                 onChange={e => set({ sbaId: e.target.value })} />
@@ -449,7 +449,7 @@ export default function ParticipantFieldsForm({
         </div>
       )}
 
-      {/* ── Full Name ── */}
+  {/*  Full Name  */}
       <FieldWrapper label="Full Name (as per NRIC/Passport) *" error={errors.fullName}>
         <div className="relative">
           <input
@@ -460,7 +460,7 @@ export default function ParticipantFieldsForm({
             onChange={e => set({ fullName: e.target.value })}
             autoComplete="off"
           />
-          {/* Autofill suggestion dropdown — registration only */}
+  {/* Autofill suggestion dropdown - registration only */}
           {suggestions && suggestions.length > 0 && onApplySuggestion && (
             <div
               className="absolute z-20 w-full shadow-lg"
@@ -483,7 +483,7 @@ export default function ParticipantFieldsForm({
         </div>
       </FieldWrapper>
 
-      {/* ── Date of Birth ── */}
+  {/*  Date of Birth  */}
       <FieldWrapper label="Date of Birth *" error={errors.dob}>
         <div className="flex gap-2">
           <select className="field-input flex-1" value={values.dobDay}
@@ -510,7 +510,7 @@ export default function ParticipantFieldsForm({
         </div>
       </FieldWrapper>
 
-      {/* ── Gender ── */}
+  {/*  Gender  */}
       <FieldWrapper label="Gender *" error={errors.gender}>
         <select className="field-input" value={values.gender}
           disabled={disabled}
@@ -522,21 +522,21 @@ export default function ParticipantFieldsForm({
         </select>
       </FieldWrapper>
 
-      {/* ── Email ── */}
+  {/*  Email  */}
       <FieldWrapper label="Email *" error={errors.email}>
         <input type="email" className="field-input" value={values.email}
           disabled={disabled}
           onChange={e => set({ email: e.target.value })} />
       </FieldWrapper>
 
-      {/* ── Contact Number ── */}
+  {/*  Contact Number  */}
       <FieldWrapper label="Contact Number *" error={errors.contactNumber}>
         <input type="tel" inputMode="tel" className="field-input" value={values.contactNumber}
           disabled={disabled}
           onChange={e => set({ contactNumber: sanitizePhoneInput(e.target.value) })} />
       </FieldWrapper>
 
-      {/* ── Nationality ── */}
+  {/*  Nationality  */}
       <FieldWrapper label="Nationality *" error={errors.nationality}>
         {nationalityOptions ? (
           <select className="field-input" value={values.nationality}
@@ -554,7 +554,7 @@ export default function ParticipantFieldsForm({
         )}
       </FieldWrapper>
 
-      {/* ── Club / School / Company ── */}
+  {/*  Club / School / Company  */}
       <FieldWrapper label={`${isBadminton ? "Club" : "Club / School / Company"} *`} error={errors.clubSchoolCompany}>
         {isBadminton ? (
           <>
@@ -600,7 +600,7 @@ export default function ParticipantFieldsForm({
         )}
       </FieldWrapper>
 
-      {/* ── T-Shirt Size (conditional) ── */}
+  {/*  T-Shirt Size (conditional)  */}
       {programFields.enableTshirt && (
         <FieldWrapper label={`T-Shirt Size${programFields.requireTshirt ? " *" : ""}`} error={errors.tshirtSize}>
           <select className="field-input" value={values.tshirtSize}
@@ -612,7 +612,7 @@ export default function ParticipantFieldsForm({
         </FieldWrapper>
       )}
 
-      {/* ── Guardian Info (conditional) ── */}
+  {/*  Guardian Info (conditional)  */}
       {programFields.enableGuardianInfo && (
         <>
           <FieldWrapper label={`Guardian Name${programFields.requireGuardianInfo ? " *" : ""}`} error={errors.guardianName}>
@@ -628,7 +628,7 @@ export default function ParticipantFieldsForm({
         </>
       )}
 
-      {/* ── Document Upload (conditional) ── */}
+  {/*  Document Upload (conditional)  */}
       {programFields.enableDocumentUpload && (
         <div className="sm:col-span-2">
           <FieldWrapper label={`Document Upload (PDF/JPG/PNG/WEBP)${programFields.requireDocumentUpload ? " *" : ""}`} error={errors.documentUpload}>
@@ -662,14 +662,14 @@ export default function ParticipantFieldsForm({
                 onFileChange?.(file);
               }}
             />
-            {/* Show staged new file name */}
+  {/* Show staged new file name */}
             {newFile && (
               <p className="text-xs mt-1 opacity-60">
                 Staged: <span className="font-medium">{newFile.name}</span>
-                {existingDocUrl && " — will replace current file on save"}
+                {existingDocUrl && " - will replace current file on save"}
               </p>
             )}
-            {/* Show existing file link when no new file staged */}
+  {/* Show existing file link when no new file staged */}
             {!newFile && existingDocUrl && (
               <div className="flex items-center gap-2 mt-1 text-xs opacity-60">
                 <Paperclip className="h-3.5 w-3.5 flex-shrink-0" />
@@ -690,7 +690,7 @@ export default function ParticipantFieldsForm({
         </div>
       )}
 
-      {/* ── Custom Fields ── */}
+  {/*  Custom Fields  */}
       {programFields.customFields.map((cf, index) => (
         <FieldWrapper
           key={`${cf.label}-${index}`}
@@ -706,7 +706,7 @@ export default function ParticipantFieldsForm({
         </FieldWrapper>
       ))}
 
-      {/* ── Remark (conditional) ── */}
+  {/*  Remark (conditional)  */}
       {programFields.enableRemark && (
         <div className="sm:col-span-2">
           <FieldWrapper label={`Remark${programFields.requireRemark ? " *" : ""}`} error={errors.remark}>

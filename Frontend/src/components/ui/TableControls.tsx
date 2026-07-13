@@ -3,7 +3,7 @@ import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } fro
 
 export type SortDir = "asc" | "desc" | null;
 
-// ── useTableControls ─────────────────────────────────────────────────────────
+//  useTableControls
 // Generic hook: pass your data array, get back filtered + sorted + paginated rows
 // plus all the controls needed to drive the UI.
 export function useTableControls<T>(data: T[], _columns: unknown[] = []) {
@@ -58,7 +58,7 @@ export function useTableControls<T>(data: T[], _columns: unknown[] = []) {
   };
 }
 
-// ── SortIcon ─────────────────────────────────────────────────────────────────
+//  SortIcon
 export function SortIcon({
   col, sortKey, sortDir,
 }: {
@@ -70,7 +70,7 @@ export function SortIcon({
   return   <ChevronDown className="h-3 w-3 inline ml-1" style={{ color: "var(--color-primary)" }} />;
 }
 
-// ── Pagination ────────────────────────────────────────────────────────────────
+//  Pagination
 export function Pagination({
   page, totalPages, perPage, total, setPage, setPerPage,
 }: {
@@ -91,10 +91,10 @@ export function Pagination({
       className="flex flex-wrap items-center justify-between gap-4 px-5 py-3 text-sm"
       style={{ borderTop: "1px solid var(--color-table-border)" }}
     >
-      {/* Left: record count + rows per page */}
+  {/* Left: record count + rows per page */}
       <div className="flex items-center gap-3" style={{ color: "var(--color-body-text)", opacity: 0.65 }}>
         <span>{total} record{total !== 1 ? "s" : ""}</span>
-        <span>·</span>
+        <span>-</span>
         <span>Rows per page</span>
         <select
           className="field-input py-1 text-xs"
@@ -106,7 +106,7 @@ export function Pagination({
         </select>
       </div>
 
-      {/* Right: page buttons */}
+  {/* Right: page buttons */}
       <div className="flex items-center gap-0.5">
         <button
           disabled={page <= 1}
@@ -118,7 +118,7 @@ export function Pagination({
 
         {pages.map((p, i) =>
           p === "..." ? (
-            <span key={`e${i}`} className="w-8 text-center text-xs opacity-40">…</span>
+            <span key={`e${i}`} className="w-8 text-center text-xs opacity-40">...</span>
           ) : (
             <button
               key={p}

@@ -77,9 +77,9 @@ export default function Dashboard() {
       action: null,
     },
     {
-      // CHANGED: was "Pending Payments" → "Payment Reconciliation"
-      // CHANGED: count is reconcTotal (caseA+B+C) not just pendingPayments
-      // CHANGED: navigates to /admin/payments instead of /admin/registrations
+  // CHANGED: was "Pending Payments" -> "Payment Reconciliation"
+  // CHANGED: count is reconcTotal (caseA+B+C) not just pendingPayments
+  // CHANGED: navigates to /admin/payments instead of /admin/registrations
       label:  "Payment Reconciliation",
       value:  reconcTotal,
       icon:   CreditCard,
@@ -96,7 +96,7 @@ export default function Dashboard() {
       color:  "var(--badge-closed-text)",
       bg:     fx.pendingFixture > 0 ? "var(--badge-closed-bg)" : "var(--color-row-hover)",
       border: fx.pendingFixture > 0 ? "var(--badge-closed-text)" : "var(--color-table-border)",
-      sub:    "Reg. closed — no fixture generated",
+      sub:    "Reg. closed - no fixture generated",
       action: "/admin/fixtures",
     },
     {
@@ -124,7 +124,7 @@ export default function Dashboard() {
     "Payment Summary",
   ];
 
-  if (loading) return <PageLoader label="Loading dashboard…" />;
+  if (loading) return <PageLoader label="Loading dashboard..." />;
 
   return (
     <div>
