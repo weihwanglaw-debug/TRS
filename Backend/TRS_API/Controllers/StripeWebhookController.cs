@@ -60,7 +60,8 @@ namespace TRS_API.Controllers
 
                 var alreadyHandled = await _db.WebhookLogs
                     .AnyAsync(e => e.GatewayEventId == eventId
-                        && (e.ProcessingStatus == "S" || e.ProcessingStatus == "I"));
+                        && (e.ProcessingStatus == StatusCodesEx.Processing.Success ||
+                            e.ProcessingStatus == StatusCodesEx.Processing.Ignored));
                 if (alreadyHandled)
                 {
                     _logger.LogInformation("Duplicate webhook ignored: {EventId}", eventId);
@@ -82,7 +83,7 @@ namespace TRS_API.Controllers
                     case "payment_intent.processing":
                         var processingIntent = stripeEvent.Data.Object as PaymentIntent;
                         await _paymentAttempts.MarkProcessingAsync(processingIntent!, HttpContext.RequestAborted);
-                        await UpsertWebhookLogAsync(eventId, stripeEvent.Type, json, "I");
+                        await UpsertWebhookLogAsync(eventId, stripeEvent.Type, json, StatusCodesEx.Processing.Ignored);
                         break;
 
                     case "payment_intent.succeeded":
@@ -137,7 +138,7 @@ namespace TRS_API.Controllers
                     GatewayEventId   = await CreateUniqueGatewayEventIdAsync("unknown_signature"),
                     EventType        = "signature_verification_failed",
                     PayloadJson      = json,
-                    ProcessingStatus = "F",
+                    ProcessingStatus = StatusCodesEx.Processing.Failed,
                     ErrorMessage     = ex.Message,
                     ReceivedAt       = DateTime.UtcNow
                 });
@@ -190,7 +191,7 @@ namespace TRS_API.Controllers
                     eventId,
                     "checkout.session.completed",
                     System.Text.Json.JsonSerializer.Serialize(session),
-                    result.AlreadyProcessed ? "I" : "S",
+                    result.AlreadyProcessed ? StatusCodesEx.Processing.Ignored : StatusCodesEx.Processing.Success,
                     session: session);   // CHANGED: pass session for metadata capture on all outcomes
 
                 return;
@@ -198,7 +199,7 @@ namespace TRS_API.Controllers
 
             // ── Legacy flow ───────────────────────────────────────────────────
             var existingLog = await _db.WebhookLogs
-                .FirstOrDefaultAsync(e => e.GatewayEventId == eventId && e.ProcessingStatus == "S");
+                .FirstOrDefaultAsync(e => e.GatewayEventId == eventId && e.ProcessingStatus == StatusCodesEx.Processing.Success);
 
             if (existingLog != null)
             {
@@ -451,8 +452,8 @@ namespace TRS_API.Controllers
 
                 var newStatus = stripeRefund.Status switch
                 {
-                    "succeeded" => "S",
-                    "failed"    => "F",
+                    "succeeded" => StatusCodesEx.Refund.Success,
+                    "failed"    => StatusCodesEx.Refund.Failed,
                     _           => localRefund.RefundStatus
                 };
 
@@ -464,7 +465,7 @@ namespace TRS_API.Controllers
                 }
 
                 var item = payment.Items.FirstOrDefault(i => i.PaymentItemId == localRefund.PaymentItemId);
-                if (item != null && newStatus == "S")
+                if (item != null && newStatus == StatusCodesEx.Refund.Success)
                 {
                     PaymentController.ApplyRefundItemOutcome(payment, item);
                     changed = true;
@@ -501,7 +502,7 @@ namespace TRS_API.Controllers
                 GatewaySessionId = gatewayReference,
                 EventType = "charge.refunded",
                 PayloadJson = System.Text.Json.JsonSerializer.Serialize(charge),
-                ProcessingStatus = "F",
+                ProcessingStatus = StatusCodesEx.Processing.Failed,
                 ErrorMessage = errorMessage,
                 ReceivedAt = DateTime.UtcNow,
                 ProcessedAt = DateTime.UtcNow,
@@ -539,7 +540,7 @@ namespace TRS_API.Controllers
                     ProcessingStatus = processingStatus,
                     ErrorMessage     = errorMessage,
                     ReceivedAt       = now,
-                    ProcessedAt      = processingStatus == "P" ? null : now,
+                    ProcessedAt      = processingStatus == StatusCodesEx.Processing.Pending ? null : now,
                 };
                 _db.WebhookLogs.Add(log);
             }
@@ -549,7 +550,7 @@ namespace TRS_API.Controllers
                 log.PayloadJson      = payloadJson;
                 log.ProcessingStatus = processingStatus;
                 log.ErrorMessage     = errorMessage;
-                log.ProcessedAt      = processingStatus == "P" ? null : now;
+                log.ProcessedAt      = processingStatus == StatusCodesEx.Processing.Pending ? null : now;
             }
 
             // Populate payer metadata from session when available.
@@ -592,7 +593,7 @@ namespace TRS_API.Controllers
 
                 if (existing != null)
                 {
-                    existing.ProcessingStatus = "F";
+                    existing.ProcessingStatus = StatusCodesEx.Processing.Failed;
                     existing.ErrorMessage ??= errorMessage;
                     existing.ProcessedAt = DateTime.UtcNow;
                     await _db.SaveChangesAsync();

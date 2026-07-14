@@ -81,6 +81,7 @@ Current database notes:
 - The project currently uses SQL scripts under `Backend/TRS_Data/Sql`; EF migration files are not present.
 - `TRSDbContext` maps `BadmintonClub` singular table through `DbSet<BadmintonClub> BadmintonClubs`.
 - `AppLogs` is written by a custom Serilog EF sink.
+- When direct database access is needed for verification or troubleshooting, first check the configured connection string in `Backend/TRS_API/appsettings.json` under `ConnectionStrings:TRSConnection` and use that value rather than assuming Windows authentication or hardcoded credentials.
 
 ## API Safety
 
@@ -99,6 +100,18 @@ Important public API surfaces include:
 - Payment checkout and confirmation: `/api/Payment/*`
 - Badminton club lookup: `/api/clubs`
 - SBA lookup: `/api/sba/*`
+
+## Status Codes
+
+Status values must be standardized across the system.
+
+- Database columns must store short status codes only. Do not store user-facing long labels such as `Confirmed`, `Cancelled`, `Paid`, `Refunded`, `Scheduled`, or `Completed`.
+- Backend APIs must accept, persist, compare, and return short status codes only. Do not make API logic depend on long status descriptions.
+- Backend code should use the central status-code constants/helpers where available, instead of scattered string literals or ad hoc switch mappings.
+- Frontend code may display long, human-readable labels to users, but those labels must be derived from short-code mapping tables/types on the frontend.
+- Frontend API payloads, filters, form values, and internal comparisons must use short codes behind the scenes.
+- When adding a new status, update the central backend constants/helper, database constraint/script if applicable, frontend type/label mapping, and any tests or validation together.
+- Audit logs that capture old/new status should record the short code unless a field is explicitly meant to store a user-facing description.
 
 ## Authentication and Authorization
 

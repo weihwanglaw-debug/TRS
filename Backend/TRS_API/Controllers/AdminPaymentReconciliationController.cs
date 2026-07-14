@@ -58,7 +58,7 @@ public class AdminPaymentReconciliationController : ControllerBase
         // row exists for that Stripe session (money collected, nothing in DB).
         var failedSessionIds = await _db.WebhookLogs
             .Where(w =>
-                w.ProcessingStatus == "F" &&
+                w.ProcessingStatus == StatusCodesEx.Processing.Failed &&
                 (w.EventType == "checkout.session.completed" ||
                  w.EventType == "payment_intent.succeeded" ||
                  w.EventType == "processing_error") &&
@@ -68,7 +68,7 @@ public class AdminPaymentReconciliationController : ControllerBase
 
         var refundDiscrepancies = await _db.WebhookLogs
             .Where(w =>
-                w.ProcessingStatus == "F" &&
+                w.ProcessingStatus == StatusCodesEx.Processing.Failed &&
                 w.EventType == "charge.refunded" &&
                 w.GatewaySessionId != null)
             .Select(w => w.GatewaySessionId!)
@@ -103,7 +103,7 @@ public class AdminPaymentReconciliationController : ControllerBase
     {
         var failures = await _db.WebhookLogs
             .Where(w =>
-                w.ProcessingStatus == "F" &&
+                w.ProcessingStatus == StatusCodesEx.Processing.Failed &&
                 (w.EventType == "checkout.session.completed" ||
                  w.EventType == "payment_intent.succeeded" ||
                  w.EventType == "charge.refunded" ||
@@ -210,20 +210,20 @@ public class AdminPaymentReconciliationController : ControllerBase
         if (string.IsNullOrWhiteSpace(log.GatewaySessionId))
             return BadRequest(new { code = "NO_GATEWAY_REFERENCE", message = "Cannot mark reviewed because the Stripe reference is missing." });
 
-        if (log.ProcessingStatus != "F")
+        if (log.ProcessingStatus != StatusCodesEx.Processing.Failed)
             return Conflict(new { code = "ALREADY_RESOLVED", message = "This reconciliation row is already resolved." });
 
         var now = DateTime.UtcNow;
         var relatedLogs = await _db.WebhookLogs
             .Where(w =>
-                w.ProcessingStatus == "F" &&
+                w.ProcessingStatus == StatusCodesEx.Processing.Failed &&
                 w.EventType == "charge.refunded" &&
                 w.GatewaySessionId == log.GatewaySessionId)
             .ToListAsync();
 
         foreach (var related in relatedLogs)
         {
-            related.ProcessingStatus = "I";
+            related.ProcessingStatus = StatusCodesEx.Processing.Ignored;
             related.ProcessedAt = now;
         }
 
@@ -272,7 +272,7 @@ public class AdminPaymentReconciliationController : ControllerBase
         if (log.EventType == "charge.refunded")
             return BadRequest(new { code = "REVIEW_REQUIRED", message = "Use Mark Reviewed for refund webhook discrepancies that do not need a refund record." });
 
-        if (log.ProcessingStatus != "F")
+        if (log.ProcessingStatus != StatusCodesEx.Processing.Failed)
             return Conflict(new { code = "ALREADY_RESOLVED", message = "This webhook failure is already resolved." });
 
         if (string.IsNullOrWhiteSpace(log.GatewaySessionId))
@@ -289,13 +289,14 @@ public class AdminPaymentReconciliationController : ControllerBase
             .SingleOrDefaultAsync();
         if (log == null)
             return NotFound(new { code = "NOT_FOUND" });
-        if (log.ProcessingStatus != "F")
+        if (log.ProcessingStatus != StatusCodesEx.Processing.Failed)
             return Conflict(new { code = "ALREADY_RESOLVED", message = "This webhook failure is already resolved." });
 
         var existing = await _db.Refunds
             .FirstOrDefaultAsync(r =>
                 r.GatewaySessionId == log.GatewaySessionId &&
-                (r.RefundStatus == "P" || r.RefundStatus == "S"));
+                (r.RefundStatus == StatusCodesEx.Refund.Pending ||
+                 r.RefundStatus == StatusCodesEx.Refund.Success));
 
         if (existing != null)
             return Conflict(new { code = "ALREADY_REFUNDED", message = "A refund is already recorded for this payment reference." });
@@ -313,14 +314,14 @@ public class AdminPaymentReconciliationController : ControllerBase
             GatewayRefundId = reference,
             RefundAmount = refundAmount.Value,
             RefundReason = req.Reason,
-            RefundStatus = "S",
+            RefundStatus = StatusCodesEx.Refund.Success,
             RequestedBy = User.Identity?.Name ?? "admin",
             CreatedAt = now,
             ProcessedAt = now,
         };
         _db.Refunds.Add(refund);
 
-        log.ProcessingStatus = "S";
+        log.ProcessingStatus = StatusCodesEx.Processing.Success;
         log.ProcessedAt = now;
 
         await _db.SaveChangesAsync();
@@ -364,7 +365,7 @@ public class AdminPaymentReconciliationController : ControllerBase
         if (log == null)
             return NotFound(new { code = "NOT_FOUND" });
 
-        if (log.ProcessingStatus != "F")
+        if (log.ProcessingStatus != StatusCodesEx.Processing.Failed)
             return Conflict(new { code = "ALREADY_RESOLVED", message = "This webhook failure is already resolved." });
 
         if (log.EventType == "charge.refunded")
@@ -414,15 +415,16 @@ public class AdminPaymentReconciliationController : ControllerBase
                 .SingleOrDefaultAsync();
             if (log == null)
                 return NotFound(new { code = "NOT_FOUND" });
-            if (log.ProcessingStatus != "F")
+            if (log.ProcessingStatus != StatusCodesEx.Processing.Failed)
                 return Conflict(new { code = "ALREADY_RESOLVED", message = "This webhook failure is already resolved." });
 
             var existing = await _db.Refunds
                 .FirstOrDefaultAsync(r =>
                     r.GatewaySessionId == log.GatewaySessionId &&
-                    (r.RefundStatus == "P" || r.RefundStatus == "S"));
+                    (r.RefundStatus == StatusCodesEx.Refund.Pending ||
+                     r.RefundStatus == StatusCodesEx.Refund.Success));
 
-            if (existing?.RefundStatus == "S")
+            if (existing?.RefundStatus == StatusCodesEx.Refund.Success)
                 return Conflict(new
                 {
                     code = "ALREADY_REFUNDED",
@@ -449,7 +451,7 @@ public class AdminPaymentReconciliationController : ControllerBase
             RefundMethod    = "Gateway",
             RefundAmount    = amountCents / 100m,
             RefundReason    = req.Reason,
-            RefundStatus    = "P",
+            RefundStatus    = StatusCodesEx.Refund.Pending,
             RequestedBy     = User.Identity?.Name ?? "admin",
             CreatedAt       = DateTime.UtcNow,
         };
@@ -488,13 +490,13 @@ public class AdminPaymentReconciliationController : ControllerBase
             refund.GatewayRefundId = stripeRefund.Id;
             refund.RefundSource     = "System";
             refund.RefundMethod     = "Gateway";
-            refund.RefundStatus    = stripeRefund.Status == "failed" ? "F" : "S";
+            refund.RefundStatus    = stripeRefund.Status == "failed" ? StatusCodesEx.Refund.Failed : StatusCodesEx.Refund.Success;
             refund.ProcessedAt     = DateTime.UtcNow;
 
-            if (refund.RefundStatus == "S")
+            if (refund.RefundStatus == StatusCodesEx.Refund.Success)
             {
                 // Mark the WebhookLog resolved so it drops off the Case-C list
-                log.ProcessingStatus = "S";
+                log.ProcessingStatus = StatusCodesEx.Processing.Success;
                 log.ProcessedAt      = DateTime.UtcNow;
 
                 var gatewaySessionId = log.GatewaySessionId;
@@ -519,7 +521,7 @@ public class AdminPaymentReconciliationController : ControllerBase
             {
                 EntityType  = "OrphanRefund",
                 EntityId    = refund.RefundId,
-                Action      = refund.RefundStatus == "S" ? "OrphanRefundIssued" : "OrphanRefundFailed",
+                Action      = refund.RefundStatus == StatusCodesEx.Refund.Success ? "OrphanRefundIssued" : "OrphanRefundFailed",
                 Reason      = req.Reason,
                 PerformedBy = User.Identity?.Name ?? "admin",
                 Notes       = $"WebhookLogId={webhookLogId} SessionId={log.GatewaySessionId} " +
@@ -529,7 +531,7 @@ public class AdminPaymentReconciliationController : ControllerBase
 
             await _db.SaveChangesAsync();
 
-            if (refund.RefundStatus != "S")
+            if (refund.RefundStatus != StatusCodesEx.Refund.Success)
                 return StatusCode(502, new { code = "REFUND_FAILED", message = "Stripe accepted the request but the refund did not complete." });
 
             return Ok(new
@@ -542,7 +544,7 @@ public class AdminPaymentReconciliationController : ControllerBase
         }
         catch (StripeException ex)
         {
-            refund.RefundStatus = "F";
+            refund.RefundStatus = StatusCodesEx.Refund.Failed;
             refund.ProcessedAt  = DateTime.UtcNow;
 
             _db.PaymentAuditLogs.Add(new PaymentAuditLog
