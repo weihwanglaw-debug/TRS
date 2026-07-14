@@ -26,7 +26,7 @@ This document maps the current backend API from controller attributes. JSON resp
 | GET | `/api/events/{id}` | Public/admin-aware | Load event detail with programs, fields, gallery, documents. Public users cannot load active events that have no active programs. |
 | POST | `/api/events` | `superadmin,eventadmin` | Create event and write admin audit log. |
 | PUT | `/api/events/{id}` | `superadmin,eventadmin` | Update event, replace gallery images, and write admin audit log. |
-| PATCH | `/api/events/{id}/registration-status` | `superadmin,eventadmin` | Set stored registration status to `open`, `paused`, or `closed`; rejects draft events with `EVENT_DRAFT`; writes admin audit log. |
+| PATCH | `/api/events/{id}/registration-status` | `superadmin,eventadmin` | Set stored registration status to short code `O`, `PA`, or `CL`; rejects draft events with `EVENT_DRAFT`; writes admin audit log. |
 | DELETE | `/api/events/{id}` | `superadmin,eventadmin` | Soft delete event and write admin audit log; blocked when registrations exist. |
 | GET | `/api/events/{id}/documents` | Public | List event documents for active event. |
 | POST | `/api/events/{id}/documents` | `superadmin,eventadmin` | Add event document. |
@@ -34,7 +34,7 @@ This document maps the current backend API from controller attributes. JSON resp
 | DELETE | `/api/events/{id}/documents/{did}` | `superadmin,eventadmin` | Delete event document row. |
 | POST | `/api/events/{id}/programs` | `superadmin,eventadmin` | Add program and write admin audit log. |
 | PUT | `/api/events/{eid}/programs/{pid}` | `superadmin,eventadmin` | Update program and replace custom fields when safe; write admin audit log. |
-| PATCH | `/api/events/{eid}/programs/{pid}/status` | `superadmin,eventadmin` | Set program status to `open` or `closed` and write admin audit log. |
+| PATCH | `/api/events/{eid}/programs/{pid}/status` | `superadmin,eventadmin` | Set program status to short code `O` or `CL` and write admin audit log. |
 | DELETE | `/api/events/{eid}/programs/{pid}` | `superadmin,eventadmin` | Soft delete program and write admin audit log; blocked when active participant groups exist. |
 
 ## Badminton Clubs: `/api/clubs`
@@ -60,15 +60,22 @@ EF maps this feature to SQL table `BadmintonClub`.
 | PATCH | `/api/registrations/{id}/groups/{gid}/status` | `superadmin,eventadmin` | Update one group status. |
 | PATCH | `/api/registrations/{id}/groups/{gid}/seed` | `superadmin,eventadmin` | Set/clear group seed. |
 | GET | `/api/registrations/{id}/payment` | `superadmin,eventadmin` | Load payment with items. |
+| GET | `/api/registrations/{id}/payment/audit` | `superadmin,eventadmin` | Load payment/refund/cancellation audit timeline. |
 | PATCH | `/api/registrations/{id}/payment` | `superadmin,eventadmin` | Manual payment update. |
 | GET | `/api/registrations/{id}/payment/refunds` | `superadmin,eventadmin` | List payment refunds. |
-| POST | `/api/registrations/{id}/payment/refunds` | `superadmin,eventadmin` | Refund one payment item through system gateway or record an external refund. |
-| POST | `/api/registrations/{id}/cancel-with-refunds` | `superadmin,eventadmin` | Cancel registration and either issue system refunds or record external refunds for paid items. |
+| POST | `/api/registrations/{id}/payment/refunds` | `superadmin,eventadmin` | Refund one payment item without cancelling its slot; supports system gateway refund or external refund record. |
+| POST | `/api/registrations/{id}/payment/refunds/bulk` | `superadmin,eventadmin` | Refund multiple payment items without cancelling slots; returns successes plus per-item errors. |
+| POST | `/api/registrations/{id}/cancel-with-refunds` | `superadmin,eventadmin` | Cancel registration scope and refund paid items where applicable. |
+| POST | `/api/registrations/{id}/cancel` | `superadmin,eventadmin` | Cancel whole registration scope without forcing refund; fixture-blocked. |
+| POST | `/api/registrations/{id}/groups/{groupId}/cancel` | `superadmin,eventadmin` | Cancel one entry/group; fixture-blocked. |
+| POST | `/api/registrations/{id}/participants/{participantId}/cancel` | `superadmin,eventadmin` | Cancel one per-player participant when it has a player-level payment item; fixture-blocked. |
 | GET | `/api/registrations/export` | `superadmin,eventadmin` | Export matching registrations without pagination. |
 | GET | `/api/registrations/stats` | `superadmin,eventadmin` | Registration/payment dashboard stats. |
 | GET | `/api/registrations/{id}/receipt` | Public | Generate/download PDF receipt. |
+| GET | `/api/registrations/{id}/details-pdf` | Public | Generate/download registration details PDF. |
 | PATCH | `/api/registrations/{id}/participants/{pid}` | `superadmin,eventadmin` | Update participant details and custom field values. |
 | POST | `/api/registrations/{id}/confirm` | `superadmin,eventadmin` | Admin confirm registration/payment status. |
+| POST | `/api/registrations/{id}/notifications/cancellation` | `superadmin,eventadmin` | Send cancellation/update notification for a registration. |
 
 ## Payment: `/api/Payment`
 
@@ -77,6 +84,7 @@ EF maps this feature to SQL table `BadmintonClub`.
 | GET | `/api/Payment/get-payment-info/{registrationId}` | Public, rate-limited | Return payment status for an existing registration. |
 | POST | `/api/Payment/embedded-attempt` | Public, rate-limited | Create embedded Stripe PaymentIntent attempt from registration payload. |
 | POST | `/api/Payment/embedded-attempt/{attemptId}/submit` | Public, rate-limited | Mark an embedded attempt submitted before frontend confirms payment. |
+| POST | `/api/Payment/embedded-attempt/{attemptId}/abandon` | Public, rate-limited | Mark an embedded attempt abandoned/cancelled. |
 | GET | `/api/Payment/embedded-attempt/{attemptId}/status` | Public, rate-limited | Return attempt status for modal polling. |
 | POST | `/api/Payment/create-checkout-session` | Public, rate-limited | Legacy hosted Stripe Checkout Session creation. |
 | POST | `/api/Payment/confirm-session` | Public, rate-limited | Legacy hosted Checkout session confirmation/finalization. |
@@ -174,6 +182,7 @@ Controller-level auth is `superadmin,eventadmin`; orphan refund endpoint is narr
 
 ## Frontend/API Mismatches and Notes
 
+- Status fields are short codes in API payloads and responses. Frontend UI must map codes to long display labels.
 - Frontend event filters may include fields not handled by `GET /api/events`; backend currently supports `includeInactive`.
 - Uploads are public despite frontend auth headers.
 - Registration detail and receipt endpoints are public and id-based.

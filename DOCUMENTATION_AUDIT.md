@@ -2,7 +2,7 @@
 
 Documentation synchronized with the current repository implementation.
 
-Last targeted sync: badminton club admin CRUD, SBA import club append behavior, and admin audit logging updates.
+Last targeted sync: status-code standardization, refund/cancel workflow, registration-details PDF/email behavior, DB access guidance, and current registration/payment API routes.
 
 ## What Changed
 
@@ -12,6 +12,7 @@ Last targeted sync: badminton club admin CRUD, SBA import club append behavior, 
 - Rewrote `TRS_API_MAP.md` from current controller route attributes, including the badminton club API and current auth boundaries.
 - Rewrote `TRS_BUSINESS_RULES.md` from current validation, payment, refund, fixture, upload, SBA, and club code paths.
 - Normalized Markdown formatting and removed stale encoding artifacts from previous generated documentation.
+- Updated root documentation after the refund/cancel and status-code standardization work so stored/API statuses are documented as short codes and frontend labels as display-only mappings.
 
 ## Removed Obsolete Sections
 
@@ -37,6 +38,10 @@ Last targeted sync: badminton club admin CRUD, SBA import club append behavior, 
 - Added current frontend admin route aliases for participant detail views.
 - Added current API module list including `clubsApi.ts`.
 - Added operational constraints for public ID-based registration/receipt lookup, unauthenticated uploads, local disk storage, and in-memory jobs.
+- Added status-code standardization guidance to `AGENTS.md`.
+- Added direct DB access guidance to `AGENTS.md`: check `Backend/TRS_API/appsettings.json` `ConnectionStrings:TRSConnection` first.
+- Added registration-details PDF and related payment/refund/cancellation email behavior to context/business/architecture docs.
+- Added current refund-only versus cancellation rules, including fixture-blocking only for cancellation and batch emails after DB save.
 
 ## APIs Added/Removed
 
@@ -47,6 +52,14 @@ Last targeted sync: badminton club admin CRUD, SBA import club append behavior, 
 - `POST /api/clubs`
 - `PUT /api/clubs/{id}`
 - `DELETE /api/clubs/{id}`
+- `GET /api/registrations/{id}/payment/audit`
+- `POST /api/registrations/{id}/payment/refunds/bulk`
+- `POST /api/registrations/{id}/cancel`
+- `POST /api/registrations/{id}/groups/{groupId}/cancel`
+- `POST /api/registrations/{id}/participants/{participantId}/cancel`
+- `GET /api/registrations/{id}/details-pdf`
+- `POST /api/registrations/{id}/notifications/cancellation`
+- `POST /api/Payment/embedded-attempt/{attemptId}/abandon`
 
 ### Removed from Documentation
 
@@ -77,6 +90,11 @@ Last targeted sync: badminton club admin CRUD, SBA import club append behavior, 
 - Serilog/AppLogs persistence behavior and framework log filtering.
 - Pending checkout reuse based on active session, event, email, method, amount, and payload hash.
 - Explicit note that event-level `MaxParticipants` exists but registration capacity uses program-level group count.
+- Short-code-only persistence/API behavior for statuses, with frontend long labels derived from mapping tables.
+- Refund-only actions do not cancel entries or free slots and are not blocked by fixtures.
+- Cancellation actions free slots and are blocked when affected programs have fixtures.
+- Batch refund/cancel notifications are sent once per submitted action after database state is saved.
+- Registration-details PDF is attached with payment confirmation and relevant refund/cancellation emails.
 
 ### Removed or Corrected
 
@@ -89,6 +107,8 @@ Last targeted sync: badminton club admin CRUD, SBA import club append behavior, 
 
 - The current implementation includes `BadmintonClub` as an EF model mapped to a singular SQL table and exposed through `/api/clubs`.
 - The current implementation includes `AppLog` and a custom Serilog EF sink.
+- The current implementation includes `RegistrationDetailsPdfService` and download endpoint `/api/registrations/{id}/details-pdf`.
+- The current implementation uses central backend status-code constants in `StatusCodesEx`; SQL constraints and frontend mappings must remain aligned.
 - Serilog is configured through host logging rather than a separate post-build logger replacement.
 - Frontend has a dedicated `clubsApi.ts` module and badminton-specific club dropdown behavior in `ParticipantFieldsForm`.
 - SQL setup is script-based in `Backend/TRS_Data/Sql`; EF migration files are still absent.

@@ -100,6 +100,7 @@ Business logic is mixed:
 - Embedded Stripe PaymentIntent attempt creation/finalization is centralized in `PaymentAttemptService`.
 - Legacy hosted Checkout finalization is centralized in `PaymentFinalizationService`.
 - Fixture logic is centralized in `FixtureGenerationService`.
+- Status-code constants for API logic are centralized in `StatusCodesEx`.
 - Admin action audit snapshots are centralized in `AdminAuditService` where implemented.
 - Several controllers still directly query and mutate `TRSDbContext`.
 
@@ -138,7 +139,7 @@ Events and programs:
 - `ProgramCustomField`
 - `BadmintonClub` mapped to `BadmintonClub`
 
-Events store `RegistrationStatus` as `open`, `paused`, or `closed`. Runtime registration availability is computed by the backend from stored status, Singapore date, event activity, and active program count, producing `draft`, `upcoming`, `open`, `paused`, or `closed`.
+Database and API status values are short codes. Events store `RegistrationStatus` as `O`, `PA`, or `CL`. Runtime registration availability is computed by the backend from stored status, Singapore date, event activity, and active program count, producing `D`, `U`, `O`, `PA`, or `CL`. Frontend UI converts codes to human-readable labels for display.
 
 Registration:
 
@@ -236,6 +237,8 @@ Implementation notes:
 
 - Queue is in-memory (`Channel<Func<CancellationToken, Task>>`).
 - Jobs are lost if the process restarts.
+- Payment confirmation jobs generate receipt and registration-details PDFs.
+- Cancellation/refund notification jobs are queued after database state is saved and batch actions send one email for the batch.
 - Email failures are logged but do not retry.
 - `PaymentCleanupWorker` deletes expired legacy pending checkout rows and sweeps embedded attempts for expiry/backstop reconciliation.
 
@@ -286,3 +289,4 @@ Generating a fixture closes the affected program to stop further registrations. 
 - Dual registration status fields on registrations increase consistency risk.
 - Event registration availability is partly stored and partly computed; frontend screens should use backend `computedRegistrationStatus` and treat frontend date logic only as fallback.
 - SQL scripts exist but there are no EF migration files in the repository.
+- Short-code status consistency depends on keeping backend constants, SQL constraints/scripts, and frontend label maps in sync.

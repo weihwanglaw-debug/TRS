@@ -11,19 +11,19 @@ Business rules below are extracted from current controller/service/frontend code
 - Event gallery images are replaced on event update.
 - Event documents are managed through a separate documents sub-resource.
 - Event registration status is a combination of stored event state and computed date/program state.
-- Stored `Events.RegistrationStatus` accepts `open`, `paused`, or `closed`.
-- Computed registration status returned by the API can be `draft`, `upcoming`, `open`, `paused`, or `closed`.
-- `draft` is computed when an event has no active programs; admins cannot manually change a draft event's registration status until at least one active program exists.
-- `upcoming` and date-based `closed` are computed from Singapore date.
-- Public registration is allowed only when the computed event registration status is `open`.
-- Logged-in admins can use admin-assisted registration when the event is `upcoming`, `paused`, or `closed`, but not when it is `draft`.
+- Stored `Events.RegistrationStatus` accepts short codes only: `O` open, `PA` paused, or `CL` closed.
+- Computed registration status returned by the API can be `D` draft, `U` upcoming, `O` open, `PA` paused, or `CL` closed.
+- `D` draft is computed when an event has no active programs; admins cannot manually change a draft event's registration status until at least one active program exists.
+- `U` upcoming and date-based `CL` closed are computed from Singapore date.
+- Public registration is allowed only when the computed event registration status is `O`.
+- Logged-in admins can use admin-assisted registration when the event is `U`, `PA`, or `CL`, but not when it is `D`.
 
 ## Program Rules
 
-- Program status accepts `open` or `closed`.
-- A program is registrable when `IsActive=true` and `Status` is not `closed`.
+- Program status accepts short codes only: `O` open or `CL` closed.
+- A program is registrable when `IsActive=true` and `Status` is not `CL`.
 - Program-level status, capacity, and fixture restrictions apply to both public and admin-assisted registration.
-- Fixture generation closes the affected program by setting `Program.Status='closed'`.
+- Fixture generation closes the affected program by setting `Program.Status='CL'`.
 - Once a fixture exists for a program, new registrations for that program are blocked.
 - Program deletion is soft delete: `IsActive=false`, `UpdatedAt=DateTime.UtcNow`.
 - Program custom fields are replaced on full program update.
@@ -40,7 +40,7 @@ Business rules below are extracted from current controller/service/frontend code
 Event registration gate modes:
 
 - `StrictPublic`: used by public direct registration and new payment attempts; requires computed event registration status `open`.
-- `AdminAssisted`: used when an authenticated admin creates a registration from the event detail page; bypasses event date/manual close status but still blocks draft events, closed/full programs, and programs with fixtures.
+- `AdminAssisted`: used when an authenticated admin creates a registration from the event detail page; bypasses event date/manual close status but still blocks `D` draft events, closed/full programs, and programs with fixtures.
 - `AlreadyPaidFinalization`: used only after money has already moved through embedded/legacy payment finalization; avoids retroactively blocking finalization because the event window changed after payment.
 
 Required registration shape:
@@ -129,7 +129,9 @@ Legacy hosted Checkout session-first code still exists for older return URLs and
 
 ## Payment Rules
 
-Payment status codes used in code:
+Status values are short codes in the database, backend API, frontend payloads, filters, and internal comparisons. Frontend screens display long labels through mapping tables only.
+
+Payment status codes:
 
 - `P`: pending.
 - `S`: success/paid.
@@ -139,6 +141,21 @@ Payment status codes used in code:
 - `X`: cancelled.
 - `W`: waived.
 - `PC`: pending collection.
+
+Registration workflow status codes:
+
+- `P`: pending.
+- `C`: confirmed.
+- `X`: cancelled.
+- `CP`: cancel pending.
+- `RF`: refund failed.
+
+Participant/group status codes:
+
+- `A`: active participant.
+- `P`: pending group/registration scope.
+- `C`: confirmed group/registration scope.
+- `X`: cancelled.
 
 Manual admin transitions:
 
@@ -172,9 +189,12 @@ Legacy pending checkout reuse:
 
 ## Refund Rules
 
-Item refund:
+Refund-only:
 
-- Only successful payment items (`ItemStatus="S"`) can be refunded.
+- Refund-only actions may be performed after payment has been made, including after a registration/entry/participant is already cancelled.
+- Refund-only actions do not cancel participants/groups and do not free registration slots.
+- Fixtures do not block refund-only actions because fixture eligibility is based on participant/group cancellation state, not payment state.
+- Only successful paid items (`ItemStatus="S"`) or previously cancelled paid items can be refunded when refundable amount remains.
 - Refund amount cannot exceed remaining refundable amount.
 - Existing pending refunds block conflicting duplicate refunds.
 - Internal system refunds through the payment gateway use an idempotency key based on the refund id.
@@ -183,12 +203,19 @@ Item refund:
 - External refund records write `RefundSource='External'`, the selected `RefundMethod`, optional/admin-entered reference id, and audit detail; they do not send money through the payment gateway.
 - Gateway dashboard, PayNow, bank transfer, and other external methods require a refund reference/id.
 - Refund actions are recorded in `PaymentAuditLog`, including `RefundInitiated`, `ExternalRefundRecorded`, and gateway result/failure entries where applicable.
+- Bulk refund sends one notification email per submitted action after database state is saved, not one email per item.
 
-Cancel with refunds:
+Cancellation:
 
 - Reason is required.
-- If no successful paid items exist, registration is directly cancelled.
-- If successful paid items exist, registration moves to `CancelPending`, each refundable item is processed, then final status becomes `Cancelled` or `RefundFailed`.
+- Cancellation can target the whole registration, one entry/group, or one per-player singles participant when that participant has its own payment item.
+- Cancellation without refund cancels the selected scope and frees affected slots.
+- Cancellation with refund processes each selected item independently. Successful item refunds immediately cancel that item's participant or group scope; failed item refunds leave that item active.
+- Cancelling an already-refunded active item is allowed through cancel-without-refund, because the money has already been returned and the remaining action is slot release.
+- Any action that involves cancellation is blocked when an affected program has a fixture. The fixture must be removed before cancellation.
+- Final registration status becomes `X` only when all groups are cancelled. If refund processing fails, workflow status becomes `RF`; otherwise partially refunded but still-active registrations remain confirmed at registration scope while payment status reflects `PR`.
+- Cancellation actions are recorded in `PaymentAuditLog`, including participant/group cancellation caused by refund and registration cancellation when the last active group is cancelled.
+- Cancellation/refund emails are sent after database state is saved. A multi-item or whole-registration action sends one email for the batch.
 
 Orphan refunds:
 
@@ -204,12 +231,12 @@ Orphan refunds:
 
 Registration status update:
 
-- Allowed values include `Pending`, `Confirmed`, `Cancelled`, `CancelPending`, and `RefundFailed`.
+- Allowed registration workflow values are short codes: `P`, `C`, `X`, `CP`, and `RF`.
 - Registration status update cascades to all participant groups.
 
 Group status update:
 
-- Updates only the selected group.
+- Updates only the selected group and accepts group workflow short codes: `P`, `C`, or `X`.
 
 Group seed:
 
@@ -229,9 +256,10 @@ Manual confirmation:
 - Registration and groups become confirmed.
 - Successful/waived statuses stamp paid/receipt-related fields where applicable.
 - In the event registration cart, logged-in admins bypass online payment for paid carts.
-- Admin registration mode is available from the event detail page for upcoming, paused, or closed events, but it cannot bypass draft events, closed programs, full programs, or programs with fixtures.
+- Admin registration mode is available from the event detail page for `U`, `PA`, or `CL` events, but it cannot bypass `D` draft events, closed programs, full programs, or programs with fixtures.
 - During admin bypass, cart-level payer/contact, public payment method, and consent fields are hidden; payer contact is recorded from the logged-in admin profile.
 - In the admin confirmation modal, payment method and payment reference are collected only when the selected payment status is `S` (Paid), not for `W` (Waived) or `PC` (Pending Collection).
+- Manual confirmation does not resurrect payment items or participant/group scopes that are already cancelled or refunded.
 
 ## Badminton Club Rules
 
@@ -278,6 +306,16 @@ Manual confirmation:
 - Backend heats validation requires results before advancing, enforces the configured advance count, prevents editing completed heat rounds, and rejects duplicate or out-of-range final places.
 - Heats fixtures lock swaps after any round is completed because advancement depends on prior-round results.
 - Fixture regression checks live in the separate `Backend/TRS_FixtureTests` console project so they can be run or removed independently from the API project.
+- Fixture checks for cancellation are based on participant/group status, not payment status.
+
+## Registration Documents and Email Rules
+
+- Successful payment confirmation emails attach both the receipt PDF and registration-details PDF.
+- Registration details PDF is associated with the registration number and lists submitted registration item/participant details.
+- Admin/payment-log screens can download both receipt and registration-details PDFs.
+- Refund-related emails send an updated receipt and registration-details PDF after database state is saved.
+- Cancellation-related emails send updated registration details after database state is saved, and include the updated receipt when refund is involved.
+- For privacy, registration-details PDFs are sent only to the registration contact email.
 
 ## Upload Rules
 

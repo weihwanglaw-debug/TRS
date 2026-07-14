@@ -32,7 +32,7 @@ The repository is a monorepo:
 2. Uses JWT-backed admin routes under `/admin`.
 3. Manages events, programs, documents, registrations, payments, refunds, fixtures, SBA rankings, badminton club master data, system config, users, and password changes according to role.
 4. When registering players from the public event detail page while logged in, paid carts use admin payment bypass: payer contact is taken from the admin profile, cart payment/consent fields are hidden, and the confirmation modal captures the selected payment outcome.
-5. Admin-assisted registration can be used for upcoming, paused, or closed events, but not draft events, closed/full programs, or programs with fixtures.
+5. Admin-assisted registration can be used for `U` upcoming, `PA` paused, or `CL` closed events, but not `D` draft events, closed/full programs, or programs with fixtures.
 
 ## Frontend Routes
 
@@ -105,10 +105,12 @@ API modules live in `Frontend/src/lib/api/`.
 - `PaymentFinalizationService`: legacy idempotent session-first Stripe finalization.
 - `FixtureGenerationService`: authoritative bracket/heats generation, fixture mutation, score validation, advancement, and final placement rules.
 - `ReceiptService`: QuestPDF receipt generation.
-- `EmailService`: SMTP payment confirmation email with receipt attachment.
+- `RegistrationDetailsPdfService`: QuestPDF registration-details PDF generation.
+- `EmailService`: SMTP payment/refund/cancellation emails with receipt and/or registration-details attachments.
 - `BackgroundJobQueue` and `BackgroundJobWorker`: in-memory background work queue.
 - `PaymentCleanupWorker`: hourly cleanup of expired legacy `PendingCheckout` rows and embedded payment-attempt backstop sweep.
 - `AdminAuditService`: writes admin action snapshots and field-level change details to `AdminAuditLog` and `AdminAuditLogDetail`.
+- `StatusCodesEx`: central backend short-code constants for registration, participant, payment, refund, event/program, match, attempt, and processing statuses.
 
 ### Logging and Audit
 
@@ -154,7 +156,7 @@ Primary paid flow is embedded PaymentIntent:
 4. Stripe webhook events update the attempt and finalize successful payments.
 5. Successful finalization creates registration, groups, participants, payment, and payment items.
 6. Late success after attempt expiry or finalization failure is marked for payment reconciliation rather than auto-registering.
-7. Receipt generation and email are queued in memory.
+7. Receipt and registration-details PDF generation plus email are queued in memory.
 
 The older hosted Checkout session-first path remains as a legacy fallback through `PendingCheckouts`, `PaymentFinalizationService`, and `/api/Payment/confirm-session`.
 
@@ -169,6 +171,8 @@ Registration availability is backend-computed from `Events.RegistrationStatus`, 
 - `AlreadyPaidFinalization`: finalizing payments that have already been collected.
 
 Fixture generation closes the affected program and registration validation blocks programs that already have fixtures.
+
+Statuses are stored and exchanged as short codes in the database and API. User-facing descriptions are produced by frontend/backend display mappings only.
 
 ## File Uploads
 
@@ -206,6 +210,7 @@ Frontend configuration:
 - Stripe SDK services are instantiated directly in controllers.
 - Some legacy models/tables remain: `EventParticipant`, `BackgroundJob`.
 - Event-level `MaxParticipants` remains in the model but registration capacity is enforced through `Program.MaxParticipants`.
-- Event-level `RegistrationStatus` is stored as `open`, `paused`, or `closed`; `draft` and date-based states are computed.
+- Event-level `RegistrationStatus` is stored as a short code: `O` open, `PA` paused, or `CL` closed. `D` draft and `U` upcoming are computed statuses.
 - `RegistrationStatus` and `RegStatus` both exist on registrations.
+- Refund-only actions do not cancel slots. Any action that cancels a registration, entry, or participant is blocked when affected programs already have fixtures.
 - Local disk upload storage requires persistent storage in production.
