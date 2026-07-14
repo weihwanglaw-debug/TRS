@@ -278,7 +278,7 @@ export default function ProgramModal({
       minParticipants:    form.minParticipants,
       maxParticipants:    form.maxParticipants,
       currentParticipants: program?.currentParticipants ?? 0,
-      status:         program?.status ?? "open",
+      status:         program?.status ?? "O",
       fields: {
         enableSbaId:          form.enableSbaId,
         enableDocumentUpload: form.enableDocumentUpload,

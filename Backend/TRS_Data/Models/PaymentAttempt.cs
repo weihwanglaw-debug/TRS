@@ -12,7 +12,7 @@ public class PaymentAttempt
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "SGD";
     public string? GatewayPaymentIntentId { get; set; }
-    public string Status { get; set; } = "Created";
+    public string Status { get; set; } = "CR";
     public string PayloadJson { get; set; } = null!;
     public string? LineItemsJson { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

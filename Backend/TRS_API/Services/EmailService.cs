@@ -13,7 +13,12 @@ public class EmailService
     public EmailService(IConfiguration config, ILogger<EmailService> logger)
         => (_config, _logger) = (config, logger);
 
-    public async Task SendPaymentConfirmationAsync(TRSDbContext db, int registrationId, byte[] receiptPdf, CancellationToken ct = default)
+    public async Task SendPaymentConfirmationAsync(
+        TRSDbContext db,
+        int registrationId,
+        byte[] receiptPdf,
+        byte[]? registrationDetailsPdf = null,
+        CancellationToken ct = default)
     {
         var reg = await db.EventRegistrations
             .Include(r => r.Payments)
@@ -58,12 +63,19 @@ public class EmailService
                 $"Hello {reg.ContactName},\n\n" +
                 $"Your registration for {reg.EventName} has been confirmed.\n" +
                 $"Receipt number: {receiptNo}\n\n" +
-                "Your receipt is attached to this email.\n\n" +
+                "Your receipt and registration details are attached to this email.\n\n" +
                 $"Regards,\n{appName}",
             IsBodyHtml = false,
         };
         message.To.Add(reg.ContactEmail);
         message.Attachments.Add(new Attachment(new MemoryStream(receiptPdf), $"Receipt-{receiptNo}.pdf", "application/pdf"));
+        if (registrationDetailsPdf is { Length: > 0 })
+        {
+            message.Attachments.Add(new Attachment(
+                new MemoryStream(registrationDetailsPdf),
+                $"RegistrationDetails-{ReceiptNumberGenerator.FallbackRegistrationReference(registrationId)}.pdf",
+                "application/pdf"));
+        }
 
         using var client = new SmtpClient(host, port)
         {
@@ -172,6 +184,7 @@ public class EmailService
         string reason,
         bool includesRefund,
         byte[]? updatedReceiptPdf,
+        byte[]? registrationDetailsPdf = null,
         CancellationToken ct = default)
     {
         var reg = await db.EventRegistrations
@@ -226,8 +239,8 @@ public class EmailService
                 $"Your {scopeLabel} for {reg.EventName} has been cancelled.\n" +
                 $"Reason: {reason}\n\n" +
                 (includesRefund
-                    ? "A refund has been processed. Your updated receipt, including refund information, is attached.\n\n"
-                    : "No refund was processed for this cancellation.\n\n") +
+                    ? "A refund has been processed. Your updated receipt and registration details are attached.\n\n"
+                    : "No refund was processed for this cancellation. Your updated registration details are attached.\n\n") +
                 $"Regards,\n{appName}",
             IsBodyHtml = false,
         };
@@ -238,6 +251,13 @@ public class EmailService
             message.Attachments.Add(new Attachment(
                 new MemoryStream(updatedReceiptPdf),
                 $"Receipt-{receiptNo}.pdf",
+                "application/pdf"));
+        }
+        if (registrationDetailsPdf is { Length: > 0 })
+        {
+            message.Attachments.Add(new Attachment(
+                new MemoryStream(registrationDetailsPdf),
+                $"RegistrationDetails-{ReceiptNumberGenerator.FallbackRegistrationReference(registrationId)}.pdf",
                 "application/pdf"));
         }
 
@@ -257,6 +277,76 @@ public class EmailService
             "Cancellation email sent for registration {RegistrationId} to {Email}",
             registrationId,
             reg.ContactEmail);
+    }
+
+    public async Task SendRefundNotificationAsync(
+        TRSDbContext db,
+        int registrationId,
+        byte[] updatedReceiptPdf,
+        CancellationToken ct = default)
+    {
+        var reg = await db.EventRegistrations
+            .Include(r => r.Payments)
+            .FirstOrDefaultAsync(r => r.RegistrationId == registrationId, ct);
+
+        if (reg == null)
+        {
+            _logger.LogWarning("Unable to send refund email: registration {RegistrationId} not found", registrationId);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(reg.ContactEmail))
+        {
+            _logger.LogWarning("Unable to send refund email: registration {RegistrationId} has no contact email", registrationId);
+            return;
+        }
+
+        var host = _config["Email:Smtp:Host"];
+        var port = _config.GetValue<int?>("Email:Smtp:Port") ?? 587;
+        var username = _config["Email:Smtp:Username"];
+        var password = _config["Email:Smtp:Password"];
+        var appName = await GetAppNameAsync(db, ct);
+        var fromAddress = _config["Email:FromAddress"] ?? username;
+        var fromName = _config["Email:FromName"] ?? appName;
+
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
+        {
+            _logger.LogWarning(
+                "Skipping refund email for registration {RegistrationId}: SMTP is not configured",
+                registrationId);
+            return;
+        }
+
+        var receiptNo = reg.Payments.OrderByDescending(p => p.CreatedAt).FirstOrDefault()?.ReceiptNumber
+            ?? ReceiptNumberGenerator.FallbackRegistrationReference(registrationId);
+
+        using var message = new MailMessage
+        {
+            From = new MailAddress(fromAddress, fromName),
+            Subject = $"{appName} refund processed ({receiptNo})",
+            Body =
+                $"Hello {reg.ContactName},\n\n" +
+                $"A refund has been processed for your registration for {reg.EventName}.\n" +
+                "Your updated receipt is attached.\n\n" +
+                $"Regards,\n{appName}",
+            IsBodyHtml = false,
+        };
+        message.To.Add(reg.ContactEmail);
+        message.Attachments.Add(new Attachment(new MemoryStream(updatedReceiptPdf), $"Receipt-{receiptNo}.pdf", "application/pdf"));
+
+        using var client = new SmtpClient(host, port)
+        {
+            EnableSsl = _config.GetValue("Email:Smtp:EnableSsl", true),
+            DeliveryMethod = SmtpDeliveryMethod.Network,
+        };
+
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            client.Credentials = new NetworkCredential(username, password);
+        }
+
+        await client.SendMailAsync(message, ct);
+        _logger.LogInformation("Refund email sent for registration {RegistrationId} to {Email}", registrationId, reg.ContactEmail);
     }
 
     public async Task SendLandingMessageAsync(

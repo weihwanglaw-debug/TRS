@@ -149,8 +149,8 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
   };
 
   const canSave = draft.walkover ? !!draft.walkoverWinner : hasWinnerScore || (!isKnockout && draft.winner === null && hasDrawScore);
-  const hasSavedResult = draft.status === "Completed" ||
-    draft.status === "Walkover" ||
+  const hasSavedResult = draft.status === "C" ||
+    draft.status === "W" ||
     draft.winner !== null ||
     draft.walkover ||
     draft.walkoverWinner !== "" ||

@@ -27,7 +27,7 @@ public class FixtureGenerationService
 
         var groups = await _db.ParticipantGroups
             .Include(g => g.Participants)
-            .Where(g => g.EventId == eventId && g.ProgramId == programId && g.GroupStatus != "Cancelled")
+            .Where(g => g.EventId == eventId && g.ProgramId == programId && g.GroupStatus != StatusCodesEx.Registration.Cancelled)
             .OrderBy(g => g.GroupId)
             .ToListAsync();
 
@@ -86,7 +86,7 @@ public class FixtureGenerationService
         fixture.Phase = state.Phase;
         fixture.IsLocked = state.Locked;
         fixture.UpdatedAt = DateTime.UtcNow;
-        program.Status = "closed";
+        program.Status = StatusCodesEx.Program.Closed;
         program.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
@@ -271,7 +271,7 @@ public class FixtureGenerationService
         match.Remark = req.Remark?.Trim() ?? "";
         match.StartTime = req.StartTime ?? match.StartTime;
         match.EndTime = req.EndTime ?? match.EndTime;
-        match.Status = req.Walkover ? "Walkover" : "Completed";
+        match.Status = req.Walkover ? StatusCodesEx.Match.Walkover : StatusCodesEx.Match.Completed;
         state.Locked = true;
 
         await SaveStateAsync(loaded.Fixture!, state);
@@ -300,7 +300,7 @@ public class FixtureGenerationService
         match.Walkover = false;
         match.WalkoverWinner = "";
         match.Remark = "";
-        match.Status = "Scheduled";
+        match.Status = StatusCodesEx.Match.Scheduled;
 
         if (string.Equals(state.Format, "group_knockout", StringComparison.OrdinalIgnoreCase) &&
             string.Equals(match.Phase, "group", StringComparison.OrdinalIgnoreCase) &&
@@ -614,7 +614,7 @@ public class FixtureGenerationService
 
         foreach (var match in state.Groups.SelectMany(g => g.Matches).Concat(state.Matches))
         {
-            match.Status = "Scheduled";
+            match.Status = StatusCodesEx.Match.Scheduled;
             match.Winner = null;
             match.Walkover = false;
             match.WalkoverWinner = "";
@@ -687,12 +687,12 @@ public class FixtureGenerationService
             return (state.HeatRounds ?? new List<HeatRound>()).Any(r => r.IsComplete);
 
         return state.Matches.Concat(state.Groups.SelectMany(g => g.Matches))
-            .Any(m => !IsByeMatch(m) && !string.Equals(m.Status, "Scheduled", StringComparison.OrdinalIgnoreCase));
+            .Any(m => !IsByeMatch(m) && m.Status != StatusCodesEx.Match.Scheduled);
     }
 
     private bool IsCompleted(FixtureMatch match) =>
-        string.Equals(match.Status, "Completed", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(match.Status, "Walkover", StringComparison.OrdinalIgnoreCase);
+        match.Status == StatusCodesEx.Match.Completed ||
+        match.Status == StatusCodesEx.Match.Walkover;
 
     private bool HasEnteredResult(FixtureMatch match)
     {
@@ -1221,7 +1221,7 @@ public class FixtureGenerationService
         EndTime = "",
         CourtNo = "",
         Officials = new List<OfficialEntry>(),
-        Status = "Scheduled",
+        Status = StatusCodesEx.Match.Scheduled,
         Expanded = false,
     };
 
@@ -1247,7 +1247,7 @@ public class FixtureGenerationService
             return;
 
         match.Winner = team1Bye ? "team2" : "team1";
-        match.Status = "Completed";
+        match.Status = StatusCodesEx.Match.Completed;
     }
 
     private void ApplyRoundLabels(List<FixtureMatch> matches)
@@ -1378,7 +1378,7 @@ public class FixtureGenerationService
         public string CourtNo { get; set; } = "";
         public List<OfficialEntry> Officials { get; set; } = new();
         public string Remark { get; set; } = "";
-        public string Status { get; set; } = "Scheduled";
+        public string Status { get; set; } = StatusCodesEx.Match.Scheduled;
         public bool Expanded { get; set; }
     }
 

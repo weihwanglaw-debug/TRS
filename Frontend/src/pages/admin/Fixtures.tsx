@@ -81,17 +81,17 @@ function isByeMatch(m: MatchEntry) {
 }
 
 function isResolvedMatch(m: MatchEntry) {
-  return m.status === "Completed" || m.status === "Walkover" || isByeMatch(m);
+  return m.status === "C" || m.status === "W" || isByeMatch(m);
 }
 
 function hasEnteredResult(m: MatchEntry) {
   if (isByeMatch(m)) return false;
-  const status = (m.status ?? "").toLowerCase();
+  const status = m.status ?? "";
   const winner = m.winner ?? "";
   const walkoverWinner = m.walkoverWinner ?? "";
   const games = m.games ?? [];
-  return status === "completed" ||
-    status === "walkover" ||
+  return status === "C" ||
+    status === "W" ||
     winner !== "" ||
     m.walkover === true ||
     walkoverWinner !== "" ||

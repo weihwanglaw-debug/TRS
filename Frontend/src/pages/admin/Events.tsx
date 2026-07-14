@@ -78,12 +78,12 @@ export default function AdminEvents() {
         <div className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4">
           <FG label="Event Status">
             <select className="field-input w-full md:w-36" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-              <option value="">All</option><option value="draft">Draft</option><option value="open">Open</option><option value="paused">Paused</option><option value="upcoming">Upcoming</option><option value="closed">Closed</option>
+              <option value="">All</option><option value="D">Draft</option><option value="O">Open</option><option value="PA">Paused</option><option value="U">Upcoming</option><option value="CL">Closed</option>
             </select>
           </FG>
           <FG label="Reg. Status">
             <select className="field-input w-full md:w-36" value={filterRegStatus} onChange={e => setFilterRegStatus(e.target.value)}>
-              <option value="">All</option><option value="draft">Draft</option><option value="open">Open</option><option value="paused">Paused</option><option value="upcoming">Upcoming</option><option value="closed">Closed</option>
+              <option value="">All</option><option value="D">Draft</option><option value="O">Open</option><option value="PA">Paused</option><option value="U">Upcoming</option><option value="CL">Closed</option>
             </select>
           </FG>
           <FG label="From">

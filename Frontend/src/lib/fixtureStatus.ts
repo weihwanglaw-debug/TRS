@@ -90,10 +90,10 @@ export function computeProgramFixtureStatus(
   const today   = todayStr();
   const matches = getAllMatches(bracket);
   const total   = matches.length;
-  const done    = matches.filter(m => m.status === "Completed" || m.status === "Walkover").length;
+  const done    = matches.filter(m => m.status === "C" || m.status === "W").length;
   const pastDue = matches.filter(m =>
     m.matchDate && m.matchDate <= today &&
-    m.status !== "Completed" && m.status !== "Walkover"
+    m.status !== "C" && m.status !== "W"
   ).length;
 
   if (total === 0 || done === 0) {

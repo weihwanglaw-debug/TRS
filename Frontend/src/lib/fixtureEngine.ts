@@ -41,7 +41,7 @@ function blankMatch(
     games: [{ p1: "", p2: "" }],
     winner: null, walkover: false, walkoverWinner: "",
     matchDate: "", startTime: "", endTime: "", courtNo: "",
-    officials: [], status: "Scheduled", expanded: false,
+    officials: [], status: "SC", expanded: false,
     ...extras,
   };
 }
@@ -248,7 +248,7 @@ export function computeGroupStandings(
   }
 
   for (const match of group.matches) {
-    if (match.status !== "Completed" && match.status !== "Walkover") continue;
+    if (match.status !== "C" && match.status !== "W") continue;
     const s1 = map[match.team1.id];
     const s2 = map[match.team2.id];
     if (!s1 || !s2) continue;
@@ -269,7 +269,7 @@ export function computeGroupStandings(
   const standings = Object.values(map);
   const h2h: Record<string, Record<string, "A" | "B" | "draw">> = {};
   for (const m of group.matches) {
-    if (m.status !== "Completed" && m.status !== "Walkover") continue;
+    if (m.status !== "C" && m.status !== "W") continue;
     const a = m.team1.id, b = m.team2.id;
     if (!h2h[a]) h2h[a] = {}; if (!h2h[b]) h2h[b] = {};
     if (m.winner === "team1")      { h2h[a][b] = "A"; h2h[b][a] = "B"; }
@@ -496,7 +496,7 @@ export function isBracketLocked(state: BracketState): boolean {
     return (state.heatRounds ?? []).some(r => r.isComplete);
   }
   return [...state.matches, ...state.groups.flatMap(g => g.matches)]
-    .some(m => !isByeMatch(m) && m.status !== "Scheduled");
+    .some(m => !isByeMatch(m) && m.status !== "SC");
 }
 
 export function isPhaseComplete(state: BracketState): boolean {
@@ -506,8 +506,8 @@ export function isPhaseComplete(state: BracketState): boolean {
     return current.length === 0;
   }
   if (state.phase === "group")
-    return state.groups.every(g => g.matches.every(m => m.status === "Completed" || m.status === "Walkover"));
-  return state.matches.every(m => m.status === "Completed" || m.status === "Walkover");
+    return state.groups.every(g => g.matches.every(m => m.status === "C" || m.status === "W"));
+  return state.matches.every(m => m.status === "C" || m.status === "W");
 }
 
 export function getAllMatches(state: BracketState): MatchEntry[] {

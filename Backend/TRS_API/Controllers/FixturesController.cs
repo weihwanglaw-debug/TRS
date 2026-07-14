@@ -440,7 +440,7 @@ public class FixturesController : ControllerBase
             return false;
 
         var value = status.GetString();
-        return !string.IsNullOrWhiteSpace(value) && !string.Equals(value, "Scheduled", StringComparison.OrdinalIgnoreCase);
+        return !string.IsNullOrWhiteSpace(value) && value != StatusCodesEx.Match.Scheduled;
     }
 
     private static bool HasFilledGame(JsonElement match)
@@ -519,7 +519,7 @@ public class FixturesController : ControllerBase
             state.Locked,
             GroupCount = state.Groups.Count,
             MatchCount = allMatches.Count,
-            CompletedMatchCount = allMatches.Count(m => m.Status == "Completed" || m.Status == "Walkover"),
+            CompletedMatchCount = allMatches.Count(m => m.Status == StatusCodesEx.Match.Completed || m.Status == StatusCodesEx.Match.Walkover),
             HeatRoundCount = state.HeatRounds?.Count ?? 0,
             CompletedHeatRoundCount = state.HeatRounds?.Count(r => r.IsComplete) ?? 0,
         };

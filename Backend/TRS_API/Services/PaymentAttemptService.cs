@@ -9,13 +9,13 @@ namespace TRS_API.Services;
 
 public sealed class PaymentAttemptService
 {
-    public const string Created = "Created";
-    public const string Submitted = "Submitted";
-    public const string Succeeded = "Succeeded";
-    public const string Failed = "Failed";
-    public const string Expired = "Expired";
-    public const string Canceled = "Canceled";
-    public const string NeedsReconciliation = "NeedsReconciliation";
+    public const string Created = StatusCodesEx.PaymentAttempt.Created;
+    public const string Submitted = StatusCodesEx.PaymentAttempt.Submitted;
+    public const string Succeeded = StatusCodesEx.PaymentAttempt.Succeeded;
+    public const string Failed = StatusCodesEx.PaymentAttempt.Failed;
+    public const string Expired = StatusCodesEx.PaymentAttempt.Expired;
+    public const string Canceled = StatusCodesEx.PaymentAttempt.Canceled;
+    public const string NeedsReconciliation = StatusCodesEx.PaymentAttempt.NeedsReconciliation;
 
     private readonly TRSDbContext _db;
     private readonly RegistrationWorkflowService _registrationWorkflow;
@@ -368,7 +368,7 @@ public sealed class PaymentAttemptService
                 ValidatePricingAgainstCurrentPrograms = false,
                 PaymentGateway = "Stripe",
                 PaymentMethod = attempt.PaymentMethod,
-                PaymentStatus = "S",
+                PaymentStatus = StatusCodesEx.Payment.Success,
                 PaymentAmountOverride = ToMajorUnits(intent.AmountReceived > 0 ? intent.AmountReceived : intent.Amount),
                 GatewayPaymentId = intent.Id,
             }, ct);
@@ -665,7 +665,7 @@ public sealed class PaymentAttemptService
             GatewaySessionId = intent.Id,
             EventType = "processing_error",
             PayloadJson = JsonSerializer.Serialize(intent),
-            ProcessingStatus = "F",
+            ProcessingStatus = StatusCodesEx.Processing.Failed,
             ErrorMessage = errorMessage,
             ReceivedAt = DateTime.UtcNow,
             ProcessedAt = DateTime.UtcNow,

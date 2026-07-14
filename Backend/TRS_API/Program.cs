@@ -95,6 +95,7 @@ builder.Services.AddHostedService<BackgroundJobWorker>();
 builder.Services.AddHostedService<PaymentCleanupWorker>();
 builder.Services.AddScoped<EmailService>();
 builder.Services.AddScoped<ReceiptService>();
+builder.Services.AddScoped<RegistrationDetailsPdfService>();
 
 
 // CORS

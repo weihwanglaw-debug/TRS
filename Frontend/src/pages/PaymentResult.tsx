@@ -179,7 +179,7 @@ export default function PaymentResult() {
   //  Poll until registration is confirmed
   // Resolves when:
   //  - Paid:  paymentStatus === "S"
-  //  - Free:  regStatus === "Confirmed" (paymentStatus stays "P")
+  //  - Free:  regStatus === "C" (paymentStatus stays "P")
   // After MAX_ATTEMPTS we stop polling and show the "still processing" state -
   // this is NOT a failure; the webhook will complete the registration shortly.
   useEffect(() => {
@@ -200,7 +200,7 @@ export default function PaymentResult() {
 
           const paidSuccess  = r.data.payment.paymentStatus === "S";
           const freeConfirmed =
-            r.data.regStatus === "Confirmed" &&
+            r.data.regStatus === "C" &&
             r.data.payment.paymentStatus === "P";
 
           if (paidSuccess || freeConfirmed || attempts >= MAX_ATTEMPTS) {
@@ -223,10 +223,10 @@ export default function PaymentResult() {
     return () => { cancelled = true; };
   }, [phase, regId]);
 
-  // Confirmed when paid, waived, pending collection, OR free and status is Confirmed.
+  // Confirmed when paid, waived, pending collection, OR free and status is C.
   const isConfirmed =
     registration?.payment.paymentStatus === "S" ||
-    (registration?.regStatus === "Confirmed" &&
+    (registration?.regStatus === "C" &&
       ["P", "W", "PC"].includes(registration?.payment.paymentStatus ?? ""));
 
   const receiptNo = registration?.payment.receiptNo;
@@ -286,6 +286,11 @@ export default function PaymentResult() {
                     Download Receipt
                   </button>
                 )}
+                <button
+                  className="btn-outline px-6 py-2.5 text-sm font-medium"
+                  onClick={() => window.open(`${API_BASE}/api/registrations/${regId}/details-pdf`, "_blank")}>
+                  Download Registration Details
+                </button>
                 <button onClick={() => navigate("/")} className="btn-outline px-6 py-2.5 text-sm font-medium">
                   Back to Home
                 </button>

@@ -49,7 +49,7 @@ function isByeMatch(match: MatchEntry) {
 }
 
 function isResolvedMatch(match: MatchEntry) {
-  return match.status === "Completed" || match.status === "Walkover" || isByeMatch(match);
+  return match.status === "C" || match.status === "W" || isByeMatch(match);
 }
 
 function roundKey(match: MatchEntry) {
@@ -129,7 +129,7 @@ function ResultRow({
   onOpenScore: (m: MatchEntry) => void;
   onUpdateSchedule: (s: ScheduleFields) => Promise<void>;
 }) {
-  const isDone = match.status === "Completed" || match.status === "Walkover";
+  const isDone = match.status === "C" || match.status === "W";
   const isBye = isByeMatch(match);
   const team1 = teamDisplay(match.team1);
   const team2 = teamDisplay(match.team2);

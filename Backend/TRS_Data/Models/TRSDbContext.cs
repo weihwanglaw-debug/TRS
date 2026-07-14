@@ -78,7 +78,7 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.AdditionalInfo).HasColumnType("nvarchar(max)");
             e.Property(x => x.SportType).HasMaxLength(100);
             e.Property(x => x.FixtureMode).HasMaxLength(15).IsUnicode(false).HasDefaultValue("internal");
-            e.Property(x => x.RegistrationStatus).HasMaxLength(20).IsUnicode(false).HasDefaultValue("open");
+            e.Property(x => x.RegistrationStatus).HasMaxLength(2).IsUnicode(false).HasDefaultValue("O");
             e.Property(x => x.MaxParticipants).HasDefaultValue(100);
             e.Property(x => x.IsSports).HasDefaultValue(true);
             e.Property(x => x.IsActive).HasDefaultValue(true);
@@ -122,7 +122,7 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.Fee).HasColumnType("decimal(10,2)");
             e.Property(x => x.FeeStructure).HasMaxLength(10).IsUnicode(false).HasDefaultValue("per_entry");
             e.Property(x => x.TeamMode).HasDefaultValue(false);
-            e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("open");
+            e.Property(x => x.Status).HasMaxLength(2).IsUnicode(false).HasDefaultValue("O");
             e.Property(x => x.IsActive).HasDefaultValue(true);
             e.Property(x => x.MinAge).HasDefaultValue(0);
             e.Property(x => x.MaxAge).HasDefaultValue(99);
@@ -187,7 +187,7 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.RegistrationId).HasColumnName("RegistrationID");
             e.Property(x => x.EventId).HasColumnName("EventID");
             e.Property(x => x.EventName).HasMaxLength(300);
-            e.Property(x => x.RegStatus).HasMaxLength(15).HasDefaultValue("Pending");
+            e.Property(x => x.RegStatus).HasMaxLength(2).IsUnicode(false).HasDefaultValue("P");
             e.Property(x => x.ContactName).HasMaxLength(200);
             e.Property(x => x.ContactEmail).HasMaxLength(255);
             e.Property(x => x.ContactPhone).HasMaxLength(30).IsUnicode(false);
@@ -195,7 +195,7 @@ public partial class TRSDbContext : DbContext
             // legacy
             e.Property(x => x.Currency).HasMaxLength(3).IsUnicode(false).HasDefaultValue("SGD");
             e.Property(x => x.TotalAmount).HasColumnType("decimal(10,2)");
-            e.Property(x => x.RegistrationStatus).HasMaxLength(1).IsUnicode(false).HasDefaultValue("P");
+            e.Property(x => x.RegistrationStatus).HasMaxLength(2).IsUnicode(false).HasDefaultValue("P");
             e.Property(x => x.NumberOfParticipants).HasDefaultValue(1);
             // FIX: was "(getdate())" — DB uses sysutcdatetime()
             e.Property(x => x.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
@@ -212,7 +212,7 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.ProgramId).HasColumnName("ProgramID");
             e.Property(x => x.ProgramName).HasMaxLength(300);
             e.Property(x => x.Fee).HasColumnType("decimal(10,2)");
-            e.Property(x => x.GroupStatus).HasMaxLength(15).HasDefaultValue("Pending");
+            e.Property(x => x.GroupStatus).HasMaxLength(2).IsUnicode(false).HasDefaultValue("P");
             e.Property(x => x.ClubDisplay).HasMaxLength(200);
             e.Property(x => x.NamesDisplay).HasMaxLength(500);
             e.Property(x => x.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
@@ -241,7 +241,7 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.GuardianName).HasMaxLength(200);
             e.Property(x => x.GuardianContact).HasMaxLength(30).IsUnicode(false);
             e.Property(x => x.DocumentUrl).HasMaxLength(1000);
-            e.Property(x => x.ParticipantStatus).HasMaxLength(15).IsUnicode(false).HasDefaultValue("Active");
+            e.Property(x => x.ParticipantStatus).HasMaxLength(1).IsUnicode(false).HasDefaultValue("A");
             e.Property(x => x.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
             e.HasOne(x => x.Group).WithMany(x => x.Participants)
              .HasForeignKey(x => x.GroupId).OnDelete(DeleteBehavior.Cascade)
@@ -501,7 +501,7 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.Currency).HasMaxLength(3).IsUnicode(false).HasDefaultValue("SGD");
             e.Property(x => x.GatewayPaymentIntentId).HasMaxLength(255).IsUnicode(false)
              .HasColumnName("GatewayPaymentIntentID");
-            e.Property(x => x.Status).HasMaxLength(30).IsUnicode(false);
+            e.Property(x => x.Status).HasMaxLength(2).IsUnicode(false).HasDefaultValue("CR");
             e.Property(x => x.PayloadJson).HasColumnType("nvarchar(max)").HasColumnName("PayloadJSON");
             e.Property(x => x.LineItemsJson).HasColumnType("nvarchar(max)").HasColumnName("LineItemsJSON");
             e.Property(x => x.RegistrationId).HasColumnName("RegistrationID");

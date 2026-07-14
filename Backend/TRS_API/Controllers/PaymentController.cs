@@ -83,7 +83,7 @@ namespace TRS_API.Controllers
         public async Task<IActionResult> MarkEmbeddedAttemptSubmitted(int attemptId)
         {
             var ok = await _paymentAttempts.MarkSubmittedAsync(attemptId, HttpContext.RequestAborted);
-            return ok ? Ok(new { status = "Submitted" }) : NotFound(new { code = "NOT_FOUND" });
+            return ok ? Ok(new { status = StatusCodesEx.PaymentAttempt.Submitted }) : NotFound(new { code = "NOT_FOUND" });
         }
 
         [EnableRateLimiting("payment")]
@@ -127,7 +127,10 @@ namespace TRS_API.Controllers
                     return NotFound(new { message = "Registration not found" });
 
                 var existingPayment = await _db.Payments
-                    .Where(p => p.RegistrationId == registrationId && p.PaymentStatus == "S")
+                    .Where(p => p.RegistrationId == registrationId &&
+                                (p.PaymentStatus == StatusCodesEx.Payment.Success ||
+                                 p.PaymentStatus == StatusCodesEx.Payment.PartiallyRefunded ||
+                                 p.PaymentStatus == StatusCodesEx.Payment.FullyRefunded))
                     .FirstOrDefaultAsync();
 
                 return Ok(new
@@ -228,7 +231,7 @@ namespace TRS_API.Controllers
                         PriceData = new SessionLineItemPriceDataOptions
                         {
                             Currency   = currency.ToLower(),
-                            UnitAmount = (long)(totalAmount * 100),
+                            UnitAmount = expectedAmountCents,
                             ProductData = new SessionLineItemPriceDataProductDataOptions
                             {
                                 Name        = "Tournament Registration",
@@ -390,17 +393,17 @@ namespace TRS_API.Controllers
             if (registration == null)
                 return NotFound(new { message = "Registration not found" });
 
-            if (registration.RegStatus != "Pending")
+            if (registration.RegStatus != StatusCodesEx.Registration.Pending)
                 return BadRequest(new { message = $"Registration status is {registration.RegStatus}" });
 
-            if (registration.RegistrationStatus == "C")
+            if (registration.RegistrationStatus == StatusCodesEx.Registration.Confirmed)
                 return BadRequest(new { message = "Already confirmed/paid" });
 
-            if (registration.RegistrationStatus == "X")
+            if (registration.RegistrationStatus == StatusCodesEx.Registration.Cancelled)
                 return BadRequest(new { message = "Cancelled" });
 
             var existingPayment = await _db.Payments
-                .Where(p => p.RegistrationId == request.RegistrationId && p.PaymentStatus == "S")
+                .Where(p => p.RegistrationId == request.RegistrationId && p.PaymentStatus == StatusCodesEx.Payment.Success)
                 .FirstOrDefaultAsync();
 
             if (existingPayment != null)
@@ -425,7 +428,7 @@ namespace TRS_API.Controllers
                         PriceData = new SessionLineItemPriceDataOptions
                         {
                             Currency   = registration.Currency.ToLower(),
-                            UnitAmount = (long)(registration.TotalAmount * 100),
+                            UnitAmount = ToMinorUnits(registration.TotalAmount),
                             ProductData = new SessionLineItemPriceDataProductDataOptions
                             {
                                 Name        = "Tournament Registration",
@@ -531,7 +534,7 @@ namespace TRS_API.Controllers
             var log = await _db.WebhookLogs
                 .FirstOrDefaultAsync(w =>
                     w.GatewaySessionId == session.Id &&
-                    w.ProcessingStatus == "F" &&
+                    w.ProcessingStatus == StatusCodesEx.Processing.Failed &&
                     (w.EventType == "checkout.session.completed" || w.EventType == "processing_error"));
 
             var now = DateTime.UtcNow;
@@ -543,7 +546,7 @@ namespace TRS_API.Controllers
                     GatewayEventId = $"confirm_session_{session.Id}",
                     EventType = "checkout.session.completed",
                     PayloadJson = JsonSerializer.Serialize(session),
-                    ProcessingStatus = "F",
+                    ProcessingStatus = StatusCodesEx.Processing.Failed,
                     ReceivedAt = now,
                 };
                 _db.WebhookLogs.Add(log);
@@ -603,14 +606,14 @@ namespace TRS_API.Controllers
         {
             var paidAmount = payment.Amount;
             var refundedAmount = payment.Refunds
-                .Where(r => r.RefundStatus == "S")
+                .Where(r => r.RefundStatus == StatusCodesEx.Refund.Success)
                 .Sum(r => r.RefundAmount);
 
             payment.PaymentStatus = refundedAmount switch
             {
-                <= 0m => "S",
-                var amount when amount >= paidAmount => "FR",
-                _ => "PR",
+                <= 0m => StatusCodesEx.Payment.Success,
+                var amount when amount >= paidAmount => StatusCodesEx.Payment.FullyRefunded,
+                _ => StatusCodesEx.Payment.PartiallyRefunded,
             };
             payment.UpdatedAt = DateTime.UtcNow;
         }
@@ -618,10 +621,12 @@ namespace TRS_API.Controllers
         internal static void ApplyRefundItemOutcome(Payment payment, PaymentItem item)
         {
             var refundedAmount = payment.Refunds
-                .Where(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == "S")
+                .Where(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == StatusCodesEx.Refund.Success)
                 .Sum(r => r.RefundAmount);
 
-            item.ItemStatus = refundedAmount >= item.Amount ? "R" : "S";
+            item.ItemStatus = refundedAmount >= item.Amount
+                ? StatusCodesEx.PaymentItem.Refunded
+                : StatusCodesEx.PaymentItem.Success;
             item.UpdatedAt = DateTime.UtcNow;
         }
 

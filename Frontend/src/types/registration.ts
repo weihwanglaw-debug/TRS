@@ -51,12 +51,16 @@
  */
 
 export type RegStatus =
-  | "Pending"
-  | "Confirmed"
-  | "CancelPending"
-  | "RefundFailed"
-  | "PartiallyRefunded"
-  | "Cancelled";
+  | "P"
+  | "C"
+  | "CP"
+  | "RF"
+  | "X";
+
+export type GroupStatus =
+  | "P"
+  | "C"
+  | "X";
 
 //  Payment / refund status codes
 // These match the DB schema exactly. UI badge components translate to
@@ -79,8 +83,8 @@ export type ItemStatus =
   | "X";
 
 export type ParticipantStatus =
-  | "Active"
-  | "Cancelled";
+  | "A"
+  | "X";
 
 export type RefundStatus =
   | "P"
@@ -119,6 +123,19 @@ export const ITEM_STATUS_LABEL: Record<ItemStatus, string> = {
   P: "Pending",
   S: "Paid",
   R: "Refunded",
+  X: "Cancelled",
+};
+
+export const REG_STATUS_LABEL: Record<RegStatus, string> = {
+  P: "Pending",
+  C: "Confirmed",
+  CP: "Cancel Pending",
+  RF: "Refund Failed",
+  X: "Cancelled",
+};
+
+export const PARTICIPANT_STATUS_LABEL: Record<ParticipantStatus, string> = {
+  A: "Active",
   X: "Cancelled",
 };
 
@@ -165,7 +182,7 @@ export interface ParticipantGroup {
   programId:       string;   // FK -> Program.id
   programName:     string;   // Snapshotted at checkout (receipt stability)
   fee:             number;   // Total fee for this group slot
-  groupStatus:     RegStatus;
+  groupStatus:     GroupStatus;
   seed:            number | null;
   participants:    RegistrationParticipant[];
   // Derived display fields (computed + stored for query performance)
@@ -333,9 +350,9 @@ export interface OrphanRefundHistory {
 /** Flatten a registration into SeedEntry-compatible objects for the fixture wizard */
 export function groupsToSeedEntries(groups: ParticipantGroup[]) {
   return groups
-    .filter(g => g.groupStatus !== "Cancelled")
+    .filter(g => g.groupStatus !== "X")
       .map(g => {
-        const activeParticipants = g.participants.filter(p => p.participantStatus !== "Cancelled");
+        const activeParticipants = g.participants.filter(p => p.participantStatus !== "X");
         return {
         id:           g.id,          // ParticipantGroup.id IS the SeedEntry.id
         club:         g.clubDisplay,
@@ -365,7 +382,7 @@ export function totalRefunded(refunds: Refund[]): number {
 /** All participant names across all groups in a registration */
 export function allParticipantNames(reg: Registration): string[] {
   return reg.groups.flatMap(g => g.participants
-    .filter(p => p.participantStatus !== "Cancelled")
+    .filter(p => p.participantStatus !== "X")
     .map(p => p.fullName));
 }
 
@@ -379,13 +396,13 @@ export function canRefundItem(item: PaymentItem, activeRefunds: Refund[]): boole
 }
 
 export type PaymentAttemptStatus =
-  | "Created"
-  | "Submitted"
-  | "Succeeded"
-  | "Failed"
-  | "Expired"
-  | "Canceled"
-  | "NeedsReconciliation";
+  | "CR"
+  | "SB"
+  | "S"
+  | "F"
+  | "EX"
+  | "X"
+  | "NR";
 
 export interface EmbeddedPaymentAttempt {
   paymentAttemptId: number;

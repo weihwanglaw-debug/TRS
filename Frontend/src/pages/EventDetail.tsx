@@ -332,9 +332,9 @@ export default function EventDetail() {
   const [adminConfirmNote, setAdminConfirmNote] = useState("");
   const [adminConfirmRef, setAdminConfirmRef] = useState("");
 
-  const status = event ? getEventStatus(event) : "closed";
-  const isAdminRegistrationMode = isAuthenticated && status !== "open" && status !== "draft";
-  const canShowRegistration = status === "open" || isAdminRegistrationMode;
+  const status = event ? getEventStatus(event) : "CL";
+  const isAdminRegistrationMode = isAuthenticated && status !== "O" && status !== "D";
+  const canShowRegistration = status === "O" || isAdminRegistrationMode;
   const currency = cfg.currency || "SGD";
   const totalPrice = cart.reduce((sum, e) => sum + e.fee, 0);
   // checkout submission state
@@ -777,14 +777,14 @@ export default function EventDetail() {
       return {
         id: groupId, registrationId: "REG-TEMP", eventId: Number(event!.id),
         programId: Number(entry.programId), programName: entry.programName, fee: entry.fee,
-        groupStatus: "Pending" as const, seed: null, participants: parts,
+        groupStatus: "P" as const, seed: null, participants: parts,
         clubDisplay: parts[0]?.clubSchoolCompany ?? "",
         namesDisplay: parts.map(p => p.fullName).join(" / "),
         items,
       };
     });
     return {
-      eventId: Number(event!.id), eventName: event!.name, regStatus: "Pending" as const,
+      eventId: Number(event!.id), eventName: event!.name, regStatus: "P" as const,
       contactName: registrationContact.name, contactEmail: registrationContact.email, contactPhone: registrationContact.phone,
       groups,
       payment: {
@@ -1118,22 +1118,22 @@ export default function EventDetail() {
           <h2 className="event-detail-section-heading font-bold text-xl mb-6">           
             {event.sportType.toLowerCase() === "badminton" ? "Event Categories" : "Programs"}
           </h2>
-          {status === "upcoming" && (
+          {status === "U" && (
             <div className="p-4 mb-6 text-sm" style={registrationNoticeStyle}>
               {isAdminRegistrationMode
                 ? `Admin registration mode (Registration opens on ${formatDate(event.openDate)})`
                 : `Registration opens on ${formatDate(event.openDate)}`}
             </div>
           )}
-          {status === "paused" && (
+          {status === "PA" && (
             <div className="p-4 mb-6 text-sm" style={registrationNoticeStyle}>
               {isAdminRegistrationMode ? "Admin registration mode (Registration Paused)" : "Registration Paused"}
             </div>
           )}
-          {status === "draft" && (
+          {status === "D" && (
             <div className="p-4 mb-6 text-sm" style={registrationNoticeStyle}>Registration is not available yet.</div>
           )}
-          {status === "closed" && (
+          {status === "CL" && (
             <div className="p-4 mb-6 text-sm" style={registrationNoticeStyle}>
               {isAdminRegistrationMode ? "Admin registration mode (Registration Closed)" : "Registration Closed"}
             </div>
@@ -1146,8 +1146,8 @@ export default function EventDetail() {
                 ...prog,
                 currentParticipants: prog.currentParticipants + cartEntryCount,
               });
-              const isFull = capStatus === "full";
-              const progClosed = prog.status === "closed";
+              const isFull = capStatus === "F";
+              const progClosed = prog.status === "CL";
               const canRegister = canShowRegistration && !isFull && !progClosed;
               return (
                 <div key={prog.id} className="event-detail-program-card flex flex-col"

@@ -35,8 +35,8 @@ public class AdminPaymentReconciliationController : ControllerBase
 
     // GET /api/admin/payment-reconciliation/stats
     // Returns the combined count for the Dashboard "Payment Reconciliation" card.
-    // caseA: RegStatus=Confirmed, PaymentStatus=P
-    // caseB: RegStatus=Pending,   PaymentStatus=S
+    // caseA: RegStatus=C, PaymentStatus=P
+    // caseB: RegStatus=P, PaymentStatus=S
     // caseC: WebhookLog ProcessingStatus=F, EventType=checkout.session.completed,
     //        no matching Payment row (money collected, no registration)
     [HttpGet("stats")]
@@ -45,14 +45,14 @@ public class AdminPaymentReconciliationController : ControllerBase
         var caseA = await _db.EventRegistrations
             .Include(r => r.Payments)
             .CountAsync(r =>
-                r.RegStatus == "Confirmed" &&
-                r.Payments.Any(p => p.PaymentStatus == "P"));
+                r.RegStatus == StatusCodesEx.Registration.Confirmed &&
+                r.Payments.Any(p => p.PaymentStatus == StatusCodesEx.Payment.Pending));
 
         var caseB = await _db.EventRegistrations
             .Include(r => r.Payments)
             .CountAsync(r =>
-                r.RegStatus == "Pending" &&
-                r.Payments.Any(p => p.PaymentStatus == "S"));
+                r.RegStatus == StatusCodesEx.Registration.Pending &&
+                r.Payments.Any(p => p.PaymentStatus == StatusCodesEx.Payment.Success));
 
         // Case C: failed checkout.session.completed webhooks where no Payment
         // row exists for that Stripe session (money collected, nothing in DB).

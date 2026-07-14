@@ -339,7 +339,7 @@ export async function apiGetRefunds(registrationId: string): Promise<ApiResult<R
  * Backend queues ProcessGatewayRefund job -> Stripe -> webhook flips status.
  *
  * DB constraints enforced:
- *  1. PaymentItem.ItemStatus must be 'S' (only paid items refundable)
+ *  1. PaymentItem.ItemStatus must be 'S', or 'X' for refund-only after cancellation
  *  2. No existing Pending refund for the same PaymentItemID
  *  (UQ_Refunds_OneActivePerItem filtered unique index)
  *  3. refundAmount <= PaymentItem.Amount
@@ -365,6 +365,41 @@ export async function apiInitiateRefund(
     body: JSON.stringify({
       paymentItemId: Number(paymentItemId),
       refundAmount,
+      refundReason,
+      refundSource: options?.refundSource,
+      refundMethod: options?.refundMethod,
+      refundReference: options?.refundReference,
+      adminNote: options?.adminNote,
+    }),
+  });
+  if (!res.ok) {
+    const e = await parseError(res);
+    return err(e.code, e.message);
+  }
+  return ok(await res.json());
+}
+
+export async function apiInitiateRefunds(
+  registrationId: string,
+  items: Array<{ paymentItemId: string; refundAmount: number }>,
+  refundReason: string,
+  options?: {
+    refundSource?: RefundSource;
+    refundMethod?: RefundMethod;
+    refundReference?: string;
+    adminNote?: string;
+  },
+): Promise<ApiResult<{ refunds: Refund[]; errors: string[] }>> {
+  await delay();
+
+  const res = await apiFetch(`${API_BASE}/api/registrations/${registrationId}/payment/refunds/bulk`, {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      items: items.map(item => ({
+        paymentItemId: Number(item.paymentItemId),
+        refundAmount: item.refundAmount,
+      })),
       refundReason,
       refundSource: options?.refundSource,
       refundMethod: options?.refundMethod,
@@ -419,6 +454,7 @@ async function postCancellation(
     refundMethod?: RefundMethod;
     refundReference?: string;
     adminNote?: string;
+    suppressEmail?: boolean;
   },
 ): Promise<ApiResult<CancellationResponse>> {
   await delay();
@@ -433,6 +469,7 @@ async function postCancellation(
       refundMethod: options?.refundMethod,
       refundReference: options?.refundReference,
       adminNote: options?.adminNote,
+      suppressEmail: options?.suppressEmail,
     }),
   });
   if (!res.ok) {
@@ -451,6 +488,7 @@ export async function apiCancelRegistration(
     refundMethod?: RefundMethod;
     refundReference?: string;
     adminNote?: string;
+    suppressEmail?: boolean;
   },
 ): Promise<ApiResult<CancellationResponse>> {
   return postCancellation(
@@ -471,6 +509,7 @@ export async function apiCancelRegistrationGroup(
     refundMethod?: RefundMethod;
     refundReference?: string;
     adminNote?: string;
+    suppressEmail?: boolean;
   },
 ): Promise<ApiResult<CancellationResponse>> {
   return postCancellation(
@@ -491,6 +530,7 @@ export async function apiCancelRegistrationParticipant(
     refundMethod?: RefundMethod;
     refundReference?: string;
     adminNote?: string;
+    suppressEmail?: boolean;
   },
 ): Promise<ApiResult<CancellationResponse>> {
   return postCancellation(
@@ -499,6 +539,26 @@ export async function apiCancelRegistrationParticipant(
     refundMode,
     options,
   );
+}
+
+export async function apiSendCancellationNotification(
+  registrationId: string,
+  reason: string,
+  scope: string,
+  includesRefund: boolean,
+): Promise<ApiResult<{ sent: boolean }>> {
+  await delay();
+
+  const res = await apiFetch(`${API_BASE}/api/registrations/${registrationId}/notifications/cancellation`, {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify({ reason, scope, includesRefund }),
+  });
+  if (!res.ok) {
+    const e = await parseError(res);
+    return err(e.code, e.message);
+  }
+  return ok(await res.json());
 }
 
 

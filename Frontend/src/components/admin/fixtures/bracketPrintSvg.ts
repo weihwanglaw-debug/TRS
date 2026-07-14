@@ -108,7 +108,7 @@ function svgCard(
   match: MatchEntry | null,
   primary: string,
 ): string {
-  const isDone  = !!match && (match.status === "Completed" || match.status === "Walkover");
+  const isDone  = !!match && (match.status === "C" || match.status === "W");
   const games   = match?.games ?? [];
   const t1w     = games.filter(g => g.p1 !== "" && g.p2 !== "" && +g.p1 > +g.p2).length;
   const t2w     = games.filter(g => g.p1 !== "" && g.p2 !== "" && +g.p2 > +g.p1).length;

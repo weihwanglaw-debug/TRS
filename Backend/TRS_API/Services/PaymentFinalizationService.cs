@@ -85,7 +85,7 @@ public sealed class PaymentFinalizationService
                 ValidatePricingAgainstCurrentPrograms = false,
                 PaymentGateway = "Stripe",
                 PaymentMethod = paymentMethod,
-                PaymentStatus = "S",
+                PaymentStatus = StatusCodesEx.Payment.Success,
                 PaymentAmountOverride = (session.AmountTotal ?? 0) / 100m,
                 GatewaySessionId = session.Id,
                 GatewayPaymentId = session.PaymentIntentId,

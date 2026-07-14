@@ -33,14 +33,14 @@ export default function EventCarousel() {
           r.data
             .filter((event) => {
               const status = getEventStatus(event);
-              if (isAuthenticated) return status !== "draft";
-              return status === "open" || status === "upcoming";
+              if (isAuthenticated) return status !== "D";
+              return status === "O" || status === "U";
             })
             .sort((a, b) => {
               const statusA = getEventStatus(a);
               const statusB = getEventStatus(b);
-              if (statusA === "open" && statusB !== "open") return -1;
-              if (statusA !== "open" && statusB === "open") return 1;
+              if (statusA === "O" && statusB !== "O") return -1;
+              if (statusA !== "O" && statusB === "O") return 1;
               return new Date(a.eventStartDate).getTime() - new Date(b.eventStartDate).getTime();
             }),
         );
@@ -101,9 +101,9 @@ export default function EventCarousel() {
                 const bannerImage = event.bannerUrl ? assetUrl(event.bannerUrl) : FALLBACK_BANNERS[index % FALLBACK_BANNERS.length];
                 const dateLabel = `${formatDate(event.eventStartDate)} - ${formatDate(event.eventEndDate)}`;
                 const statusLabel =
-                  status === "open" ? "Open" :
-                  status === "paused" ? "Paused" :
-                  status === "closed" ? "Closed" :
+                  status === "O" ? "Open" :
+                  status === "PA" ? "Paused" :
+                  status === "CL" ? "Closed" :
                   "Upcoming";
 
                 return (

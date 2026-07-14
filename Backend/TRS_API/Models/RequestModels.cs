@@ -179,11 +179,11 @@ public class CreatePaymentItemDto
 }
 public class UpdateProgramStatusRequest
 {
-    [Required] public string Status { get; set; } = null!;  // "open" | "closed"
+    [Required] public string Status { get; set; } = null!;  // O | CL
 }
 public class UpdateEventRegistrationStatusRequest
 {
-    [Required] public string Status { get; set; } = null!;  // "open" | "paused" | "closed"
+    [Required] public string Status { get; set; } = null!;  // O | PA | CL
 }
 public class UpdateRegStatusRequest
 {
@@ -210,6 +210,20 @@ public class InitiateRefundRequest
     public string? RefundReference { get; set; }
     public string? AdminNote { get; set; }
 }
+public class BulkRefundItemRequest
+{
+    [Required] public int PaymentItemId { get; set; }
+    [Required, Range(0.01, double.MaxValue)] public decimal RefundAmount { get; set; }
+}
+public class BulkInitiateRefundRequest
+{
+    [Required, MinLength(1)] public List<BulkRefundItemRequest> Items { get; set; } = new();
+    public string? RefundReason { get; set; }
+    public string? RefundSource { get; set; }
+    public string? RefundMethod { get; set; }
+    public string? RefundReference { get; set; }
+    public string? AdminNote { get; set; }
+}
 public class CancelRegistrationRequest
 {
     [Required] public string Reason { get; set; } = null!;
@@ -219,6 +233,13 @@ public class CancelRegistrationRequest
     public string? RefundReference { get; set; }
     public string? AdminNote { get; set; }
     public bool ConfirmFixtureImpact { get; set; }
+    public bool SuppressEmail { get; set; }
+}
+public class CancellationNotificationRequest
+{
+    [Required] public string Reason { get; set; } = null!;
+    public string Scope { get; set; } = "registration";
+    public bool IncludesRefund { get; set; }
 }
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────

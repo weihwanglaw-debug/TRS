@@ -10,7 +10,7 @@
  *  - Programs grouped as cards (Registration -> Program -> Participant count)
  *  - Per-entry vs per-player clearly labelled with fee badge
  *  - Always shows participant count (never a long name list)
- *  - Refund timeline shows ALL statuses (P/S/F) in chronological order
+ *  - Refund timeline shows ALL (P/S/F) in chronological order
  *  - Receipt download grayed out (with tooltip) when no receipt yet
  *  - Single source: both admin and user hit GET /api/registrations/:id/receipt
  */
@@ -23,13 +23,14 @@ import {
   Clock, AlertCircle, Download, Loader2,
 } from "lucide-react";
 import type { TournamentEvent } from "@/types/config";
-import type { Registration, ParticipantGroup, Payment, PaymentItem, Refund, PaymentMethod, PaymentStatus, PaymentAuditEntry, RefundMethod, RefundSource } from "@/types/registration";
-import { totalFee, PAYMENT_STATUS_LABEL, PAYMENT_METHOD_LABEL } from "@/types/registration";
+import type { Registration, ParticipantGroup, Payment, PaymentItem, Refund, PaymentMethod, PaymentStatus, PaymentAuditEntry, RefundMethod, RefundSource, RegStatus } from "@/types/registration";
+import { totalFee, PAYMENT_STATUS_LABEL, PAYMENT_METHOD_LABEL, REG_STATUS_LABEL } from "@/types/registration";
 import {
   apiGetEvents, apiGetRegistration, apiGetRegistrations,
   apiUpdatePayment,
   apiGetRefunds, apiGetPaymentAudit, apiCancelRegistration, apiCancelRegistrationGroup,
-  apiCancelRegistrationParticipant, apiConfirmRegistration, assetUrl,
+  apiCancelRegistrationParticipant, apiConfirmRegistration, apiInitiateRefunds,
+  apiSendCancellationNotification, assetUrl,
 } from "@/lib/api";
 import type { CancellationRefundMode } from "@/lib/api/registrationsApi";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -41,7 +42,8 @@ import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
 
 //  Types
 
-type RegStatus = "Pending" | "Confirmed" | "CancelPending" | "RefundFailed" | "PartiallyRefunded" | "Cancelled";
+type RefundCancelAction = "refundOnly" | "cancelWithoutRefund" | "cancelWithRefund";
+type RefundCancelScope = "whole" | "selected";
 
 type SortState<T> = { key: keyof T | null; dir: "asc" | "desc" };
 function useSort<T>(data: T[]) {
@@ -77,16 +79,16 @@ function PayBadge({ status }: { status: PaymentStatus }) {
 }
 
 function RegBadge({ status }: { status: string }) {
+  const label = REG_STATUS_LABEL[status as RegStatus] ?? status;
   const m: Record<string, [string, string]> = {
-    "Confirmed":  ["var(--badge-open-bg)",   "var(--badge-open-text)"],
-    "Pending":    ["var(--badge-soon-bg)",   "var(--badge-soon-text)"],
-    "CancelPending": ["var(--badge-soon-bg)", "var(--badge-soon-text)"],
-    "PartiallyRefunded": ["var(--badge-soon-bg)", "var(--badge-soon-text)"],
-    "RefundFailed": ["var(--badge-closed-bg)", "var(--badge-closed-text)"],
-    "Cancelled":  ["var(--badge-closed-bg)", "var(--badge-closed-text)"],
+    C:  ["var(--badge-open-bg)",   "var(--badge-open-text)"],
+    P:  ["var(--badge-soon-bg)",   "var(--badge-soon-text)"],
+    CP: ["var(--badge-soon-bg)",   "var(--badge-soon-text)"],
+    RF: ["var(--badge-closed-bg)", "var(--badge-closed-text)"],
+    X:  ["var(--badge-closed-bg)", "var(--badge-closed-text)"],
   };
-  const [bg, text] = m[status] ?? m["Pending"];
-  return <span className="inline-flex px-2 py-0.5 text-xs font-semibold" style={{ backgroundColor: bg, color: text }}>{status}</span>;
+  const [bg, text] = m[status] ?? m.P;
+  return <span className="inline-flex px-2 py-0.5 text-xs font-semibold" style={{ backgroundColor: bg, color: text }}>{label}</span>;
 }
 
 /** Badge for refund status: P=Pending, S=Success, F=Failed */
@@ -187,7 +189,7 @@ function refundableItems(payment: Payment | null | undefined, refunds: Refund[])
   if (!payment || !(payment.paymentStatus === "S" || payment.paymentStatus === "PR")) return [];
   if (!["Stripe", "Manual", "PayNow"].includes(payment.gateway)) return [];
   return payment.items.filter(item => {
-    if (item.itemStatus !== "S") return false;
+    if (item.itemStatus !== "S" && item.itemStatus !== "X") return false;
     const refunded = refunds
       .filter(r => r.paymentItemId === item.id && r.refundStatus === "S")
       .reduce((sum, r) => sum + r.refundAmount, 0);
@@ -252,7 +254,7 @@ function buildProgramGroups(
         .filter(g => groupIds.has(g.id))
         .reduce((sum, g) => sum + g.participants.length, 0);
     }
-    const quantity = isPerPlayer ? items.length : items.length;
+    const quantity = items.length;
 
     const subtotal = items.reduce((s, i) => s + i.amount, 0);
 
@@ -278,7 +280,7 @@ function buildProgramGroups(
 /**
  * Builds a flat chronological transaction timeline:
  * 1. The original payment event
- * 2. All refunds (all statuses: P/S/F) sorted by createdAt
+ * 2. All refunds (all: P/S/F) sorted by createdAt
  */
 interface TimelineEntry {
   type:          "payment" | "refund";
@@ -344,6 +346,7 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
   const [auditRows, setAuditRows] = useState<PaymentAuditEntry[]>([]);
   const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
   const receiptUrl = `${API_BASE}/api/registrations/${reg.id}/receipt`;
+  const detailsPdfUrl = `${API_BASE}/api/registrations/${reg.id}/details-pdf`;
   const hasReceipt = !!payment?.receiptNo;
 
   const programGroups = payment
@@ -698,25 +701,42 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
         >
   {/* Receipt button anchored left; Close anchored right via flex justify-between */}
           <div className="flex items-center justify-between w-full gap-4">
-            <div title={!hasReceipt ? "Receipt not yet generated - payment must be confirmed first" : undefined}>
+            <div className="flex items-center gap-3">
+              <div title={!hasReceipt ? "Receipt not yet generated - payment must be confirmed first" : undefined}>
+                <a
+                  href={hasReceipt ? receiptUrl : undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-disabled={!hasReceipt}
+                  onClick={e => { if (!hasReceipt) e.preventDefault(); }}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold"
+                  style={{
+                    border: "1px solid var(--color-table-border)",
+                    backgroundColor: hasReceipt ? "var(--color-primary)" : "var(--color-row-hover)",
+                    color: hasReceipt ? "white" : "var(--color-disabled-text)",
+                    cursor: hasReceipt ? "pointer" : "not-allowed",
+                    opacity: hasReceipt ? 1 : 0.6,
+                    textDecoration: "none",
+                  }}
+                >
+                  <Download className="h-4 w-4" />
+                  Download Receipt PDF
+                </a>
+              </div>
               <a
-                href={hasReceipt ? receiptUrl : undefined}
+                href={detailsPdfUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-disabled={!hasReceipt}
-                onClick={e => { if (!hasReceipt) e.preventDefault(); }}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold"
                 style={{
                   border: "1px solid var(--color-table-border)",
-                  backgroundColor: hasReceipt ? "var(--color-primary)" : "var(--color-row-hover)",
-                  color: hasReceipt ? "white" : "var(--color-disabled-text)",
-                  cursor: hasReceipt ? "pointer" : "not-allowed",
-                  opacity: hasReceipt ? 1 : 0.6,
+                  backgroundColor: "var(--color-row-hover)",
+                  color: "var(--color-body-text)",
                   textDecoration: "none",
                 }}
               >
                 <Download className="h-4 w-4" />
-                Download Receipt PDF
+                Download Registration Details PDF
               </a>
             </div>
             <button onClick={onClose} className="btn-outline px-5 py-2.5 text-sm">
@@ -836,6 +856,9 @@ export default function AdminRegistrations() {
   const [paymentLogModal, setPaymentLogModal] = useState<Registration | null>(null);
   const [cancelModal,     setCancelModal]     = useState<Registration | null>(null);
   const [refundModal,     setRefundModal]     = useState<Registration | null>(null);
+  const [refundCancelModal, setRefundCancelModal] = useState<Registration | null>(null);
+  const [refundCancelAction, setRefundCancelAction] = useState<RefundCancelAction>("refundOnly");
+  const [refundCancelScope, setRefundCancelScope] = useState<RefundCancelScope>("selected");
   const [markPaidMethod,  setMarkPaidMethod]  = useState<PaymentMethod>("PayNow");
   const [markPaidRemark,  setMarkPaidRemark]  = useState("");
   const [cancelReason,    setCancelReason]    = useState("");
@@ -979,6 +1002,72 @@ export default function AdminRegistrations() {
     return refundableItems(payment, refunds).map(item => item.id);
   };
 
+  const isItemScopeActive = (reg: Registration, item: PaymentItem): boolean => {
+    const group = reg.groups.find(g => g.id === item.participantGroupId);
+    if (!group || group.groupStatus === "X") return false;
+    if (!item.participantId) return true;
+    const participant = group.participants.find(p => p.id === item.participantId);
+    return participant?.participantStatus !== "X";
+  };
+
+  const getRefundCancelItems = (reg: Registration, action: RefundCancelAction): PaymentItem[] => {
+    const payment = getPayment(reg);
+    if (!payment) return [];
+    return payment.items;
+  };
+
+  const canApplyRefundCancelAction = (reg: Registration, item: PaymentItem, action: RefundCancelAction): boolean => {
+    if (action === "cancelWithoutRefund") {
+      return isItemScopeActive(reg, item);
+    }
+
+    const isRefundable = refundableItems(getPayment(reg), refundsByReg[reg.id] ?? [])
+      .some(refundable => refundable.id === item.id);
+
+    if (action === "refundOnly") {
+      return isRefundable;
+    }
+
+    return isItemScopeActive(reg, item) && isRefundable;
+  };
+
+  const getEligibleRefundCancelItems = (reg: Registration, action: RefundCancelAction): PaymentItem[] =>
+    getRefundCancelItems(reg, action).filter(item => canApplyRefundCancelAction(reg, item, action));
+
+  const getRefundCancelItemDisabledReason = (reg: Registration, item: PaymentItem, action: RefundCancelAction): string | null => {
+    if (!isItemScopeActive(reg, item) && action !== "refundOnly") return "Already cancelled";
+    if (action === "cancelWithoutRefund") return null;
+    if (item.itemStatus === "R") return action === "refundOnly" ? "Already refunded" : "Already refunded - cancel without refund";
+    if (getRemainingRefundAmount(reg, item) <= 0) return "No refundable amount";
+    if (!canApplyRefundCancelAction(reg, item, action)) return "Not eligible";
+    return null;
+  };
+
+  const refundCancelItemStatusBadge = (item: PaymentItem): { label: string; bg: string; text: string } => {
+    if (item.itemStatus === "R") {
+      return { label: "Refunded", bg: "var(--badge-open-bg)", text: "var(--badge-open-text)" };
+    }
+    if (item.itemStatus === "S") {
+      return { label: "Paid", bg: "var(--color-row-hover)", text: "var(--color-primary)" };
+    }
+    if (item.itemStatus === "X") {
+      return { label: "Cancelled", bg: "var(--badge-closed-bg)", text: "var(--badge-closed-text)" };
+    }
+    return { label: "Pending", bg: "var(--badge-soon-bg)", text: "var(--badge-soon-text)" };
+  };
+
+  const resetRefundCancelState = () => {
+    setRefundCancelModal(null);
+    setRefundCancelAction("refundOnly");
+    setRefundCancelScope("selected");
+    setRefundSel({});
+    setCancelReason("");
+    setRefundSource("System");
+    setRefundMethod("GatewayDashboard");
+    setRefundReference("");
+    setRefundAdminNote("");
+  };
+
   const isLastActiveRefundItem = (reg: Registration, itemId: string): boolean =>
     getActiveRefundableItemIds(reg).length === 1 &&
     getActiveRefundableItemIds(reg)[0] === itemId;
@@ -1067,6 +1156,164 @@ export default function AdminRegistrations() {
     }
   };
 
+  const getRemainingRefundAmount = (reg: Registration, item: PaymentItem): number => {
+    const refunded = (refundsByReg[reg.id] ?? [])
+      .filter(r => r.paymentItemId === item.id && r.refundStatus === "S")
+      .reduce((sum, r) => sum + r.refundAmount, 0);
+    return Math.max(0, item.amount - refunded);
+  };
+
+  const cancelSelectedItem = (
+    reg: Registration,
+    item: PaymentItem,
+    refundMode: CancellationRefundMode,
+    options?: {
+      refundSource?: RefundSource;
+      refundMethod?: RefundMethod;
+      refundReference?: string;
+      adminNote?: string;
+      suppressEmail?: boolean;
+    },
+  ) => {
+    if (item.participantId) {
+      return apiCancelRegistrationParticipant(reg.id, item.participantId, cancelReason, refundMode, options);
+    }
+    if (item.participantGroupId) {
+      return apiCancelRegistrationGroup(reg.id, item.participantGroupId, cancelReason, refundMode, options);
+    }
+    return apiCancelRegistration(reg.id, cancelReason, refundMode, options);
+  };
+
+  const handleRefundCancel = async () => {
+    if (!refundCancelModal || !cancelReason.trim()) return;
+    const payment = getPayment(refundCancelModal);
+    if (!payment) { setApiError("This registration has no payment record."); return; }
+
+    const involvesRefund = refundCancelAction !== "cancelWithoutRefund";
+    const refundOptions = refundSource === "External"
+      ? {
+          refundSource: "External" as const,
+          refundMethod,
+          refundReference,
+          adminNote: refundAdminNote,
+        }
+      : undefined;
+
+    if (involvesRefund && refundSource === "External" && requiresRefundReference(refundMethod) && !refundReference.trim()) {
+      setApiError("Refund reference / ID is required for this external refund method.");
+      return;
+    }
+
+    const availableItems = getEligibleRefundCancelItems(refundCancelModal, refundCancelAction);
+    const selectedItems = refundCancelScope === "whole"
+      ? availableItems
+      : availableItems.filter(item => refundSel[item.id]?.checked);
+
+    if (refundCancelScope === "selected" && selectedItems.length === 0) {
+      setApiError("Select at least one item.");
+      return;
+    }
+
+    if (involvesRefund && selectedItems.length === 0) {
+      setApiError("There are no refundable paid items for this action.");
+      return;
+    }
+
+    setSavingRefund(true);
+    try {
+      const actionErrors: string[] = [];
+
+      if (refundCancelAction === "refundOnly") {
+        const refundItems = selectedItems
+          .map(item => ({
+            paymentItemId: item.id,
+            refundAmount: getRemainingRefundAmount(refundCancelModal, item),
+          }))
+          .filter(item => item.refundAmount > 0);
+
+        const result = await apiInitiateRefunds(
+          refundCancelModal.id,
+          refundItems,
+          cancelReason,
+          refundOptions,
+        );
+        if (result.error) {
+          actionErrors.push(result.error.message);
+        }
+        if (result.data?.errors?.length) {
+          actionErrors.push(...result.data.errors);
+        }
+      } else if (refundCancelScope === "whole") {
+        const result = await apiCancelRegistration(
+          refundCancelModal.id,
+          cancelReason,
+          refundCancelAction === "cancelWithRefund" ? "refundPaidItems" : "none",
+          refundCancelAction === "cancelWithRefund" ? refundOptions : undefined,
+        );
+        if (result.error) actionErrors.push(result.error.message);
+        if (result.data?.errors?.length) actionErrors.push(...result.data.errors);
+      } else {
+        let actionSucceeded = false;
+        for (const item of selectedItems) {
+          const result = await cancelSelectedItem(
+            refundCancelModal,
+            item,
+            refundCancelAction === "cancelWithRefund" ? "refundPaidItems" : "none",
+            {
+              ...(refundCancelAction === "cancelWithRefund" ? refundOptions : undefined),
+              suppressEmail: true,
+            },
+          );
+          if (result.error) actionErrors.push(`${item.programName}: ${result.error.message}`);
+          else actionSucceeded = true;
+          if (result.data?.errors?.length) {
+            actionErrors.push(...result.data.errors.map(error => `${item.programName}: ${error}`));
+          }
+        }
+        if (actionSucceeded) {
+          const notificationScope = selectedItems.length === 1
+            ? selectedItems[0].participantId ? "participant" : "entry"
+            : "registration";
+          const notification = await apiSendCancellationNotification(
+            refundCancelModal.id,
+            cancelReason,
+            notificationScope,
+            refundCancelAction === "cancelWithRefund",
+          );
+          if (notification.error) actionErrors.push(notification.error.message);
+        }
+      }
+
+      const [regR, refR] = await Promise.all([
+        apiGetRegistration(refundCancelModal.id),
+        apiGetRefunds(refundCancelModal.id),
+      ]);
+      if (regR.data) {
+        setRegs(prev => prev.map(r => r.id === refundCancelModal.id ? regR.data! : r));
+      }
+      if (refR.data) {
+        setRefundsByReg(prev => ({ ...prev, [refundCancelModal.id]: refR.data! }));
+      }
+
+      if (actionErrors.length > 0) {
+        setApiError(`Action completed with issues: ${actionErrors.join(" | ")}`);
+        return;
+      }
+
+      const successTitle = refundCancelAction === "refundOnly"
+        ? "Refund processed"
+        : refundCancelAction === "cancelWithRefund"
+          ? "Cancellation with refund processed"
+          : "Cancellation processed";
+      resetRefundCancelState();
+      showSuccess(successTitle, "The registration record has been updated.");
+    } catch {
+      setApiError("Action could not be completed. Please check the latest payment and registration status before retrying.");
+    } finally {
+      setSavingRefund(false);
+    }
+  };
+
   const handleConfirmReg = async () => {
     if (!confirmRegModal) return;
     setSavingConfirmReg(true);
@@ -1137,12 +1384,11 @@ export default function AdminRegistrations() {
               <select className="field-input w-36" value={filterReg}
                 onChange={e => { setFilterReg(e.target.value); setPage(1); }}>
                 <option value="">All</option>
-                <option value="Confirmed">Confirmed</option>
-                <option value="Pending">Pending</option>
-                <option value="CancelPending">Cancel Pending</option>
-                <option value="PartiallyRefunded">Partially Refunded</option>
-                <option value="RefundFailed">Refund Failed</option>
-                <option value="Cancelled">Cancelled</option>
+                <option value="C">Confirmed</option>
+                <option value="P">Pending</option>
+                <option value="CP">Cancel Pending</option>
+                <option value="RF">Refund Failed</option>
+                <option value="X">Cancelled</option>
               </select>
             </FG>
             <FG label="Payment">
@@ -1189,7 +1435,7 @@ export default function AdminRegistrations() {
 
                 return (
                   <React.Fragment key={reg.id}>
-                    <tr style={reg.regStatus === "Pending" || payment?.paymentStatus === "P"
+                    <tr style={reg.regStatus === "P" || payment?.paymentStatus === "P"
                       ? { borderLeft: "3px solid var(--badge-soon-text)" } : undefined}>
                       <td className="font-mono text-xs">{reg.id}</td>
                       <td>
@@ -1316,26 +1562,39 @@ export default function AdminRegistrations() {
         {openAction && (
           <>
             <button
-              disabled={!(["P", "PC"].includes(getPayment(openAction.reg)?.paymentStatus ?? "") && openAction.reg.regStatus !== "Cancelled")}
+              disabled={!(["P", "PC"].includes(getPayment(openAction.reg)?.paymentStatus ?? "") && openAction.reg.regStatus !== "X")}
               onClick={() => { setMarkPaidModal(openAction.reg); setOpenAction(null); }}
             >
               <CheckCircle className="h-4 w-4" /> Mark as Paid
             </button>
             <button
               disabled={!(
-                openAction.reg.regStatus === "Pending" &&
+                openAction.reg.regStatus === "P" &&
                 getPayment(openAction.reg)?.paymentStatus === "S"
               )}
               onClick={() => { setConfirmRegModal(openAction.reg); setOpenAction(null); }}
             >
               <CheckCircle className="h-4 w-4" /> Confirm Registration
             </button>
-            <button
-              disabled={!((getPayment(openAction.reg)?.items ?? []).some(item => item.itemStatus === "S") && openAction.reg.regStatus !== "Cancelled")}
-              onClick={() => { setRefundSel({}); setRefundModal(openAction.reg); setOpenAction(null); }}
-            >
-              <RefreshCw className="h-4 w-4" /> Refund
-            </button>
+            {(() => {
+              const canRefund = getEligibleRefundCancelItems(openAction.reg, "refundOnly").length > 0;
+              const canCancel = openAction.reg.regStatus !== "X";
+              return (
+                <button
+                  disabled={!(canRefund || canCancel)}
+                  onClick={() => {
+                    setRefundSel({});
+                    setCancelReason("");
+                    setRefundCancelAction(canRefund ? "refundOnly" : "cancelWithoutRefund");
+                    setRefundCancelScope(canRefund ? "selected" : "whole");
+                    setRefundCancelModal(openAction.reg);
+                    setOpenAction(null);
+                  }}
+                >
+                  <RefreshCw className="h-4 w-4" /> Refund / Cancel
+                </button>
+              );
+            })()}
 {/* Payment Log disabled when there is no payment record at all */}
             {(() => {
               const pay = getPayment(openAction.reg);
@@ -1356,14 +1615,6 @@ export default function AdminRegistrations() {
               setOpenAction(null);
             }}>
               <Users className="h-4 w-4" /> Participant List
-            </button>
-
-
-            <button
-              disabled={openAction.reg.regStatus === "Cancelled"}
-              onClick={() => { setCancelModal(openAction.reg); setOpenAction(null); }}
-            >
-              <XCircle className="h-4 w-4" /> Cancel
             </button>
           </>
         )}
@@ -1409,7 +1660,164 @@ export default function AdminRegistrations() {
         </DialogContent>
       </Dialog>
 
-  
+  {/* Refund / Cancel */}
+      <Dialog open={!!refundCancelModal} onOpenChange={v => { if (!v) resetRefundCancelState(); }}>
+        <DialogContent className="w-[min(92vw,760px)] max-w-3xl max-h-[90vh] overflow-y-auto p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
+          <DialogHeader className="p-7 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
+            <DialogTitle className="font-bold text-lg">Refund / Cancel</DialogTitle>
+            {refundCancelModal && <p className="text-xs mt-1">{refundCancelModal.id} - {refundCancelModal.contactName}</p>}
+          </DialogHeader>
+          <div className="p-7 space-y-4">
+            <FG label="Action">
+              <select
+                className="field-input"
+                value={refundCancelAction}
+                onChange={e => {
+                  const action = e.target.value as RefundCancelAction;
+                  setRefundCancelAction(action);
+                  setRefundSel({});
+                  setRefundCancelScope(action === "refundOnly" ? "selected" : "whole");
+                }}
+              >
+                <option value="refundOnly">Refund only</option>
+                <option value="cancelWithoutRefund">Cancel without refund</option>
+                <option value="cancelWithRefund">Cancel with refund</option>
+              </select>
+            </FG>
+
+            <label className="flex items-center justify-between gap-4 p-4 cursor-pointer"
+              style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
+              <div>
+                <div className="text-sm font-semibold">Apply to all eligible items</div>
+                <div className="text-xs opacity-60 mt-1">
+                  {refundCancelScope === "whole"
+                    ? "All listed items will be included."
+                    : "Choose individual items below."}
+                </div>
+              </div>
+              <Switch
+                checked={refundCancelScope === "whole"}
+                onCheckedChange={checked => {
+                  setRefundCancelScope(checked ? "whole" : "selected");
+                  setRefundSel({});
+                }}
+              />
+            </label>
+
+            {refundCancelAction !== "cancelWithoutRefund" && (
+              <>
+                <FG label="Refund mode">
+                  <select className="field-input" value={refundSource} onChange={e => setRefundSource(e.target.value as RefundSource)}>
+                    <option value="System">Internal System Refund</option>
+                    <option value="External">Record External Refund</option>
+                  </select>
+                </FG>
+                {refundSource === "External" && (
+                  <div className="space-y-3">
+                    <FG label="Refund method *">
+                      <select className="field-input" value={refundMethod} onChange={e => setRefundMethod(e.target.value as RefundMethod)}>
+                        {EXTERNAL_REFUND_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                      </select>
+                    </FG>
+                    <FG label={`Refund reference / ID${requiresRefundReference(refundMethod) ? " *" : " (optional)"}`}>
+                      <input className="field-input" value={refundReference} onChange={e => setRefundReference(e.target.value)} />
+                    </FG>
+                    <FG label="Admin note (optional)">
+                      <input className="field-input" value={refundAdminNote} onChange={e => setRefundAdminNote(e.target.value)} />
+                    </FG>
+                  </div>
+                )}
+              </>
+            )}
+
+            {refundCancelModal && (() => {
+              const items = getRefundCancelItems(refundCancelModal, refundCancelAction);
+              return (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold opacity-60">
+                    {refundCancelScope === "whole" ? "Included items" : "Select items"}
+                  </p>
+                  {items.length === 0 && (
+                    <div className="p-3 text-xs" style={{ backgroundColor: "var(--color-row-hover)", color: "var(--color-body-text)" }}>
+                      No eligible items for this action.
+                    </div>
+                  )}
+                  {items.map(item => {
+                    const disabledReason = getRefundCancelItemDisabledReason(refundCancelModal, item, refundCancelAction);
+                    const eligible = !disabledReason;
+                    const checked = eligible && (refundCancelScope === "whole" || (refundSel[item.id]?.checked ?? false));
+                    const remaining = getRemainingRefundAmount(refundCancelModal, item);
+                    const statusBadge = refundCancelItemStatusBadge(item);
+                    return (
+                      <label key={item.id} className="flex items-start gap-3 p-4 cursor-pointer"
+                        style={{
+                          border: "1px solid var(--color-table-border)",
+                          opacity: eligible ? 1 : 0.55,
+                          cursor: eligible && refundCancelScope !== "whole" ? "pointer" : "default",
+                        }}>
+                        <Switch
+                          disabled={refundCancelScope === "whole" || !eligible}
+                          checked={checked}
+                          onCheckedChange={v => setRefundSel(prev => ({ ...prev, [item.id]: { checked: v, reason: cancelReason } }))}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-sm font-medium truncate">{item.programName}</span>
+                                <span className="text-xs px-1.5 py-0.5 font-semibold flex-shrink-0"
+                                  style={{ backgroundColor: statusBadge.bg, color: statusBadge.text }}>
+                                  {statusBadge.label}
+                                </span>
+                              </div>
+                              <div className="text-xs mt-1">
+                                {item.playerName && <span className="opacity-60">- {item.playerName}</span>}
+                                {!item.participantId && <span className="opacity-40">(per entry)</span>}
+                                {disabledReason && <span className="opacity-50 ml-2">{disabledReason}</span>}
+                              </div>
+                            </div>
+                            <span className="font-bold text-sm" style={{ color: "var(--color-primary)" }}>
+                              ${item.amount.toFixed(2)}
+                            </span>
+                          </div>
+                          {refundCancelAction !== "cancelWithoutRefund" && (
+                            <p className="text-xs mt-1 opacity-60">Refundable: ${remaining.toFixed(2)}</p>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            <FG label="Reason *">
+              <textarea className="field-input" rows={3} value={cancelReason}
+                onChange={e => setCancelReason(e.target.value)}
+                placeholder="Enter reason..." />
+            </FG>
+          </div>
+          <DialogFooter className="p-7 pt-0">
+            <button onClick={resetRefundCancelState} className="btn-outline px-5 py-2.5 text-sm">Close</button>
+            {refundCancelModal && (() => {
+              const eligibleItems = getEligibleRefundCancelItems(refundCancelModal, refundCancelAction);
+              const hasSelected = refundCancelScope === "whole"
+                ? eligibleItems.length > 0
+                : eligibleItems.some(item => refundSel[item.id]?.checked);
+              return (
+                <button
+                  onClick={handleRefundCancel}
+                  disabled={!cancelReason.trim() || savingRefund || !hasSelected}
+                  className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 inline-flex items-center justify-center gap-2">
+                  {savingRefund ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</> : "Proceed"}
+                </button>
+              );
+            })()}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
       <Dialog open={!!confirmRegModal} onOpenChange={v => { if (!v) { setConfirmRegModal(null); setConfirmRegNote(""); } }}>
         <DialogContent className="max-w-md p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
           <DialogHeader className="p-7 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
@@ -1424,7 +1832,7 @@ export default function AdminRegistrations() {
             <div className="px-3 py-2 text-xs"
               style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
               Stripe payment is confirmed (status S). Confirming this registration will set
-              RegStatus to Confirmed and send the confirmation email.
+              RegStatus to C and send the confirmation email.
             </div>
             <FG label="Admin note (optional)">
               <input

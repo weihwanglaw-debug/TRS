@@ -149,7 +149,7 @@ export default function EventEdit() {
     isSports: true, sportType: "Badminton",
     fixtureMode: "internal" as "internal" | "external" | "not_required",
   });
-  const [registrationStatusDraft, setRegistrationStatusDraft] = useState<"open" | "paused" | "closed">("open");
+  const [registrationStatusDraft, setRegistrationStatusDraft] = useState<"O" | "PA" | "CL">("O");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) =>
     setForm(p => ({ ...p, [k]: v }));
@@ -190,7 +190,7 @@ export default function EventEdit() {
       const ev = r.data!;
       setEvent(ev);
       setPrograms(ev.programs);
-      setRegistrationStatusDraft((ev.registrationStatus ?? "open") as "open" | "paused" | "closed");
+      setRegistrationStatusDraft((ev.registrationStatus ?? "O") as "O" | "PA" | "CL");
       const safeGallery = (ev.galleryUrls || []).filter(u => !isBlobUrl(u));
       if (safeGallery.length !== (ev.galleryUrls || []).length)
         setGalleryError("Some previously selected images were temporary previews and can't be loaded after refresh. Please re-upload them.");
@@ -366,14 +366,14 @@ export default function EventEdit() {
         if (r.error) { showError("Event could not be saved", r.error.message); return; }
         await saveDocuments(eventId!, docs);
         let savedEvent = r.data!;
-        if (event && registrationStatusDraft !== (event.registrationStatus ?? "open")) {
+        if (event && registrationStatusDraft !== (event.registrationStatus ?? "O")) {
           const sr = await apiUpdateEventRegistrationStatus(eventId!, registrationStatusDraft);
           if (sr.error) { showError("Registration status could not be saved", sr.error.message); return; }
           savedEvent = sr.data!;
         }
         setEvent(savedEvent);
         setPrograms(savedEvent.programs);
-        setRegistrationStatusDraft((savedEvent.registrationStatus ?? "open") as "open" | "paused" | "closed");
+        setRegistrationStatusDraft((savedEvent.registrationStatus ?? "O") as "O" | "PA" | "CL");
         setEditing(false);
         setFeedback({ open: true, variant: "success", title: "Event saved", description: "The event details have been updated." });
       }
@@ -442,7 +442,7 @@ export default function EventEdit() {
             {editing && (
               <>
                 {!isNew && (
-                  <button onClick={() => { setRegistrationStatusDraft((event?.registrationStatus ?? "open") as "open" | "paused" | "closed"); setEditing(false); }}
+                  <button onClick={() => { setRegistrationStatusDraft((event?.registrationStatus ?? "O") as "O" | "PA" | "CL"); setEditing(false); }}
                     className="btn-outline flex items-center gap-2 px-5 py-2.5 text-sm font-medium">
                     <X className="h-4 w-4" /> Cancel
                   </button>
@@ -500,13 +500,13 @@ export default function EventEdit() {
                     className="field-input"
                     value={registrationStatusDraft}
                     disabled={!editing || saving || !canChangeRegistrationStatus}
-                    onChange={e => setRegistrationStatusDraft(e.target.value as "open" | "paused" | "closed")}
+                    onChange={e => setRegistrationStatusDraft(e.target.value as "O" | "PA" | "CL")}
                     style={{ maxWidth: 260 }}
                     title={canChangeRegistrationStatus ? "Registration status" : "Add at least one program before changing registration status"}
                   >
-                    <option value="open">Open registration</option>
-                    <option value="paused">Pause registration</option>
-                    <option value="closed">Close registration</option>
+                    <option value="O">Open registration</option>
+                    <option value="PA">Pause registration</option>
+                    <option value="CL">Close registration</option>
                   </select>
                 </div>
               </FF>
@@ -775,10 +775,10 @@ export default function EventEdit() {
                     <td>
                       <span className="text-xs font-semibold px-2 py-0.5"
                         style={{
-                          backgroundColor: prog.status === "closed" ? "var(--badge-closed-bg)" : "var(--badge-open-bg)",
-                          color: prog.status === "closed" ? "var(--badge-closed-text)" : "var(--badge-open-text)",
+                          backgroundColor: prog.status === "CL" ? "var(--badge-closed-bg)" : "var(--badge-open-bg)",
+                          color: prog.status === "CL" ? "var(--badge-closed-text)" : "var(--badge-open-text)",
                         }}>
-                        {prog.status === "closed" ? "Closed" : "Open"}
+                        {prog.status === "CL" ? "Closed" : "Open"}
                       </span>
                     </td>
                     <td className="text-sm">{prog.minParticipants} / {prog.maxParticipants}</td>
@@ -824,10 +824,10 @@ export default function EventEdit() {
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <span className="text-xs font-semibold px-2 py-0.5"
                     style={{
-                      backgroundColor: prog.status === "closed" ? "var(--badge-closed-bg)" : "var(--badge-open-bg)",
-                      color: prog.status === "closed" ? "var(--badge-closed-text)" : "var(--badge-open-text)",
+                      backgroundColor: prog.status === "CL" ? "var(--badge-closed-bg)" : "var(--badge-open-bg)",
+                      color: prog.status === "CL" ? "var(--badge-closed-text)" : "var(--badge-open-text)",
                     }}>
-                    {prog.status === "closed" ? "Closed" : "Open"}
+                    {prog.status === "CL" ? "Closed" : "Open"}
                   </span>
                   <span className="text-xs opacity-60">Min / Max: {prog.minParticipants} / {prog.maxParticipants}</span>
                 </div>
@@ -861,7 +861,7 @@ export default function EventEdit() {
           {!isNew && (
             <button onClick={async () => {
               const prog = openAction.prog;
-              const newStatus = prog.status === "closed" ? "open" : "closed";
+              const newStatus = prog.status === "CL" ? "O" : "CL";
               try {
                 const r = await apiUpdateProgramStatus(eventId!, prog.id, newStatus);
                 if (r.error) {
@@ -875,7 +875,7 @@ export default function EventEdit() {
                 setOpenAction(null);
               }
             }}>
-              {openAction.prog.status === "closed"
+              {openAction.prog.status === "CL"
                 ? <><Unlock className="h-4 w-4" /> Reopen Program</>
                 : <><Lock   className="h-4 w-4" /> Close Program</>}
             </button>

@@ -104,10 +104,10 @@ function buildProgramRows(
 
 function getGroupsForProgram(programId: string, registrations: Registration[]) {
   return registrations
-    .filter((registration) => registration.regStatus !== "Cancelled")
+    .filter((registration) => registration.regStatus !== "X")
     .flatMap((registration) =>
       registration.groups.filter((group) =>
-        group.programId === programId && group.groupStatus !== "Cancelled"
+        group.programId === programId && group.groupStatus !== "X"
       )
     );
 }

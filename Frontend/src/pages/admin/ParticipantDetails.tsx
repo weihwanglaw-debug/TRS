@@ -16,7 +16,8 @@ import {
   apiUpdateParticipant, apiGetEvents, apiUploadFile,
 } from "@/lib/api";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
-import type { RegistrationParticipant, ParticipantGroup, Registration } from "@/types/registration";
+import type { RegistrationParticipant, ParticipantGroup, Registration, PaymentItem, RegStatus } from "@/types/registration";
+import { REG_STATUS_LABEL } from "@/types/registration";
 import type { TournamentEvent, ProgramFields } from "@/types/config";
 import ParticipantFieldsForm, {
   ParticipantFormValues,
@@ -58,15 +59,16 @@ function FG({ label, children }: { label: string; children: React.ReactNode }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const label = REG_STATUS_LABEL[status as RegStatus] ?? status;
   const m: Record<string, [string, string]> = {
-    Confirmed: ["var(--badge-open-bg)",   "var(--badge-open-text)"],
-    Pending:   ["var(--badge-soon-bg)",   "var(--badge-soon-text)"],
-    Cancelled: ["var(--badge-closed-bg)", "var(--badge-closed-text)"],
+    C: ["var(--badge-open-bg)",   "var(--badge-open-text)"],
+    P: ["var(--badge-soon-bg)",   "var(--badge-soon-text)"],
+    X: ["var(--badge-closed-bg)", "var(--badge-closed-text)"],
   };
   const [bg, color] = m[status] ?? ["var(--color-row-hover)", "var(--color-body-text)"];
   return (
     <span className="inline-flex px-2 py-0.5 text-xs font-semibold"
-      style={{ backgroundColor: bg, color }}>{status}</span>
+      style={{ backgroundColor: bg, color }}>{label}</span>
   );
 }
 
@@ -106,6 +108,9 @@ interface DetailModalProps {
 function PaymentBadge({ status }: { status?: string }) {
   const m: Record<string, [string, string, string]> = {
     S:  ["Paid", "var(--badge-open-bg)", "var(--badge-open-text)"],
+    R:  ["Refunded", "var(--badge-open-bg)", "var(--badge-open-text)"],
+    PR: ["Partially Refunded", "var(--badge-soon-bg)", "var(--badge-soon-text)"],
+    FR: ["Refunded", "var(--badge-open-bg)", "var(--badge-open-text)"],
     W:  ["Waived", "var(--badge-soon-bg)", "var(--badge-soon-text)"],
     PC: ["Pending Collection", "var(--badge-soon-bg)", "var(--badge-soon-text)"],
     P:  ["Pending", "var(--badge-soon-bg)", "var(--badge-soon-text)"],
@@ -291,6 +296,32 @@ function DetailModal({ row, programFields, eventType, teamMode, onClose, onSaved
   );
 }
 
+function getPaymentItemsForEntry(entry: EntryRow): PaymentItem[] {
+  const paymentItems = entry.registration.payment?.items ?? [];
+  const participantIds = new Set(entry.participants.map(row => row.participant.id));
+
+  const participantItems = paymentItems.filter(item =>
+    item.participantId && participantIds.has(item.participantId)
+  );
+  if (participantItems.length > 0) return participantItems;
+
+  return paymentItems.filter(item =>
+    !item.participantId && item.participantGroupId === entry.group.id
+  );
+}
+
+function getEntryPaymentStatus(entry: EntryRow): string | undefined {
+  const items = getPaymentItemsForEntry(entry);
+  if (items.length === 0) return entry.registration.payment?.paymentStatus;
+
+  const statuses = new Set(items.map(item => item.itemStatus));
+  if (statuses.size === 1) return items[0].itemStatus;
+  if (statuses.has("R")) return "PR";
+  if (statuses.has("S")) return "S";
+  if (statuses.has("X")) return "X";
+  return items[0].itemStatus;
+}
+
 // Main page
 
 export default function ParticipantDetails() {
@@ -306,6 +337,7 @@ export default function ParticipantDetails() {
   const [filterEvent,   setFilterEvent]   = useState(initEventId);
   const [filterProgram, setFilterProgram] = useState(initProgramId);
   const [filterRegId,   setFilterRegId]   = useState(initRegId);
+  const [filterStatus,  setFilterStatus]  = useState("");
   const [rows,    setRows]    = useState<ParticipantRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState("");
@@ -383,10 +415,8 @@ export default function ParticipantDetails() {
       setRows(
         regs.flatMap(reg =>
           reg.groups
-            .filter(g => g.groupStatus !== "Cancelled")
             .flatMap(g =>
             g.participants
-              .filter(p => p.participantStatus !== "Cancelled")
               .map(p => ({
               participant:    p,
               group:          g,
@@ -411,13 +441,20 @@ export default function ParticipantDetails() {
 
   const visibleRows = useMemo(() => {
     const q = filterSearch.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(r =>
-      r.participant.fullName.toLowerCase().includes(q) ||
-      (r.participant.sbaId ?? "").toLowerCase().includes(q) ||
-      r.programName.toLowerCase().includes(q)
-    );
-  }, [rows, filterSearch]);
+    return rows.filter(r => {
+      if (filterStatus) {
+        const matchesGroupStatus = r.group.groupStatus === filterStatus;
+        const matchesParticipantStatus = filterStatus === "X" &&
+          r.participant.participantStatus === "X";
+        if (!matchesGroupStatus && !matchesParticipantStatus) return false;
+      }
+
+      if (!q) return true;
+      return r.participant.fullName.toLowerCase().includes(q) ||
+        (r.participant.sbaId ?? "").toLowerCase().includes(q) ||
+        r.programName.toLowerCase().includes(q);
+    });
+  }, [rows, filterSearch, filterStatus]);
 
   const visibleEntries = useMemo(() => {
     const byEntry = new Map<string, EntryRow>();
@@ -511,6 +548,15 @@ export default function ParticipantDetails() {
                 if (e.target.value) { setFilterEvent(""); setFilterProgram(""); }
               }} />
           </FG>
+          <FG label="Status">
+            <select className="field-input w-40" value={filterStatus}
+              onChange={e => setFilterStatus(e.target.value)}>
+              <option value="">All</option>
+              <option value="P">Pending</option>
+              <option value="C">Confirmed</option>
+              <option value="X">Cancelled</option>
+            </select>
+          </FG>
         </div>
       </div>
 
@@ -565,7 +611,7 @@ export default function ParticipantDetails() {
                           </div>
                         </td>
                         <td><StatusBadge status={entry.group.groupStatus} /></td>
-                        <td><PaymentBadge status={entry.registration.payment?.paymentStatus} /></td>
+                        <td><PaymentBadge status={getEntryPaymentStatus(entry)} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -590,7 +636,7 @@ export default function ParticipantDetails() {
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         <StatusBadge status={entry.group.groupStatus} />
-                        <PaymentBadge status={entry.registration.payment?.paymentStatus} />
+                        <PaymentBadge status={getEntryPaymentStatus(entry)} />
                       </div>
                     </div>
                     <div className="space-y-2">

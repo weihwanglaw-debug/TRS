@@ -127,7 +127,7 @@ export interface Program {
   minParticipants: number;
   maxParticipants: number;
   currentParticipants: number;
-  status: string;
+  status: ProgramLifecycleStatus;
   fields: ProgramFields;
   participantSeeds?: SeedEntry[];
 }
@@ -162,7 +162,7 @@ export interface TournamentEvent {
   isSports:         boolean;
   sportType:        string;
   fixtureMode:      FixtureMode;
-  registrationStatus?: "open" | "paused" | "closed";
+  registrationStatus?: "O" | "PA" | "CL";
   computedRegistrationStatus?: EventStatus;
   programs:         Program[];
 }
@@ -202,8 +202,9 @@ export interface Config {
   admin: { users: AdminUser[] };
 }
 
-export type EventStatus   = "draft" | "upcoming" | "open" | "paused" | "closed";
-export type ProgramStatus = "open" | "upcoming" | "closed" | "full" | "nearly_full";
+export type EventStatus   = "D" | "U" | "O" | "PA" | "CL";
+export type ProgramLifecycleStatus = "O" | "CL";
+export type ProgramStatus = "O" | "U" | "CL" | "F" | "NF";
 
 //  Match / bracket types
 
@@ -226,7 +227,7 @@ export interface TeamEntry {
   seed?: number;
 }
 
-export type MatchStatus = "Scheduled" | "In Progress" | "Completed" | "Walkover";
+export type MatchStatus = "SC" | "IP" | "C" | "W";
 export type MatchPhase  = "group" | "knockout";
 
 export interface MatchEntry {

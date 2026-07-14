@@ -262,7 +262,7 @@ namespace TRS_API.Controllers
                         Currency         = registration.Currency,
                         PaymentGateway   = "Stripe",
                         PaymentMethod    = paymentMethod,
-                        PaymentStatus    = "S",
+                        PaymentStatus    = StatusCodesEx.Payment.Success,
                         GatewaySessionId = session.Id,
                         GatewayPaymentId = session.PaymentIntentId,
                         PaidAt           = DateTime.UtcNow,
@@ -283,20 +283,20 @@ namespace TRS_API.Controllers
 
                     foreach (var item in paymentItems)
                     {
-                        item.ItemStatus = "S";
+                        item.ItemStatus = StatusCodesEx.PaymentItem.Success;
                         item.PaymentId  = payment.PaymentId;
                         item.UpdatedAt  = DateTime.UtcNow;
                     }
 
-                    registration.RegistrationStatus = "C";
-                    registration.RegStatus          = "Confirmed";
+                    registration.RegistrationStatus = StatusCodesEx.Registration.Confirmed;
+                    registration.RegStatus          = StatusCodesEx.Registration.Confirmed;
                     registration.UpdatedAt          = DateTime.UtcNow;
                     registration.ConfirmedAt        = DateTime.UtcNow;
 
                     var groups = await _db.ParticipantGroups
                         .Where(g => g.RegistrationId == registrationId)
                         .ToListAsync();
-                    foreach (var g in groups) { g.GroupStatus = "Confirmed"; g.UpdatedAt = DateTime.UtcNow; }
+                    foreach (var g in groups) { g.GroupStatus = StatusCodesEx.Registration.Confirmed; g.UpdatedAt = DateTime.UtcNow; }
 
                     await UpsertWebhookLogAsync(
                         eventId,
@@ -321,14 +321,16 @@ namespace TRS_API.Controllers
                     {
                         using var scope = _serviceScopeFactory.CreateScope();
                         var receiptSvc  = scope.ServiceProvider.GetRequiredService<ReceiptService>();
+                        var detailsPdfSvc = scope.ServiceProvider.GetRequiredService<RegistrationDetailsPdfService>();
                         var emailSvc    = scope.ServiceProvider.GetRequiredService<EmailService>();
                         var jobDb       = scope.ServiceProvider.GetRequiredService<TRSDbContext>();
                         try
                         {
                             var pdfBytes = await receiptSvc.GenerateAsync(jobDb, regIdForJob);
+                            var detailsPdfBytes = await detailsPdfSvc.GenerateAsync(jobDb, regIdForJob);
                             _logger.LogInformation("Receipt generated ({Bytes} bytes) for registration {RegId}",
                                 pdfBytes.Length, regIdForJob);
-                            await emailSvc.SendPaymentConfirmationAsync(jobDb, regIdForJob, pdfBytes, ct);
+                            await emailSvc.SendPaymentConfirmationAsync(jobDb, regIdForJob, pdfBytes, detailsPdfBytes, ct);
                         }
                         catch (Exception ex)
                         {
@@ -393,9 +395,9 @@ namespace TRS_API.Controllers
             try
             {
                 var payment = await _db.Payments.FirstOrDefaultAsync(p => p.GatewaySessionId == session.Id);
-                if (payment != null && payment.PaymentStatus == "P")
+                if (payment != null && payment.PaymentStatus == StatusCodesEx.Payment.Pending)
                 {
-                    payment.PaymentStatus = "X";
+                    payment.PaymentStatus = StatusCodesEx.Payment.Cancelled;
                     await UpsertWebhookLogAsync(
                         eventId,
                         "checkout.session.expired",

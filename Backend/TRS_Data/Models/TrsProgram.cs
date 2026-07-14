@@ -18,7 +18,7 @@ public partial class TrsProgram
     public int MaxPlayers { get; set; }
     public int MinParticipants { get; set; }
     public int MaxParticipants { get; set; }
-    public string Status { get; set; } = "open";
+    public string Status { get; set; } = "O";
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

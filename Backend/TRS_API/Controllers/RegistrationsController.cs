@@ -15,18 +15,24 @@ public class RegistrationsController : ControllerBase
 {
     private static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Pending",
-        "Confirmed",
-        "Cancelled",
-        "CancelPending",
-        "RefundFailed",
-        "PartiallyRefunded",
+        StatusCodesEx.Registration.Pending,
+        StatusCodesEx.Registration.Confirmed,
+        StatusCodesEx.Registration.Cancelled,
+        StatusCodesEx.Registration.CancelPending,
+        StatusCodesEx.Registration.RefundFailed,
+    };
+    private static readonly HashSet<string> AllowedGroupStatuses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        StatusCodesEx.Registration.Pending,
+        StatusCodesEx.Registration.Confirmed,
+        StatusCodesEx.Registration.Cancelled,
     };
 
     private readonly TRSDbContext _db;
     private readonly ILogger<RegistrationsController> _log;
     private readonly IBackgroundJobQueue _jobQueue;
     private readonly ReceiptService _receipt;
+    private readonly RegistrationDetailsPdfService _registrationDetailsPdf;
     private readonly EmailService _email;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly RegistrationWorkflowService _registrationWorkflow;
@@ -34,12 +40,13 @@ public class RegistrationsController : ControllerBase
         TRSDbContext db,
         ILogger<RegistrationsController> log,
         ReceiptService receipt,
+        RegistrationDetailsPdfService registrationDetailsPdf,
         EmailService email,
         IBackgroundJobQueue jobQueue,
         IServiceScopeFactory serviceScopeFactory,
         RegistrationWorkflowService registrationWorkflow)
-        => (_db, _log, _receipt, _email, _jobQueue, _serviceScopeFactory, _registrationWorkflow) =
-            (db, log, receipt, email, jobQueue, serviceScopeFactory, registrationWorkflow);
+        => (_db, _log, _receipt, _registrationDetailsPdf, _email, _jobQueue, _serviceScopeFactory, _registrationWorkflow) =
+            (db, log, receipt, registrationDetailsPdf, email, jobQueue, serviceScopeFactory, registrationWorkflow);
 
     // -- GET /api/registrations  -- admin, paged + filtered -----------------
     [HttpGet, Authorize(Roles = "superadmin,eventadmin")]
@@ -59,8 +66,7 @@ public class RegistrationsController : ControllerBase
         if (programId.HasValue) q = q.Where(r => r.ParticipantGroups.Any(g => g.ProgramId == programId));
         if (!string.IsNullOrEmpty(regStatus)) q = q.Where(r => r.RegStatus == regStatus);
         if (!string.IsNullOrEmpty(payStatus))
-            // Translate long-form frontend code ("Success") -> DB short code ("S") before filtering
-            q = q.Where(r => r.Payments.Any(p => p.PaymentStatus == PayStatusToDb(payStatus)));
+            q = q.Where(r => r.Payments.Any(p => p.PaymentStatus == payStatus));
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
@@ -108,7 +114,9 @@ public class RegistrationsController : ControllerBase
         if (!pricing.Success)
             return BadRequest(new { code = pricing.Code, message = pricing.Message });
 
-        var paymentStatus = pricing.Value!.TotalAmount == 0 ? "S" : "P";
+        var paymentStatus = pricing.Value!.TotalAmount == 0
+            ? StatusCodesEx.Payment.Success
+            : StatusCodesEx.Payment.Pending;
         var createResult = await _registrationWorkflow.CreateAsync(req, new RegistrationPersistOptions
         {
             RegistrationGateMode = gateMode,
@@ -139,24 +147,25 @@ public class RegistrationsController : ControllerBase
     public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateRegStatusRequest req)
     {
         if (!AllowedStatuses.Contains(req.Status))
-            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be Pending, Confirmed, CancelPending, RefundFailed, PartiallyRefunded, or Cancelled." });
+            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be P, C, CP, RF, or X." });
 
         var reg = await _db.EventRegistrations.FindAsync(id);
         if (reg == null) return NotFound(new { code = "NOT_FOUND", message = "Registration not found." });
         reg.RegStatus = req.Status;
         reg.RegistrationStatus = RegistrationStatusToDb(req.Status);
-        if (req.Status == "Confirmed") reg.ConfirmedAt = DateTime.UtcNow;
+        if (req.Status == StatusCodesEx.Registration.Confirmed) reg.ConfirmedAt = DateTime.UtcNow;
         reg.UpdatedAt = DateTime.UtcNow;
 
         // Cascade the same status to every participant group so that capacity
-        // counts (which exclude GroupStatus = "Cancelled") and the fixture
+        // counts (which exclude GroupStatus = X) and the fixture
         // participant list stay in sync with the registration-level status.
         var groups = await _db.ParticipantGroups
             .Where(g => g.RegistrationId == id)
             .ToListAsync();
+        var groupStatus = RegistrationStatusToDb(req.Status);
         foreach (var g in groups)
         {
-            g.GroupStatus = req.Status;
+            g.GroupStatus = groupStatus;
             g.UpdatedAt = DateTime.UtcNow;
         }
 
@@ -169,8 +178,8 @@ public class RegistrationsController : ControllerBase
     [HttpPatch("{id:int}/groups/{gid:int}/status"), Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> UpdateGroupStatus(int id, int gid, [FromBody] UpdateRegStatusRequest req)
     {
-        if (!AllowedStatuses.Contains(req.Status))
-            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be Pending, Confirmed, CancelPending, RefundFailed, PartiallyRefunded, or Cancelled." });
+        if (!AllowedGroupStatuses.Contains(req.Status))
+            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be P, C, or X." });
 
         var group = await _db.ParticipantGroups
             .FirstOrDefaultAsync(g => g.GroupId == gid && g.RegistrationId == id);
@@ -249,11 +258,9 @@ public class RegistrationsController : ControllerBase
 
         if (req.Method != null) payment.PaymentMethod = req.Method;
 
-        // Translate long-form frontend status ("Success") -> DB short code ("S")
-        // This also prevents truncation errors on the VARCHAR(2) column.
         if (req.PaymentStatus != null)
         {
-            var targetStatus = PayStatusToDb(req.PaymentStatus);
+            var targetStatus = req.PaymentStatus;
             if (!CanAdminSetPaymentStatus(payment.PaymentStatus, targetStatus))
                 return Conflict(new
                 {
@@ -265,8 +272,7 @@ public class RegistrationsController : ControllerBase
 
         if (req.ReceiptNo != null) payment.ReceiptNumber = req.ReceiptNo;
 
-        // payment.PaymentStatus is now always a short code - safe to compare with "S"
-        if (payment.PaymentStatus == "S")
+        if (payment.PaymentStatus == StatusCodesEx.Payment.Success)
         {
             payment.PaidAt = DateTime.UtcNow;
             if (string.IsNullOrEmpty(payment.ReceiptNumber))
@@ -279,11 +285,16 @@ public class RegistrationsController : ControllerBase
                     .FirstOrDefault();
                 payment.ReceiptNumber = ReceiptNumberGenerator.Generate(payment.EventId, receiptProgramId);
             }
-            foreach (var item in payment.Items) item.ItemStatus = "S";
+            var reg = await LoadReg(id);
+            ConfirmPayablePaymentItems(payment, reg);
 
             // also flip registration
-            var reg = await _db.EventRegistrations.FindAsync(id);
-            if (reg != null) { reg.RegStatus = "Confirmed"; reg.RegistrationStatus = "C"; reg.ConfirmedAt = DateTime.UtcNow; }
+            if (reg != null)
+            {
+                reg.RegStatus = StatusCodesEx.Registration.Confirmed;
+                reg.RegistrationStatus = StatusCodesEx.Registration.Confirmed;
+                reg.ConfirmedAt = DateTime.UtcNow;
+            }
         }
         payment.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
@@ -302,6 +313,9 @@ public class RegistrationsController : ControllerBase
             CreatedAt = DateTime.UtcNow,
         });
         await _db.SaveChangesAsync();
+
+        if (oldStatus != StatusCodesEx.Payment.Success && payment.PaymentStatus == StatusCodesEx.Payment.Success)
+            await SendPaymentConfirmationEmailSafeAsync(id);
 
         var updated = await LoadReg(id);
         return Ok(MapReg(updated!));
@@ -355,9 +369,18 @@ public class RegistrationsController : ControllerBase
         if (externalValidationError != null)
             return BadRequest(externalValidationError);
 
-        var result = await ProcessRefundItemAsync(id, payment, item, req.RefundAmount, req.RefundReason, externalRefund);
+        var result = await ProcessRefundItemAsync(
+            id,
+            payment,
+            item,
+            req.RefundAmount,
+            req.RefundReason,
+            externalRefund,
+            refundOnly: true);
         if (!result.Success)
             return BadRequest(new { code = result.Code, message = result.Message });
+
+        await SendRefundEmailSafeAsync(id);
 
         var refund = result.Refund!;
         return Ok(new
@@ -367,6 +390,69 @@ public class RegistrationsController : ControllerBase
             refundAmount = refund.RefundAmount,
             gatewayRefundId = refund.GatewayRefundId
         });
+    }
+
+    // -- POST /api/registrations/:id/payment/refunds/bulk  -- admin ----------
+    [HttpPost("{id:int}/payment/refunds/bulk"), Authorize(Roles = "superadmin,eventadmin")]
+    public async Task<IActionResult> InitiateRefunds(int id, [FromBody] BulkInitiateRefundRequest req)
+    {
+        var payment = await _db.Payments.Include(p => p.Items)
+            .FirstOrDefaultAsync(p => p.RegistrationId == id);
+        if (payment == null) return NotFound(new { code = "NOT_FOUND", message = "Payment not found." });
+
+        var externalRefund = BuildExternalRefundDetails(
+            req.RefundSource,
+            req.RefundMethod,
+            req.RefundReference,
+            req.AdminNote,
+            req.RefundReason,
+            out var externalValidationError);
+        if (externalValidationError != null)
+            return BadRequest(externalValidationError);
+
+        var refunds = new List<object>();
+        var errors = new List<string>();
+
+        foreach (var requestedItem in req.Items)
+        {
+            var item = payment.Items.FirstOrDefault(i => i.PaymentItemId == requestedItem.PaymentItemId);
+            if (item == null)
+            {
+                errors.Add($"Item {requestedItem.PaymentItemId}: Payment item not found.");
+                continue;
+            }
+
+            var result = await ProcessRefundItemAsync(
+                id,
+                payment,
+                item,
+                requestedItem.RefundAmount,
+                req.RefundReason,
+                externalRefund,
+                refundOnly: true);
+
+            if (!result.Success)
+            {
+                errors.Add($"{item.ProgramName}: {result.Message}");
+                continue;
+            }
+
+            var refund = result.Refund!;
+            refunds.Add(new
+            {
+                id = refund.RefundId.ToString(),
+                refundStatus = refund.RefundStatus,
+                refundAmount = refund.RefundAmount,
+                gatewayRefundId = refund.GatewayRefundId,
+                paymentItemId = refund.PaymentItemId?.ToString(),
+            });
+        }
+
+        if (refunds.Count == 0)
+            return BadRequest(new { code = "REFUND_FAILED", message = string.Join(" | ", errors) });
+
+        await SendRefundEmailSafeAsync(id);
+        return Ok(new { refunds, errors });
     }
 
     [HttpPost("{id:int}/cancel-with-refunds"), Authorize(Roles = "superadmin,eventadmin")]
@@ -442,12 +528,12 @@ public class RegistrationsController : ControllerBase
         return Ok(new
         {
             totalRegistrations = all.Count,
-            confirmed = all.Count(r => r.RegStatus == "Confirmed"),
-            pending = all.Count(r => r.RegStatus == "Pending"),
-            cancelled = all.Count(r => r.RegStatus == "Cancelled"),
-            totalRevenue = all.Where(r => r.Payments.Any(p => p.PaymentStatus == "S"))
-                             .Sum(r => r.Payments.Where(p => p.PaymentStatus == "S").Sum(p => p.Amount)),
-            pendingPayments = all.Count(r => r.Payments.Any(p => p.PaymentStatus == "P")),
+            confirmed = all.Count(r => r.RegStatus == StatusCodesEx.Registration.Confirmed),
+            pending = all.Count(r => r.RegStatus == StatusCodesEx.Registration.Pending),
+            cancelled = all.Count(r => r.RegStatus == StatusCodesEx.Registration.Cancelled),
+            totalRevenue = all.Where(r => r.Payments.Any(p => p.PaymentStatus == StatusCodesEx.Payment.Success))
+                             .Sum(r => r.Payments.Where(p => p.PaymentStatus == StatusCodesEx.Payment.Success).Sum(p => p.Amount)),
+            pendingPayments = all.Count(r => r.Payments.Any(p => p.PaymentStatus == StatusCodesEx.Payment.Pending)),
         });
     }
 
@@ -476,6 +562,27 @@ public class RegistrationsController : ControllerBase
         }
     }
 
+    // -- GET /api/registrations/:id/details-pdf  -- public --------------------
+    [HttpGet("{id:int}/details-pdf")]
+    public async Task<IActionResult> GetRegistrationDetailsPdf(int id)
+    {
+        try
+        {
+            var bytes = await _registrationDetailsPdf.GenerateAsync(_db, id);
+            var reference = ReceiptNumberGenerator.FallbackRegistrationReference(id);
+            return File(bytes, "application/pdf", $"RegistrationDetails-{reference}.pdf");
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { code = "NOT_FOUND", message = "Registration not found." });
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error generating registration details PDF for registration {Id}", id);
+            return StatusCode(500, new { code = "DETAILS_PDF_ERROR", message = "Failed to generate registration details PDF." });
+        }
+    }
+
 
     // -- PATCH /api/registrations/:id/participants/:pid  -- admin -----------
     // Update individual participant details.
@@ -495,7 +602,7 @@ public class RegistrationsController : ControllerBase
         if (participant == null)
             return NotFound(new { code = "NOT_FOUND", message = "Participant not found in this registration." });
 
-        if (string.Equals(participant.Group.GroupStatus, "Cancelled", StringComparison.OrdinalIgnoreCase))
+        if (participant.Group.GroupStatus == StatusCodesEx.Registration.Cancelled)
             return Conflict(new { code = "ENTRY_CANCELLED", message = "Cannot edit participants in a cancelled entry." });
 
         var program = await _db.Programs
@@ -523,8 +630,8 @@ public class RegistrationsController : ControllerBase
                 .Where(p =>
                     p.ParticipantId != pid &&
                     p.Group.ProgramId == participant.Group.ProgramId &&
-                    p.Group.GroupStatus != "Cancelled" &&
-                    p.ParticipantStatus != "Cancelled" &&
+                    p.Group.GroupStatus != StatusCodesEx.Registration.Cancelled &&
+                    p.ParticipantStatus != StatusCodesEx.Participant.Cancelled &&
                     p.FullName == checkName &&
                     p.DateOfBirth == checkDob)
                 .AnyAsync();
@@ -607,7 +714,7 @@ public class RegistrationsController : ControllerBase
                 }
 
                 var activeParticipants = await _db.Participants
-                    .Where(p => p.GroupId == participant.GroupId && p.ParticipantStatus != "Cancelled")
+                    .Where(p => p.GroupId == participant.GroupId && p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
                     .OrderBy(p => p.ParticipantId)
                     .ToListAsync();
 
@@ -621,7 +728,7 @@ public class RegistrationsController : ControllerBase
                 participant.ClubSchoolCompany = trimmedClub;
 
                 var firstActiveParticipant = await _db.Participants
-                    .Where(p => p.GroupId == participant.GroupId && p.ParticipantStatus != "Cancelled")
+                    .Where(p => p.GroupId == participant.GroupId && p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
                     .OrderBy(p => p.ParticipantId)
                     .FirstOrDefaultAsync();
 
@@ -652,8 +759,8 @@ public class RegistrationsController : ControllerBase
     [HttpPost("{id:int}/confirm"), Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> ConfirmRegistration(int id, [FromBody] ConfirmRegistrationRequest req)
     {
-        var allowedStatuses = new[] { "S", "W", "PC" };
-        var status = PayStatusToDb(req.PaymentStatus);
+        var allowedStatuses = new[] { StatusCodesEx.Payment.Success, StatusCodesEx.Payment.Waived, StatusCodesEx.Payment.PendingCollection };
+        var status = req.PaymentStatus;
         if (!allowedStatuses.Contains(status))
             return BadRequest(new { code = "INVALID_STATUS", message = "PaymentStatus must be S (Paid), W (Waived), or PC (Pending Collection)." });
 
@@ -661,7 +768,7 @@ public class RegistrationsController : ControllerBase
         var method = string.IsNullOrWhiteSpace(req.Method) ? null : req.Method.Trim();
         var paymentReference = string.IsNullOrWhiteSpace(req.PaymentReference) ? null : req.PaymentReference.Trim();
 
-        if (status == "S")
+        if (status == StatusCodesEx.Payment.Success)
         {
             if (method == null)
                 return BadRequest(new { code = "INVALID_METHOD", message = "Payment method is required when payment status is Paid." });
@@ -715,7 +822,7 @@ public class RegistrationsController : ControllerBase
 
         // For Paid: stamp paidAt, generate receipt, flip items to S.
         // Waived and Pending Collection intentionally keep method/reference blank.
-        if (status == "S")
+        if (status == StatusCodesEx.Payment.Success)
         {
             payment.PaidAt = DateTime.UtcNow;
             if (string.IsNullOrEmpty(payment.ReceiptNumber))
@@ -728,7 +835,7 @@ public class RegistrationsController : ControllerBase
                     .FirstOrDefault();
                 payment.ReceiptNumber = ReceiptNumberGenerator.Generate(payment.EventId, receiptProgramId);
             }
-            foreach (var item in payment.Items) { item.ItemStatus = "S"; item.UpdatedAt = DateTime.UtcNow; }
+            ConfirmPayablePaymentItems(payment, reg);
         }
         else
         {
@@ -736,15 +843,16 @@ public class RegistrationsController : ControllerBase
         }
 
         // Confirm the registration regardless of payment status
-        reg.RegStatus         = "Confirmed";
-        reg.RegistrationStatus = "C";
+        reg.RegStatus         = StatusCodesEx.Registration.Confirmed;
+        reg.RegistrationStatus = StatusCodesEx.Registration.Confirmed;
         reg.ConfirmedAt       = DateTime.UtcNow;
         reg.UpdatedAt         = DateTime.UtcNow;
 
         // Cascade status to all participant groups
         foreach (var g in reg.ParticipantGroups)
         {
-            g.GroupStatus = "Confirmed";
+            if (g.GroupStatus == StatusCodesEx.Registration.Cancelled) continue;
+            g.GroupStatus = StatusCodesEx.Registration.Confirmed;
             g.UpdatedAt   = DateTime.UtcNow;
         }
 
@@ -763,8 +871,36 @@ public class RegistrationsController : ControllerBase
 
         await _db.SaveChangesAsync();
 
+        if (oldStatus != StatusCodesEx.Payment.Success && status == StatusCodesEx.Payment.Success)
+            await SendPaymentConfirmationEmailSafeAsync(id);
+
         var updated = await LoadReg(id);
         return Ok(MapReg(updated!));
+    }
+
+    private static void ConfirmPayablePaymentItems(Payment payment, EventRegistration? reg)
+    {
+        var groupsById = reg?.ParticipantGroups.ToDictionary(g => g.GroupId) ?? new Dictionary<int, ParticipantGroup>();
+
+        foreach (var item in payment.Items)
+        {
+            if (item.ItemStatus == StatusCodesEx.PaymentItem.Cancelled ||
+                item.ItemStatus == StatusCodesEx.PaymentItem.Refunded) continue;
+
+            if (groupsById.TryGetValue(item.GroupId, out var group))
+            {
+                if (group.GroupStatus == StatusCodesEx.Registration.Cancelled) continue;
+
+                if (item.ParticipantId is int participantId &&
+                    group.Participants.Any(p => p.ParticipantId == participantId && p.ParticipantStatus == StatusCodesEx.Participant.Cancelled))
+                {
+                    continue;
+                }
+            }
+
+            item.ItemStatus = StatusCodesEx.PaymentItem.Success;
+            item.UpdatedAt = DateTime.UtcNow;
+        }
     }
 
     // -- Load helper ----------------------------------------------------------
@@ -834,12 +970,12 @@ public class RegistrationsController : ControllerBase
 
         var selectedGroupIds = groups.Select(g => g.GroupId).ToHashSet();
         var activeGroupIds = reg.ParticipantGroups
-            .Where(g => g.GroupStatus != "Cancelled")
+            .Where(g => g.GroupStatus != StatusCodesEx.Registration.Cancelled)
             .Select(g => g.GroupId)
             .ToHashSet();
         var participantCancelWillCancelGroup = participant == null ||
             participant.Group.Participants
-                .Where(p => p.ParticipantStatus != "Cancelled")
+                .Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
                 .All(p => p.ParticipantId == participant.ParticipantId);
         var affectsEntireRegistration = activeGroupIds.Count > 0 &&
             activeGroupIds.IsSubsetOf(selectedGroupIds) &&
@@ -848,18 +984,18 @@ public class RegistrationsController : ControllerBase
         var refundedAny = false;
         var appliedAnyLocalCancellation = false;
 
-        if (affectsEntireRegistration && shouldRefund && payment != null && affectedItems.Any(i => i.ItemStatus == "S"))
+        if (affectsEntireRegistration && shouldRefund && payment != null && affectedItems.Any(i => i.ItemStatus == StatusCodesEx.PaymentItem.Success))
         {
-            ApplyRegistrationWorkflowStatus(reg, "CancelPending");
+            ApplyRegistrationWorkflowStatus(reg, StatusCodesEx.Registration.CancelPending);
             await _db.SaveChangesAsync();
         }
 
         foreach (var item in affectedItems)
         {
-            if (shouldRefund && payment != null && item.ItemStatus == "S")
+            if (shouldRefund && payment != null && item.ItemStatus == StatusCodesEx.PaymentItem.Success)
             {
                 var alreadyRefunded = await _db.Refunds
-                    .Where(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == "S")
+                    .Where(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == StatusCodesEx.Refund.Success)
                     .SumAsync(r => (decimal?)r.RefundAmount) ?? 0m;
                 var remainingRefundAmount = item.Amount - alreadyRefunded;
 
@@ -891,7 +1027,7 @@ public class RegistrationsController : ControllerBase
                     continue;
                 }
 
-                if (remainingRefundAmount <= 0 && item.ItemStatus == "R")
+                if (remainingRefundAmount <= 0 && item.ItemStatus == StatusCodesEx.PaymentItem.Refunded)
                 {
                     appliedAnyLocalCancellation |= ApplyItemCancellationScope(
                         reg,
@@ -903,10 +1039,10 @@ public class RegistrationsController : ControllerBase
                 }
             }
 
-            if (item.ItemStatus != "R")
+            if (item.ItemStatus != StatusCodesEx.PaymentItem.Refunded)
             {
                 var oldStatus = item.ItemStatus;
-                item.ItemStatus = "X";
+                item.ItemStatus = StatusCodesEx.PaymentItem.Cancelled;
                 item.UpdatedAt = DateTime.UtcNow;
                 _db.PaymentAuditLogs.Add(new PaymentAuditLog
                 {
@@ -914,7 +1050,7 @@ public class RegistrationsController : ControllerBase
                     EntityId = item.PaymentItemId,
                     Action = "CancelledWithoutRefund",
                     OldStatus = oldStatus,
-                    NewStatus = "X",
+                    NewStatus = StatusCodesEx.PaymentItem.Cancelled,
                     Reason = req.Reason,
                     PerformedBy = User.Identity?.Name ?? "admin",
                     Notes = $"Scope={scope}",
@@ -929,7 +1065,7 @@ public class RegistrationsController : ControllerBase
                     item,
                     req.Reason,
                     scope,
-                    item.ItemStatus == "R" ? "CancelledAfterRefund" : "CancelledWithoutRefund");
+                    item.ItemStatus == StatusCodesEx.PaymentItem.Refunded ? "CancelledAfterRefund" : "CancelledWithoutRefund");
             }
         }
 
@@ -943,29 +1079,11 @@ public class RegistrationsController : ControllerBase
                 appliedAnyLocalCancellation |= CancelGroupOnly(group, req.Reason, "CancelledWithoutRefund");
         }
 
-        if (reg.ParticipantGroups.All(g => g.GroupStatus == "Cancelled"))
-        {
-            var oldStatus = reg.RegStatus;
-            ApplyRegistrationStatus(reg, "Cancelled");
-            if (!string.Equals(oldStatus, "Cancelled", StringComparison.OrdinalIgnoreCase))
-                AddCancellationAudit("Registration", reg.RegistrationId, "RegistrationCancelled", oldStatus, "Cancelled", req.Reason, $"Scope={scope}");
-        }
-        else if (errors.Count > 0)
-        {
-            ApplyRegistrationWorkflowStatus(reg, "RefundFailed");
-        }
-        else if (refundedAny || reg.ParticipantGroups.Any(g => g.GroupStatus == "Cancelled"))
-        {
-            ApplyRegistrationWorkflowStatus(reg, "PartiallyRefunded");
-        }
-        else
-        {
-            reg.UpdatedAt = DateTime.UtcNow;
-        }
+        ApplyPostCancellationRegistrationStatus(reg, errors.Count > 0, refundedAny, req.Reason, scope);
 
         await _db.SaveChangesAsync();
 
-        if (appliedAnyLocalCancellation)
+        if (appliedAnyLocalCancellation && !req.SuppressEmail)
             await SendCancellationEmailSafeAsync(reg.RegistrationId, scope, req.Reason, refundedAny);
 
         var updated = await LoadReg(reg.RegistrationId);
@@ -988,7 +1106,7 @@ public class RegistrationsController : ControllerBase
             if (participant == null) return false;
 
             var changed = CancelParticipantOnly(participant, reason, action, $"Scope={scope}; PaymentItemId={item.PaymentItemId}");
-            if (group.Participants.All(p => p.ParticipantStatus == "Cancelled"))
+            if (group.Participants.All(p => p.ParticipantStatus == StatusCodesEx.Participant.Cancelled))
                 changed |= CancelGroupOnly(group, reason, action, $"Scope={scope}; PaymentItemId={item.PaymentItemId}");
             return changed;
         }
@@ -999,16 +1117,16 @@ public class RegistrationsController : ControllerBase
     private bool CancelParticipantOnly(Participant participant, string reason, string action, string? notes = null)
     {
         var changed = false;
-        if (participant.ParticipantStatus != "Cancelled")
+        if (participant.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
         {
             var oldStatus = participant.ParticipantStatus;
-            participant.ParticipantStatus = "Cancelled";
+            participant.ParticipantStatus = StatusCodesEx.Participant.Cancelled;
             participant.UpdatedAt = DateTime.UtcNow;
-            AddCancellationAudit("Participant", participant.ParticipantId, action, oldStatus, "Cancelled", reason, notes);
+            AddCancellationAudit("Participant", participant.ParticipantId, action, oldStatus, StatusCodesEx.Participant.Cancelled, reason, notes);
             changed = true;
         }
 
-        if (participant.Group.Participants.All(p => p.ParticipantStatus == "Cancelled"))
+        if (participant.Group.Participants.All(p => p.ParticipantStatus == StatusCodesEx.Participant.Cancelled))
             changed |= CancelGroupOnly(participant.Group, reason, action, notes);
 
         return changed;
@@ -1017,19 +1135,19 @@ public class RegistrationsController : ControllerBase
     private bool CancelGroupOnly(ParticipantGroup group, string reason, string action, string? notes = null)
     {
         var changed = false;
-        if (group.GroupStatus != "Cancelled")
+        if (group.GroupStatus != StatusCodesEx.Registration.Cancelled)
         {
             var oldStatus = group.GroupStatus;
-            group.GroupStatus = "Cancelled";
+            group.GroupStatus = StatusCodesEx.Registration.Cancelled;
             group.UpdatedAt = DateTime.UtcNow;
-            AddCancellationAudit("ParticipantGroup", group.GroupId, action, oldStatus, "Cancelled", reason, notes);
+            AddCancellationAudit("ParticipantGroup", group.GroupId, action, oldStatus, StatusCodesEx.Registration.Cancelled, reason, notes);
             changed = true;
         }
 
         foreach (var p in group.Participants)
         {
-            if (p.ParticipantStatus == "Cancelled") continue;
-            p.ParticipantStatus = "Cancelled";
+            if (p.ParticipantStatus == StatusCodesEx.Participant.Cancelled) continue;
+            p.ParticipantStatus = StatusCodesEx.Participant.Cancelled;
             p.UpdatedAt = DateTime.UtcNow;
             changed = true;
         }
@@ -1051,14 +1169,44 @@ public class RegistrationsController : ControllerBase
             EntityType = entityType,
             EntityId = entityId,
             Action = action,
-            OldStatus = oldStatus,
-            NewStatus = newStatus,
+            OldStatus = StatusToAuditCode(oldStatus),
+            NewStatus = StatusToAuditCode(newStatus),
             Reason = reason,
             PerformedBy = User.Identity?.Name ?? "admin",
             IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
-            Notes = notes,
+            Notes = AppendAuditStatusContext(notes, oldStatus, newStatus),
             CreatedAt = DateTime.UtcNow,
         });
+    }
+
+    private void ApplyPostCancellationRegistrationStatus(
+        EventRegistration reg,
+        bool hasRefundErrors,
+        bool refundedAny,
+        string reason,
+        string scope)
+    {
+        if (reg.ParticipantGroups.All(g => g.GroupStatus == StatusCodesEx.Registration.Cancelled))
+        {
+            var oldStatus = reg.RegStatus;
+            ApplyRegistrationStatus(reg, StatusCodesEx.Registration.Cancelled);
+            if (oldStatus != StatusCodesEx.Registration.Cancelled)
+                AddCancellationAudit("Registration", reg.RegistrationId, "RegistrationCancelled", oldStatus, StatusCodesEx.Registration.Cancelled, reason, $"Scope={scope}");
+        }
+        else if (hasRefundErrors)
+        {
+            ApplyRegistrationWorkflowStatus(reg, StatusCodesEx.Registration.RefundFailed);
+        }
+        else if (refundedAny)
+        {
+            // RegStatus is limited to legacy registration lifecycle values.
+            // Partial refund display/filtering is derived from payment/item state.
+            reg.UpdatedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            reg.UpdatedAt = DateTime.UtcNow;
+        }
     }
 
     private async Task<List<FixtureImpactDto>> GetFixtureImpactAsync(IEnumerable<ParticipantGroup> groups)
@@ -1089,11 +1237,51 @@ public class RegistrationsController : ControllerBase
         try
         {
             byte[]? receiptPdf = attachReceipt ? await _receipt.GenerateAsync(_db, registrationId) : null;
-            await _email.SendCancellationNotificationAsync(_db, registrationId, scope, reason, attachReceipt, receiptPdf);
+            var detailsPdf = await _registrationDetailsPdf.GenerateAsync(_db, registrationId);
+            await _email.SendCancellationNotificationAsync(_db, registrationId, scope, reason, attachReceipt, receiptPdf, detailsPdf);
         }
         catch (Exception ex)
         {
             _log.LogError(ex, "Failed to send cancellation email for registration {RegistrationId}", registrationId);
+        }
+    }
+
+    [HttpPost("{id:int}/notifications/cancellation"), Authorize(Roles = "superadmin,eventadmin")]
+    public async Task<IActionResult> SendCancellationNotification(int id, [FromBody] CancellationNotificationRequest req)
+    {
+        var reg = await _db.EventRegistrations
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.RegistrationId == id);
+        if (reg == null) return NotFound(new { code = "NOT_FOUND", message = "Registration not found." });
+
+        await SendCancellationEmailSafeAsync(id, req.Scope, req.Reason, req.IncludesRefund);
+        return Ok(new { sent = true });
+    }
+
+    private async Task SendRefundEmailSafeAsync(int registrationId)
+    {
+        try
+        {
+            var receiptPdf = await _receipt.GenerateAsync(_db, registrationId);
+            await _email.SendRefundNotificationAsync(_db, registrationId, receiptPdf);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Failed to send refund email for registration {RegistrationId}", registrationId);
+        }
+    }
+
+    private async Task SendPaymentConfirmationEmailSafeAsync(int registrationId)
+    {
+        try
+        {
+            var receiptPdf = await _receipt.GenerateAsync(_db, registrationId);
+            var detailsPdf = await _registrationDetailsPdf.GenerateAsync(_db, registrationId);
+            await _email.SendPaymentConfirmationAsync(_db, registrationId, receiptPdf, detailsPdf);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Failed to send payment confirmation email for registration {RegistrationId}", registrationId);
         }
     }
 
@@ -1107,10 +1295,11 @@ public class RegistrationsController : ControllerBase
         PaymentItem item,
         decimal refundAmount,
         string? refundReason,
-        ExternalRefundDetails? externalRefund = null)
+        ExternalRefundDetails? externalRefund = null,
+        bool refundOnly = false)
     {
         var successfulRefunds = await _db.Refunds
-            .Where(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == "S")
+            .Where(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == StatusCodesEx.Refund.Success)
             .ToListAsync();
         var refundedAmount = successfulRefunds.Sum(r => r.RefundAmount);
         var remainingAmount = item.Amount - refundedAmount;
@@ -1120,13 +1309,15 @@ public class RegistrationsController : ControllerBase
             return RefundOperationResult.Fail("ALREADY_REFUNDED", "This item is already fully refunded.");
         }
 
-        if (item.ItemStatus != "S")
-            return RefundOperationResult.Fail("INVALID_STATE", "Only confirmed items can be refunded.");
+        if (!CanRefundPaymentItem(payment, item, refundOnly))
+            return RefundOperationResult.Fail("INVALID_STATE", refundOnly
+                ? "Only paid or cancelled paid items can be refunded."
+                : "Only confirmed items can be refunded.");
         if (refundAmount > remainingAmount)
             return RefundOperationResult.Fail("OVER_REFUND", $"Maximum refundable is {remainingAmount}.");
 
         var refund = await _db.Refunds
-            .FirstOrDefaultAsync(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == "P");
+            .FirstOrDefaultAsync(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == StatusCodesEx.Refund.Pending);
         if (refund != null)
         {
             if (externalRefund != null)
@@ -1150,7 +1341,7 @@ public class RegistrationsController : ControllerBase
                 RefundAmount = refundAmount,
                 RefundReason = refundReason,
                 GatewayRefundId = externalRefund?.Reference,
-                RefundStatus = externalRefund != null ? "S" : "P",
+                RefundStatus = externalRefund != null ? StatusCodesEx.Refund.Success : StatusCodesEx.Refund.Pending,
                 RequestedBy = User.Identity?.Name ?? "admin",
                 CreatedAt = DateTime.UtcNow,
                 ProcessedAt = externalRefund != null ? DateTime.UtcNow : null,
@@ -1172,10 +1363,10 @@ public class RegistrationsController : ControllerBase
         if (externalRefund != null)
         {
             refund.GatewayRefundId = externalRefund.Reference;
-            refund.RefundStatus = "S";
+            refund.RefundStatus = StatusCodesEx.Refund.Success;
             refund.ProcessedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
-            await ReconcileSuccessfulRefundAsync(payment, item, refund, refundReason, externalRefund);
+            await ReconcileSuccessfulRefundAsync(payment, item, refund, refundReason, externalRefund, refundOnly);
             return RefundOperationResult.Ok(refund);
         }
 
@@ -1200,7 +1391,7 @@ public class RegistrationsController : ControllerBase
                 refund.GatewayRefundId = stripeRefund.Id;
                 refund.RefundSource = "System";
                 refund.RefundMethod = "Gateway";
-                refund.RefundStatus = stripeRefund.Status == "failed" ? "F" : "S";
+                refund.RefundStatus = stripeRefund.Status == "failed" ? StatusCodesEx.Refund.Failed : StatusCodesEx.Refund.Success;
                 refund.ProcessedAt = DateTime.UtcNow;
                 await _db.SaveChangesAsync();
             }
@@ -1208,20 +1399,20 @@ public class RegistrationsController : ControllerBase
             {
                 refund.RefundSource = "System";
                 refund.RefundMethod = "Gateway";
-                refund.RefundStatus = "S";
+                refund.RefundStatus = StatusCodesEx.Refund.Success;
                 refund.ProcessedAt = DateTime.UtcNow;
                 await _db.SaveChangesAsync();
             }
         }
         catch (StripeException ex)
         {
-            refund.RefundStatus = "F";
+            refund.RefundStatus = StatusCodesEx.Refund.Failed;
             refund.ProcessedAt = DateTime.UtcNow;
             _db.PaymentAuditLogs.Add(new PaymentAuditLog
             {
                 EntityType = "Refund",
                 EntityId = refund.RefundId,
-                Action = "RefundFailed",
+                Action = refundOnly ? "RefundOnlyFailed" : "RefundFailed",
                 Reason = refundReason,
                 PerformedBy = User.Identity?.Name ?? "admin",
                 Notes = ex.StripeError?.Message ?? ex.Message,
@@ -1233,13 +1424,13 @@ public class RegistrationsController : ControllerBase
                 ex.StripeError?.Message ?? "Refund failed.");
         }
 
-        if (refund.RefundStatus != "S")
+        if (refund.RefundStatus != StatusCodesEx.Refund.Success)
         {
             _db.PaymentAuditLogs.Add(new PaymentAuditLog
             {
                 EntityType = "Refund",
                 EntityId = refund.RefundId,
-                Action = "RefundFailed",
+                Action = refundOnly ? "RefundOnlyFailed" : "RefundFailed",
                 Reason = refundReason,
                 PerformedBy = User.Identity?.Name ?? "admin",
                 Notes = $"PaymentItemId={item.PaymentItemId}, Status={refund.RefundStatus}",
@@ -1249,7 +1440,7 @@ public class RegistrationsController : ControllerBase
             return RefundOperationResult.Fail("REFUND_FAILED", "Refund did not complete successfully.");
         }
 
-        await ReconcileSuccessfulRefundAsync(payment, item, refund, refundReason);
+        await ReconcileSuccessfulRefundAsync(payment, item, refund, refundReason, refundOnly: refundOnly);
         return RefundOperationResult.Ok(refund);
     }
 
@@ -1258,14 +1449,17 @@ public class RegistrationsController : ControllerBase
         PaymentItem item,
         TRS_Data.Models.Refund refund,
         string? refundReason,
-        ExternalRefundDetails? externalRefund = null)
+        ExternalRefundDetails? externalRefund = null,
+        bool refundOnly = false)
     {
         await ReconcileRefundedAmountsAsync(payment, item);
         _db.PaymentAuditLogs.Add(new PaymentAuditLog
         {
             EntityType = "Refund",
             EntityId = refund.RefundId,
-            Action = externalRefund != null ? "ExternalRefundRecorded" : "RefundInitiated",
+            Action = refundOnly
+                ? externalRefund != null ? "ExternalRefundOnlyRecorded" : "RefundOnlyInitiated"
+                : externalRefund != null ? "ExternalRefundRecorded" : "RefundInitiated",
             Reason = refundReason,
             PerformedBy = User.Identity?.Name ?? "admin",
             Notes = externalRefund != null
@@ -1279,10 +1473,12 @@ public class RegistrationsController : ControllerBase
     private async Task ReconcileRefundedAmountsAsync(Payment payment, PaymentItem item)
     {
         var itemRefundedAmount = await _db.Refunds
-            .Where(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == "S")
+            .Where(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == StatusCodesEx.Refund.Success)
             .SumAsync(r => (decimal?)r.RefundAmount) ?? 0m;
 
-        var newItemStatus = itemRefundedAmount >= item.Amount ? "R" : "S";
+        var newItemStatus = itemRefundedAmount >= item.Amount
+            ? StatusCodesEx.PaymentItem.Refunded
+            : item.ItemStatus == StatusCodesEx.PaymentItem.Cancelled ? StatusCodesEx.PaymentItem.Cancelled : StatusCodesEx.PaymentItem.Success;
         if (item.ItemStatus != newItemStatus)
         {
             item.ItemStatus = newItemStatus;
@@ -1290,14 +1486,14 @@ public class RegistrationsController : ControllerBase
         }
 
         var paymentRefundedAmount = await _db.Refunds
-            .Where(r => r.PaymentId == payment.PaymentId && r.RefundStatus == "S")
+            .Where(r => r.PaymentId == payment.PaymentId && r.RefundStatus == StatusCodesEx.Refund.Success)
             .SumAsync(r => (decimal?)r.RefundAmount) ?? 0m;
 
         payment.PaymentStatus = paymentRefundedAmount switch
         {
-            <= 0m => "S",
-            var amount when amount >= payment.Amount => "FR",
-            _ => "PR",
+            <= 0m => StatusCodesEx.Payment.Success,
+            var amount when amount >= payment.Amount => StatusCodesEx.Payment.FullyRefunded,
+            _ => StatusCodesEx.Payment.PartiallyRefunded,
         };
         payment.UpdatedAt = DateTime.UtcNow;
     }
@@ -1306,13 +1502,22 @@ public class RegistrationsController : ControllerBase
     {
         reg.RegStatus = status;
         reg.RegistrationStatus = RegistrationStatusToDb(status);
-        if (status == "Confirmed") reg.ConfirmedAt = DateTime.UtcNow;
+        if (status == StatusCodesEx.Registration.Confirmed) reg.ConfirmedAt = DateTime.UtcNow;
         reg.UpdatedAt = DateTime.UtcNow;
         foreach (var group in reg.ParticipantGroups)
         {
             group.GroupStatus = status;
             group.UpdatedAt = DateTime.UtcNow;
         }
+    }
+
+    private static bool CanRefundPaymentItem(Payment payment, PaymentItem item, bool refundOnly)
+    {
+        var paymentWasMade = payment.PaymentStatus == StatusCodesEx.Payment.Success ||
+            payment.PaymentStatus == StatusCodesEx.Payment.PartiallyRefunded ||
+            payment.PaymentStatus == StatusCodesEx.Payment.FullyRefunded;
+        return paymentWasMade && (item.ItemStatus == StatusCodesEx.PaymentItem.Success ||
+            (refundOnly && item.ItemStatus == StatusCodesEx.PaymentItem.Cancelled));
     }
 
     private static void ApplyRegistrationWorkflowStatus(EventRegistration reg, string status)
@@ -1322,12 +1527,32 @@ public class RegistrationsController : ControllerBase
         reg.UpdatedAt = DateTime.UtcNow;
     }
 
-    private static string RegistrationStatusToDb(string status) => status switch
+    private static string RegistrationStatusToDb(string status)
     {
-        "Confirmed" => "C",
-        "Cancelled" => "X",
-        _ => "P",
-    };
+        if (status == StatusCodesEx.Registration.Cancelled)
+            return StatusCodesEx.Registration.Cancelled;
+        if (status == StatusCodesEx.Registration.Confirmed ||
+            status == StatusCodesEx.Registration.CancelPending ||
+            status == StatusCodesEx.Registration.RefundFailed)
+            return StatusCodesEx.Registration.Confirmed;
+        return StatusCodesEx.Registration.Pending;
+    }
+
+    private static string? StatusToAuditCode(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status)) return status;
+        var code = status.Trim();
+        return code.Length <= 5 ? code : "UNK";
+    }
+
+    private static string? AppendAuditStatusContext(string? notes, string? oldStatus, string? newStatus)
+    {
+        if (string.IsNullOrWhiteSpace(oldStatus) && string.IsNullOrWhiteSpace(newStatus))
+            return notes;
+
+        var context = $"OldStatus={oldStatus ?? ""}, NewStatus={newStatus ?? ""}";
+        return string.IsNullOrWhiteSpace(notes) ? context : $"{notes}; {context}";
+    }
 
     private static ExternalRefundDetails? BuildExternalRefundDetails(
         string? refundSource,
@@ -1404,26 +1629,21 @@ public class RegistrationsController : ControllerBase
         };
     }
 
-    private static string PayStatusToDb(string s) => s switch
-    {
-        "Success"            => "S",
-        "Pending"            => "P",
-        "PartiallyRefunded"  => "PR",
-        "FullyRefunded"      => "FR",
-        "Failed"             => "F",
-        "Cancelled"          => "X",
-        "Waived"             => "W",
-        "PendingCollection"  => "PC",
-        _                    => s    // already a short code - pass through
-    };
-
     private static bool CanAdminSetPaymentStatus(string currentStatus, string targetStatus)
     {
         if (currentStatus == targetStatus) return true;
-        if (currentStatus is "PR" or "FR" or "F" or "X") return false;
-        if (currentStatus == "S") return targetStatus == "S";
-        if (currentStatus == "W") return targetStatus == "W";
-        return (currentStatus is "P" or "PC") && (targetStatus is "S" or "W" or "PC");
+        if (currentStatus == StatusCodesEx.Payment.PartiallyRefunded ||
+            currentStatus == StatusCodesEx.Payment.FullyRefunded ||
+            currentStatus == StatusCodesEx.Payment.Failed ||
+            currentStatus == StatusCodesEx.Payment.Cancelled) return false;
+        if (currentStatus == StatusCodesEx.Payment.Success) return targetStatus == StatusCodesEx.Payment.Success;
+        if (currentStatus == StatusCodesEx.Payment.Waived) return targetStatus == StatusCodesEx.Payment.Waived;
+        var currentCanMove = currentStatus == StatusCodesEx.Payment.Pending ||
+            currentStatus == StatusCodesEx.Payment.PendingCollection;
+        var targetAllowed = targetStatus == StatusCodesEx.Payment.Success ||
+            targetStatus == StatusCodesEx.Payment.Waived ||
+            targetStatus == StatusCodesEx.Payment.PendingCollection;
+        return currentCanMove && targetAllowed;
     }
 
     // -- Map helpers ----------------------------------------------------------

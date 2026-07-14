@@ -245,26 +245,26 @@ function EmbeddedPaymentBody({
 
       pollFailureCountRef.current = 0;
 
-      if (status.data.status === "Succeeded" && status.data.registrationId) {
+      if (status.data.status === "S" && status.data.registrationId) {
         setConfirmedRegistrationId(String(status.data.registrationId));
         setTerminalPhase("success", "Your registration has been confirmed.");
         window.clearInterval(pollTimer);
         return;
       }
 
-      if (status.data.status === "Failed" || status.data.status === "Canceled") {
+      if (status.data.status === "F" || status.data.status === "X") {
         setTerminalPhase("failed", status.data.errorMessage || "Payment was not completed. Your cart has been kept.");
         window.clearInterval(pollTimer);
         return;
       }
 
-      if (status.data.status === "Expired") {
+      if (status.data.status === "EX") {
         setTerminalPhase("expired", "Payment session has expired. Your cart has been kept.");
         window.clearInterval(pollTimer);
         return;
       }
 
-      if (status.data.status === "NeedsReconciliation") {
+      if (status.data.status === "NR") {
         setTerminalPhase("review", status.data.errorMessage || "Payment needs organiser review. Please do not pay again if payment was deducted.");
         window.clearInterval(pollTimer);
       }

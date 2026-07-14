@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using System.ComponentModel.DataAnnotations;
 using TRS_API.Models;
 using TRS_Data.Models;
 
@@ -7,6 +8,8 @@ namespace TRS_API.Services;
 
 public class RegistrationWorkflowService
 {
+    private static readonly EmailAddressAttribute ContactEmailValidator = new();
+
     private readonly TRSDbContext _db;
     private readonly ILogger<RegistrationWorkflowService> _log;
     private readonly IBackgroundJobQueue _jobQueue;
@@ -38,6 +41,12 @@ public class RegistrationWorkflowService
         if (eventEntity == null || !eventEntity.IsActive)
             return RegistrationWorkflowResult<PricingQuote>.Fail("EVENT_NOT_FOUND", "Event not found.");
 
+        if (string.IsNullOrWhiteSpace(req.ContactName))
+            return RegistrationWorkflowResult<PricingQuote>.Fail("MISSING_REQUIRED_FIELD", "Contact name is required.");
+
+        if (string.IsNullOrWhiteSpace(req.ContactEmail) || !ContactEmailValidator.IsValid(req.ContactEmail))
+            return RegistrationWorkflowResult<PricingQuote>.Fail("MISSING_REQUIRED_FIELD", "A valid contact email is required.");
+
         if (req.Groups == null || req.Groups.Count == 0)
             return RegistrationWorkflowResult<PricingQuote>.Fail("INVALID_REGISTRATION", "At least one program is required.");
 
@@ -59,7 +68,7 @@ public class RegistrationWorkflowService
             return RegistrationWorkflowResult<PricingQuote>.Fail("PROGRAM_NOT_FOUND", "One or more selected programs could not be found.");
 
         var activeCounts = await _db.ParticipantGroups
-            .Where(g => programIds.Contains(g.ProgramId) && g.GroupStatus != "Cancelled")
+            .Where(g => programIds.Contains(g.ProgramId) && g.GroupStatus != StatusCodesEx.Registration.Cancelled)
             .GroupBy(g => g.ProgramId)
             .Select(g => new { g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
@@ -72,9 +81,9 @@ public class RegistrationWorkflowService
         var fixturePrograms = fixtureProgramIds.ToHashSet();
 
         var existingParticipants = await _db.ParticipantGroups
-            .Where(g => programIds.Contains(g.ProgramId) && g.GroupStatus != "Cancelled")
+            .Where(g => programIds.Contains(g.ProgramId) && g.GroupStatus != StatusCodesEx.Registration.Cancelled)
             .SelectMany(g => g.Participants
-                .Where(p => p.ParticipantStatus != "Cancelled")
+                .Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
                 .Select(p => new ExistingParticipantIdentity
             {
                 ProgramId = g.ProgramId,
@@ -94,7 +103,7 @@ public class RegistrationWorkflowService
             var program = programs[group.ProgramId];
             NormalizeGroupClubValues(group, program);
 
-            if (!program.IsActive || string.Equals(program.Status, "closed", StringComparison.OrdinalIgnoreCase))
+            if (!program.IsActive || program.Status == StatusCodesEx.Program.Closed)
                 return RegistrationWorkflowResult<PricingQuote>.Fail("PROGRAM_CLOSED", $"'{program.Name}' is no longer accepting registrations.");
 
             if (fixturePrograms.Contains(program.ProgramId))
@@ -181,7 +190,7 @@ public class RegistrationWorkflowService
             {
                 EventId = pricing.Value!.EventId,
                 EventName = pricing.Value.EventName,
-                RegStatus = options.PaymentStatus == "S" ? "Confirmed" : "Pending",
+                RegStatus = options.PaymentStatus == StatusCodesEx.Payment.Success ? StatusCodesEx.Registration.Confirmed : StatusCodesEx.Registration.Pending,
                 ContactName = req.ContactName,
                 ContactEmail = req.ContactEmail,
                 ContactPhone = req.ContactPhone,
@@ -189,8 +198,8 @@ public class RegistrationWorkflowService
                 CreatedAt = DateTime.UtcNow,
                 TotalAmount = options.PaymentAmountOverride ?? pricing.Value.TotalAmount,
                 Currency = pricing.Value.Currency,
-                RegistrationStatus = options.PaymentStatus == "S" ? "C" : "P",
-                ConfirmedAt = options.PaymentStatus == "S" ? DateTime.UtcNow : null,
+                RegistrationStatus = options.PaymentStatus == StatusCodesEx.Payment.Success ? StatusCodesEx.Registration.Confirmed : StatusCodesEx.Registration.Pending,
+                ConfirmedAt = options.PaymentStatus == StatusCodesEx.Payment.Success ? DateTime.UtcNow : null,
             };
             _db.EventRegistrations.Add(reg);
             await _db.SaveChangesAsync(ct);
@@ -207,7 +216,7 @@ public class RegistrationWorkflowService
                 if (program == null || program.EventId != req.EventId)
                     return await RollbackAndFail(tx, "PROGRAM_NOT_FOUND", "One or more selected programs could not be found.");
 
-                if (!program.IsActive || string.Equals(program.Status, "closed", StringComparison.OrdinalIgnoreCase))
+                if (!program.IsActive || program.Status == StatusCodesEx.Program.Closed)
                     return await RollbackAndFail(tx, "PROGRAM_CLOSED", $"'{program.Name}' is no longer accepting registrations.");
 
                 var fixtureExists = await _db.Fixtures.AnyAsync(f => f.ProgramId == groupDto.ProgramId, ct);
@@ -215,7 +224,7 @@ public class RegistrationWorkflowService
                     return await RollbackAndFail(tx, "PROGRAM_FIXTURE_EXISTS", $"'{program.Name}' already has a fixture generated and is no longer accepting registrations.");
 
                 var activeGroupCount = await _db.ParticipantGroups
-                    .CountAsync(g => g.ProgramId == groupDto.ProgramId && g.GroupStatus != "Cancelled", ct);
+                    .CountAsync(g => g.ProgramId == groupDto.ProgramId && g.GroupStatus != StatusCodesEx.Registration.Cancelled, ct);
 
                 if (activeGroupCount >= program.MaxParticipants)
                     return await RollbackAndFail(tx, "PROGRAM_FULL", $"'{program.Name}' is full. No slots remaining.");
@@ -237,9 +246,9 @@ public class RegistrationWorkflowService
                     ProgramId = groupDto.ProgramId,
                     ProgramName = program.Name,
                     Fee = persistedGroupFee,
-                    GroupStatus = options.PaymentStatus == "S" ? "Confirmed" : "Pending",
+                    GroupStatus = options.PaymentStatus == StatusCodesEx.Payment.Success ? StatusCodesEx.Registration.Confirmed : StatusCodesEx.Registration.Pending,
                     CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = options.PaymentStatus == "S" ? DateTime.UtcNow : null,
+                    UpdatedAt = options.PaymentStatus == StatusCodesEx.Payment.Success ? DateTime.UtcNow : null,
                 };
                 _db.ParticipantGroups.Add(group);
                 await _db.SaveChangesAsync(ct);
@@ -332,7 +341,7 @@ public class RegistrationWorkflowService
                 createdGroups.Add(group);
             }
 
-            var isConfirmed = options.PaymentStatus == "S";
+            var isConfirmed = options.PaymentStatus == StatusCodesEx.Payment.Success;
             var receiptProgramId = pendingItems
                 .Select(i => (int?)i.ProgramId)
                 .Where(pid => pid.HasValue)
@@ -373,7 +382,7 @@ public class RegistrationWorkflowService
                     Description = item.Description,
                     PlayerName = item.PlayerName,
                     Amount = item.Amount,
-                    ItemStatus = isConfirmed ? "S" : "P",
+                    ItemStatus = isConfirmed ? StatusCodesEx.PaymentItem.Success : StatusCodesEx.PaymentItem.Pending,
                     CreatedAt = DateTime.UtcNow,
                     ParticipantId = item.ParticipantId,
                 });
@@ -408,9 +417,9 @@ public class RegistrationWorkflowService
         var existingParticipants = await _db.ParticipantGroups
             .Where(g =>
                 g.ProgramId == programId &&
-                g.GroupStatus != "Cancelled")
+                g.GroupStatus != StatusCodesEx.Registration.Cancelled)
             .SelectMany(g => g.Participants
-                .Where(p => p.ParticipantStatus != "Cancelled")
+                .Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
                 .Select(p => new
             {
                 p.FullName,
@@ -550,22 +559,22 @@ public class RegistrationWorkflowService
     public static string ComputeRegistrationStatus(Event eventEntity, int activeProgramCount)
     {
         if (!eventEntity.IsActive)
-            return "closed";
+            return StatusCodesEx.EventRegistration.Closed;
         if (activeProgramCount <= 0)
-            return "draft";
+            return StatusCodesEx.EventRegistration.Draft;
 
-        if (string.Equals(eventEntity.RegistrationStatus, "paused", StringComparison.OrdinalIgnoreCase))
-            return "paused";
-        if (string.Equals(eventEntity.RegistrationStatus, "closed", StringComparison.OrdinalIgnoreCase))
-            return "closed";
+        if (eventEntity.RegistrationStatus == StatusCodesEx.EventRegistration.Paused)
+            return StatusCodesEx.EventRegistration.Paused;
+        if (eventEntity.RegistrationStatus == StatusCodesEx.EventRegistration.Closed)
+            return StatusCodesEx.EventRegistration.Closed;
 
         var today = TodayInSingapore();
         if (today < eventEntity.OpenDate)
-            return "upcoming";
+            return StatusCodesEx.EventRegistration.Upcoming;
         if (today > eventEntity.CloseDate)
-            return "closed";
+            return StatusCodesEx.EventRegistration.Closed;
 
-        return "open";
+        return StatusCodesEx.EventRegistration.Open;
     }
 
     private static (string Code, string Message)? ValidateEventGate(
@@ -575,13 +584,13 @@ public class RegistrationWorkflowService
         if (gateMode == EventRegistrationGateMode.AlreadyPaidFinalization)
             return null;
 
-        if (registrationStatus == "draft")
+        if (registrationStatus == StatusCodesEx.EventRegistration.Draft)
             return ("EVENT_DRAFT", "Add at least one program before accepting registrations.");
 
         if (gateMode == EventRegistrationGateMode.AdminAssisted)
             return null;
 
-        return registrationStatus == "open"
+        return registrationStatus == StatusCodesEx.EventRegistration.Open
             ? null
             : ("EVENT_CLOSED", "This event is not accepting registrations.");
     }
@@ -639,13 +648,15 @@ public class RegistrationWorkflowService
         {
             using var scope = _serviceScopeFactory.CreateScope();
             var receiptSvc = scope.ServiceProvider.GetRequiredService<ReceiptService>();
+            var detailsPdfSvc = scope.ServiceProvider.GetRequiredService<RegistrationDetailsPdfService>();
             var emailSvc = scope.ServiceProvider.GetRequiredService<EmailService>();
             var jobDb = scope.ServiceProvider.GetRequiredService<TRSDbContext>();
 
             try
             {
                 var pdfBytes = await receiptSvc.GenerateAsync(jobDb, registrationId);
-                await emailSvc.SendPaymentConfirmationAsync(jobDb, registrationId, pdfBytes, ct);
+                var detailsPdfBytes = await detailsPdfSvc.GenerateAsync(jobDb, registrationId);
+                await emailSvc.SendPaymentConfirmationAsync(jobDb, registrationId, pdfBytes, detailsPdfBytes, ct);
             }
             catch (Exception ex)
             {
@@ -695,7 +706,7 @@ public sealed class RegistrationPersistOptions
     public bool ValidatePricingAgainstCurrentPrograms { get; init; } = true;
     public string PaymentGateway { get; init; } = "Stripe";
     public string PaymentMethod { get; init; } = "CreditCard";
-    public string PaymentStatus { get; init; } = "P";
+    public string PaymentStatus { get; init; } = StatusCodesEx.Payment.Pending;
     public decimal? PaymentAmountOverride { get; init; }
     public string? GatewaySessionId { get; init; }
     public string? GatewayPaymentId { get; init; }
@@ -732,7 +743,7 @@ public sealed class RegistrationCreateOutcome
     public int RegistrationId { get; init; }
     public int PaymentId { get; init; }
     public decimal TotalAmount { get; init; }
-    public string PaymentStatus { get; init; } = "P";
+    public string PaymentStatus { get; init; } = StatusCodesEx.Payment.Pending;
 }
 
 public sealed class RegistrationWorkflowResult<T>

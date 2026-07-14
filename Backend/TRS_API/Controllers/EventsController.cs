@@ -127,9 +127,11 @@ public class EventsController : ControllerBase
     [HttpPatch("{id:int}/registration-status"), Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> UpdateRegistrationStatus(int id, [FromBody] UpdateEventRegistrationStatusRequest req)
     {
-        var status = (req.Status ?? "").Trim().ToLowerInvariant();
-        if (status is not ("open" or "paused" or "closed"))
-            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be open, paused, or closed." });
+        var status = (req.Status ?? "").Trim().ToUpperInvariant();
+        if (status != StatusCodesEx.EventRegistration.Open &&
+            status != StatusCodesEx.EventRegistration.Paused &&
+            status != StatusCodesEx.EventRegistration.Closed)
+            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be O, PA, or CL." });
 
         var ev = await _db.Events
             .Include(e => e.GalleryImages)
@@ -327,8 +329,8 @@ public class EventsController : ControllerBase
         var prog = await _db.Programs.Include(p => p.Fields).Include(p => p.CustomFields)
             .FirstOrDefaultAsync(p => p.ProgramId == pid && p.EventId == eid);
         if (prog == null) return NotFound(new { code = "NOT_FOUND", message = "Program not found." });
-        if (req.Status != "open" && req.Status != "closed")
-            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be 'open' or 'closed'." });
+        if (req.Status != StatusCodesEx.Program.Open && req.Status != StatusCodesEx.Program.Closed)
+            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be O or CL." });
         var oldValue = AuditProgramSnapshot(prog);
         prog.Status    = req.Status;
         prog.UpdatedAt = DateTime.UtcNow;
@@ -390,14 +392,14 @@ public class EventsController : ControllerBase
     {
         if (!programIds.Any()) return new();
         return await _db.ParticipantGroups
-            .Where(g => programIds.Contains(g.ProgramId) && g.GroupStatus != "Cancelled")
+            .Where(g => programIds.Contains(g.ProgramId) && g.GroupStatus != StatusCodesEx.Registration.Cancelled)
             .GroupBy(g => g.ProgramId)
             .Select(g => new { g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Key, x => x.Count);
     }
 
     private Task<int> CountActiveParticipantGroups(int programId) =>
-        _db.ParticipantGroups.CountAsync(g => g.ProgramId == programId && g.GroupStatus != "Cancelled");
+        _db.ParticipantGroups.CountAsync(g => g.ProgramId == programId && g.GroupStatus != StatusCodesEx.Registration.Cancelled);
 
     private static Event ApplyEventFields(Event ev, UpsertEventRequest r)
     {
@@ -421,7 +423,7 @@ public class EventsController : ControllerBase
         ev.SportType        = r.SportType;
         ev.FixtureMode      = r.FixtureMode;
         if (string.IsNullOrWhiteSpace(ev.RegistrationStatus))
-            ev.RegistrationStatus = "open";
+            ev.RegistrationStatus = StatusCodesEx.EventRegistration.Open;
         ev.GalleryImages    = r.GalleryUrls.Select((url, i) =>
             new EventGalleryImage { ImageUrl = url, SortOrder = i }).ToList();
         return ev;

@@ -30,7 +30,7 @@ public class ReceiptService
             ?? throw new InvalidOperationException("No payment for this registration.");
 
         var refunds = await db.Refunds
-            .Where(r => r.PaymentId == payment.PaymentId && r.RefundStatus == "S")
+            .Where(r => r.PaymentId == payment.PaymentId && r.RefundStatus == StatusCodesEx.Refund.Success)
             .OrderBy(r => r.CreatedAt)
             .ToListAsync();
 
@@ -81,12 +81,12 @@ public class ReceiptService
 
         var overallStatus = payment.PaymentStatus switch
         {
-            "FR" => "FULLY REFUNDED",
-            "PR" => "PARTIALLY REFUNDED",
-            "S" => "PAID",
+            StatusCodesEx.Payment.FullyRefunded => "FULLY REFUNDED",
+            StatusCodesEx.Payment.PartiallyRefunded => "PARTIALLY REFUNDED",
+            StatusCodesEx.Payment.Success => "PAID",
             _ => payment.PaymentStatus,
         };
-        var statusColor = payment.PaymentStatus is "FR" or "PR"
+        var statusColor = payment.PaymentStatus is StatusCodesEx.Payment.FullyRefunded or StatusCodesEx.Payment.PartiallyRefunded
             ? Colors.Orange.Darken1 : Colors.Green.Darken1;
 
         var methodLabel = payment.PaymentMethod switch

@@ -98,7 +98,7 @@ export async function apiUpdateEvent(
 
 export async function apiUpdateEventRegistrationStatus(
   eventId: string,
-  status: "open" | "paused" | "closed",
+  status: "O" | "PA" | "CL",
 ): Promise<ApiResult<TournamentEvent>> {
   await delay();
   const res = await apiFetch(`${API_BASE}/api/events/${eventId}/registration-status`, {
@@ -157,7 +157,7 @@ export async function apiUpdateProgram(
 export async function apiUpdateProgramStatus(
   eventId: string,
   programId: string,
-  status: "open" | "closed",
+  status: "O" | "CL",
 ): Promise<ApiResult<{ programId: number; status: string }>> {
   await delay();
   const res = await apiFetch(`${API_BASE}/api/events/${eventId}/programs/${programId}/status`, {
