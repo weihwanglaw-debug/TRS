@@ -269,6 +269,19 @@ public class EventsController : ControllerBase
         var prog = await _db.Programs.Include(p => p.Fields).Include(p => p.CustomFields)
             .FirstOrDefaultAsync(p => p.ProgramId == pid && p.EventId == eid);
         if (prog == null) return NotFound(new { code = "NOT_FOUND", message = "Program not found." });
+        if (prog.TeamMode != req.TeamMode)
+        {
+            var fixtureExists = await _db.Fixtures.AnyAsync(f => f.ProgramId == pid);
+            if (fixtureExists)
+            {
+                return Conflict(new
+                {
+                    code = "PROGRAM_FIXTURE_EXISTS",
+                    message = "Team mode cannot be changed after fixtures have been generated. Reset the fixture first."
+                });
+            }
+        }
+
         var activeGroupCount = await CountActiveParticipantGroups(pid);
         if (activeGroupCount > 0)
         {
@@ -420,6 +433,7 @@ public class EventsController : ControllerBase
         p.SbaRankingType = string.IsNullOrWhiteSpace(r.SbaRankingType) ? null : r.SbaRankingType.Trim();
         p.Gender = r.Gender; p.Fee = r.Fee; p.PaymentRequired = r.PaymentRequired;
         p.FeeStructure = r.FeeStructure;
+        p.TeamMode = r.TeamMode;
         p.MinPlayers = r.MinPlayers; p.MaxPlayers = r.MaxPlayers;
         p.MinParticipants = r.MinParticipants; p.MaxParticipants = r.MaxParticipants;
         if (p.Fields != null)
@@ -458,6 +472,7 @@ public class EventsController : ControllerBase
     private static void ApplyRegisteredProgramSafeFields(TrsProgram p, UpsertProgramRequest r)
     {
         p.Name = r.Name;
+        p.TeamMode = r.TeamMode;
         p.MinParticipants = r.MinParticipants;
         p.MaxParticipants = r.MaxParticipants;
     }
@@ -491,7 +506,7 @@ public class EventsController : ControllerBase
     }
 
     private static string RegisteredProgramChangeBlockedMessage(string fieldGroup) =>
-        $"This program already has registered participants. Changing {fieldGroup} could conflict with existing registrations; close the program to stop new registrations or create a new program.";
+        $"This program already has registered participants. Changing {fieldGroup} could conflict with existing registrations.";
 
     private static string? NormalizeNullable(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -572,6 +587,7 @@ public class EventsController : ControllerBase
     {
         id = p.ProgramId.ToString(), p.Name, p.Type, p.SbaRankingType,
         p.MinAge, p.MaxAge, p.Gender, p.Fee, p.PaymentRequired, p.FeeStructure,
+        p.TeamMode,
         p.MinPlayers, p.MaxPlayers, p.MinParticipants, p.MaxParticipants,
         currentParticipants, p.Status, participantSeeds = new List<object>(),
         fields = p.Fields == null
@@ -669,6 +685,7 @@ public class EventsController : ControllerBase
         p.Fee,
         p.PaymentRequired,
         p.FeeStructure,
+        p.TeamMode,
         p.MinPlayers,
         p.MaxPlayers,
         p.MinParticipants,

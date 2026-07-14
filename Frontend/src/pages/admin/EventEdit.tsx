@@ -862,9 +862,18 @@ export default function EventEdit() {
             <button onClick={async () => {
               const prog = openAction.prog;
               const newStatus = prog.status === "closed" ? "open" : "closed";
-              const r = await apiUpdateProgramStatus(eventId!, prog.id, newStatus);
-              if (r.data) setPrograms(prev => prev.map(p => p.id === prog.id ? { ...p, status: newStatus } : p));
-              setOpenAction(null);
+              try {
+                const r = await apiUpdateProgramStatus(eventId!, prog.id, newStatus);
+                if (r.error) {
+                  showError("Program status could not be updated", r.error.message);
+                  return;
+                }
+                if (r.data) setPrograms(prev => prev.map(p => p.id === prog.id ? { ...p, status: newStatus } : p));
+              } catch {
+                showError("Program status could not be updated", "Please check your connection and try again.");
+              } finally {
+                setOpenAction(null);
+              }
             }}>
               {openAction.prog.status === "closed"
                 ? <><Unlock className="h-4 w-4" /> Reopen Program</>
@@ -889,11 +898,13 @@ export default function EventEdit() {
           if (!isNew && eventId && eventId !== "new") {
             if (editingProgram) {
               const r = await apiUpdateProgram(eventId, savedProgram.id, savedProgram);
+              if (r.error) return r.error.message;
               if (r.data) setPrograms(prev => prev.map(p => p.id === r.data!.id ? r.data! : p));
             } else {
               const { id: _id, currentParticipants: _cp, participantSeeds: _ps, ...payload } = savedProgram;
               void _id; void _cp; void _ps;
               const r = await apiAddProgram(eventId, payload);
+              if (r.error) return r.error.message;
               if (r.data) setPrograms(prev => [...prev, r.data!]);
             }
           } else {
@@ -910,6 +921,7 @@ export default function EventEdit() {
           }
           setProgramModalOpen(false);
           setEditingProgram(null);
+          return undefined;
         }}
         program={editingProgram}
         isBadminton={isBadminton}

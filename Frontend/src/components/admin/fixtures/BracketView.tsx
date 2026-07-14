@@ -14,6 +14,7 @@
 
 import React from "react";
 import type { BracketState, MatchEntry, FixtureFormat } from "@/types/config";
+import { getEntryDisplay } from "@/lib/entryDisplay";
 
 //  Layout constants
 const CARD_W    = 260;   // card width
@@ -154,9 +155,9 @@ function MatchCard({
     team?: MatchEntry["team1"]; isWinner: boolean; score: number | string | null; detail?: string;
   }) => {
     const seed  = team?.seed != null ? `#${team.seed} ` : "";
-    const showPlayers = !!team && team.participants.length > 0 && team.participants.length <= 2;
-    const label = team ? `${seed}${showPlayers ? team.participants.join(" / ") : team.label}` : "";
-    const sub   = showPlayers ? team.label : null;
+    const display = team ? getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants }) : null;
+    const label = display ? `${seed}${display.main}` : "";
+    const sub   = display?.sub || null;
 
     return (
       <div style={{

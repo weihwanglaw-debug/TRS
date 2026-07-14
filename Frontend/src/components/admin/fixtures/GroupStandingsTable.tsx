@@ -1,6 +1,7 @@
 import React from "react";
 import type { GroupEntry, StandingPoints } from "@/types/config";
 import { computeGroupStandings } from "@/lib/fixtureEngine";
+import { getEntryDisplay } from "@/lib/entryDisplay";
 
 interface Props {
   group: GroupEntry;
@@ -27,7 +28,9 @@ export function GroupStandingsTable({ group, advancePerGroup = 2, standingPoints
             </tr>
           </thead>
           <tbody>
-            {standings.map(s => (
+            {standings.map(s => {
+              const display = getEntryDisplay({ teamMode: s.team.teamMode, label: s.team.label, participants: s.team.participants });
+              return (
               <tr key={s.team.id}>
                 <td className="font-bold text-sm"
                   style={{ color: s.rank <= advancePerGroup ? "var(--color-primary)" : undefined }}>
@@ -40,8 +43,8 @@ export function GroupStandingsTable({ group, advancePerGroup = 2, standingPoints
                       #{s.team.seed}
                     </span>
                   )}
-                  <span className="font-medium text-sm">{s.team.label}</span>
-                  <div className="text-xs opacity-50">{s.team.participants.join(" / ")}</div>
+                  <span className="font-medium text-sm">{display.main}</span>
+                  {display.sub && <div className="text-xs opacity-50">{display.sub}</div>}
                 </td>
                 {anyPlayed && <>
                   <td>{s.played}</td>
@@ -51,7 +54,7 @@ export function GroupStandingsTable({ group, advancePerGroup = 2, standingPoints
                   <td className="font-bold">{s.points}</td>
                 </>}
               </tr>
-            ))}
+            )})}
           </tbody>
         </table>
       </div>

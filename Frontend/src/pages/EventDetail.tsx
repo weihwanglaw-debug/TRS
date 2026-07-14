@@ -258,6 +258,8 @@ export default function EventDetail() {
   const registrationRef = useRef<HTMLDivElement>(null);
   const programsRef = useRef<HTMLDivElement>(null);
   const cartSectionRef = useRef<HTMLDivElement>(null);
+  const contactSectionRef = useRef<HTMLDivElement>(null);
+  const contactNameRef = useRef<HTMLInputElement>(null);
   const cartItemRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
   const { cfg } = useLiveConfig();
@@ -359,21 +361,41 @@ export default function EventDetail() {
     target.focus({ preventScroll: true });
   };
 
+  const scrollToContactSection = (behavior: ScrollBehavior = "smooth") => {
+    const target = contactSectionRef.current;
+    if (!target) {
+      scrollToCartSection(behavior);
+      return;
+    }
+
+    const top = target.getBoundingClientRect().top + window.scrollY - 96;
+    window.scrollTo({ top: Math.max(0, top), behavior });
+    target.focus({ preventScroll: true });
+    if (!contact.name.trim()) {
+      window.setTimeout(() => contactNameRef.current?.focus({ preventScroll: true }), 180);
+    }
+  };
+
+  const focusNextRegistrationStep = (behavior: ScrollBehavior = "smooth") => {
+    if (isAdminPaymentBypass) scrollToCartSection(behavior);
+    else scrollToContactSection(behavior);
+  };
+
   useEffect(() => {
     if (step !== 3 || pendingCartFocusIndex === null) return;
 
     const first = window.setTimeout(() => {
-      window.requestAnimationFrame(() => scrollToCartSection("auto"));
+      window.requestAnimationFrame(() => focusNextRegistrationStep("auto"));
     }, 0);
     const second = window.setTimeout(() => {
-      scrollToCartSection("smooth");
+      focusNextRegistrationStep("smooth");
     }, 260);
 
     return () => {
       window.clearTimeout(first);
       window.clearTimeout(second);
     };
-  }, [cart.length, pendingCartFocusIndex, step]);
+  }, [cart.length, pendingCartFocusIndex, step, isAdminPaymentBypass, contact.name]);
   const canSubmitCart = isAdminPaymentBypass || consentChecked;
   const registrationContact = isAdminPaymentBypass
     ? {
@@ -496,11 +518,16 @@ export default function EventDetail() {
     }
   };
 
+  const syncTeamParticipants = (items: Participant[], program = selectedProgram) => {
+    if (!program?.teamMode || items.length === 0) return items;
+    const teamName = items[0].clubSchoolCompany ?? "";
+    return items.map((p) => ({ ...p, clubSchoolCompany: teamName }));
+  };
 
 
   const applyAutoFill = (participantIdx: number, existing: Participant) => {
     setParticipants((prev) =>
-      prev.map((p, i) => i === participantIdx ? { ...existing, id: p.id, documentFile: null } : p)
+      syncTeamParticipants(prev.map((p, i) => i === participantIdx ? { ...existing, id: p.id, documentFile: null } : p))
     );
     clearParticipantErrors(participantIdx, ["sbaId", "fullName", "dob", "gender", "email", "contactNumber", "nationality", "clubSchoolCompany", "tshirtSize", "guardianName", "guardianContact", "documentUpload", "remark", "custom."]);
     setSuggestions(null);
@@ -508,13 +535,19 @@ export default function EventDetail() {
 
   const addParticipant = () => {
     if (!selectedProgram || participants.length >= selectedProgram.maxPlayers) return;
-    setParticipants((prev) => [...prev, blankParticipant()]);
+    setParticipants((prev) => {
+      const next = [...prev, {
+        ...blankParticipant(),
+        clubSchoolCompany: selectedProgram.teamMode ? (prev[0]?.clubSchoolCompany ?? "") : "",
+      }];
+      return syncTeamParticipants(next, selectedProgram);
+    });
     setFormError("");
   };
 
   const removeParticipant = (idx: number) => {
     if (!selectedProgram || participants.length <= selectedProgram.minPlayers) return;
-    setParticipants((prev) => prev.filter((_, i) => i !== idx));
+    setParticipants((prev) => syncTeamParticipants(prev.filter((_, i) => i !== idx), selectedProgram));
     setErrors((prev) => {
       const next: Record<string, string> = {};
       Object.entries(prev).forEach(([key, value]) => {
@@ -544,6 +577,12 @@ export default function EventDetail() {
     });
   };
 
+  const cancelParticipantEntry = () => {
+    setStep(cart.length > 0 ? 3 : 1);
+    setSelectedProgram(null);
+    setEditingCartIndex(null);
+  };
+
   //  SBA ID retrieve - calls apiGetSbaMember() (sbaApi.ts)
   // Mock: resolves from SBA_MASTER in sbaApi.ts
   // Real: swap sbaApi.ts body to fetch() from /api/sba/members/:id
@@ -557,11 +596,11 @@ export default function EventDetail() {
       const found = r.data;
       const [year, month, day] = found.dob.split("-");
       setParticipants((prev) =>
-        prev.map((p, i) =>
+        syncTeamParticipants(prev.map((p, i) =>
           i === idx ? { ...p, fullName: found.name, dobDay: day,
             dobMonth: MONTHS[parseInt(month, 10) - 1], dobYear: year,
             clubSchoolCompany: found.club } : p
-        )
+        ))
       );
       clearParticipantErrors(idx, ["sbaId", "fullName", "dob", "clubSchoolCompany"]);
       setSbaStatus((prev) => ({ ...prev, [idx]: "found" }));
@@ -649,8 +688,9 @@ export default function EventDetail() {
       programName: selectedProgram.name,
       fee: totalEntryFee,
       feeStructure: selectedProgram.feeStructure,
+      teamMode: selectedProgram.teamMode,
       feePerPlayer: isPerPlayer ? entryFee : undefined,
-      participants: [...participants],
+      participants: syncTeamParticipants([...participants], selectedProgram),
     };
 
     const focusIndex = editingCartIndex ?? cart.length;
@@ -1162,97 +1202,114 @@ export default function EventDetail() {
                 )}
 
                 {step === 2 && selectedProgram && (
-                  <motion.div key="step2" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
-                    <div className="flex items-center justify-between mb-6">
-                      <h3 className="font-bold text-lg">{editingCartIndex !== null ? "Edit: " : ""}{selectedProgram.name} - Participant Details</h3>
-                      <button
-                        onClick={() => { setStep(cart.length > 0 ? 3 : 1); setSelectedProgram(null); setEditingCartIndex(null); }}
-                        className="btn-outline px-4 py-2 text-sm font-medium"
+                  <motion.div key="step2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                    <Dialog open onOpenChange={(nextOpen) => { if (!nextOpen) cancelParticipantEntry(); }}>
+                      <DialogContent
+                        className="flex h-[100dvh] w-screen max-w-none flex-col gap-0 p-0 sm:h-[90vh] sm:w-[calc(100vw-2rem)] sm:max-w-5xl sm:rounded-none"
+                        style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}
+                        onPointerDownOutside={(e) => e.preventDefault()}
+                        onEscapeKeyDown={(e) => e.preventDefault()}
                       >
-                        Cancel
-                      </button>
-                    </div>
-                    {formError && (
-                      <div className="flex items-center gap-2 p-4 mb-5 text-sm" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--color-primary)" }}>
-                        <AlertCircle className="h-4 w-4 flex-shrink-0" /> {formError}
-                      </div>
-                    )}
-                    {participants.map((p, idx) => (
-                      <div key={p.id} className="p-6 mb-5" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
-                        <div className="flex items-center justify-between mb-5">
-                          <h4 className="font-semibold text-sm">Player {idx + 1}</h4>
-                          {participants.length > selectedProgram.minPlayers && (
-                            <button onClick={() => removeParticipant(idx)} className="text-xs flex items-center gap-1 opacity-60 hover:opacity-100">
-                              <Trash2 className="h-3 w-3" /> Remove
+                        <DialogHeader className="shrink-0 p-5 sm:p-7"
+                          style={{ borderBottom: "1px solid var(--color-table-border)" }}>
+                          <div className="pr-8">
+                            <DialogTitle className="font-bold text-xl">
+                              {editingCartIndex !== null ? "Edit Registration" : "Participant Details"}
+                            </DialogTitle>
+                            <p className="mt-1 text-sm opacity-60">{selectedProgram.name}</p>
+                          </div>
+                        </DialogHeader>
+
+                        <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-7">
+                          {formError && (
+                            <div className="flex items-center gap-2 p-4 mb-5 text-sm" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--color-primary)" }}>
+                              <AlertCircle className="h-4 w-4 flex-shrink-0" /> {formError}
+                            </div>
+                          )}
+                          {participants.map((p, idx) => (
+                            <div key={p.id} className="p-5 sm:p-6 mb-5" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
+                              <div className="flex items-center justify-between mb-5">
+                                <h4 className="font-semibold text-sm">Player {idx + 1}</h4>
+                                {participants.length > selectedProgram.minPlayers && (
+                                  <button onClick={() => removeParticipant(idx)} className="text-xs flex items-center gap-1 opacity-60 hover:opacity-100">
+                                    <Trash2 className="h-3 w-3" /> Remove
+                                  </button>
+                                )}
+                              </div>
+                              <ParticipantFieldsForm
+                                values={p}
+                                onChange={(patch) => {
+                                  clearParticipantErrors(idx, errorKeysForParticipantPatch(patch));
+                                  setParticipants((prev) => {
+                                    const next = prev.map((pp, i) => i === idx ? { ...pp, ...patch } : pp);
+                                    return syncTeamParticipants(next, selectedProgram);
+                                  });
+  // Restore suggestion trigger: fire when fullName changes
+                                  if (typeof patch.fullName === "string") {
+                                    const q = patch.fullName;
+                                    if (q.length >= 3) {
+                                      const matches = existingParticipants.filter((ep) =>
+                                        ep.fullName.toLowerCase().startsWith(q.toLowerCase())
+                                      );
+                                      setSuggestions(matches.length > 0 ? { idx, matches } : null);
+                                    } else {
+                                      setSuggestions(null);
+                                    }
+                                  }
+                                }}
+                                programFields={selectedProgram.fields}
+                                eventType={event.sportType}
+                                teamMode={selectedProgram.teamMode}
+                                participantIndex={idx}
+                                errors={Object.fromEntries(
+                                  Object.entries(errors)
+                                    .filter(([k]) => k.startsWith(`p${idx}.`))
+                                    .map(([k, v]) => [k.replace(`p${idx}.`, ""), v])
+                                )}
+                                onFileChange={(file) =>
+                                  {
+                                    clearParticipantErrors(idx, ["documentUpload"]);
+                                    setParticipants((prev) =>
+                                      prev.map((pp, i) => i === idx ? { ...pp, documentFile: file } : pp)
+                                    );
+                                  }
+                                }
+                                newFile={p.documentFile ?? null}
+                                sbaEnabled={true}
+                                sbaStatus={sbaStatus[idx] ?? "idle"}
+                                onSbaRetrieve={() => retrieveBySbaId(idx, p.sbaId || "")}
+                                onSbaIdChange={(v) => {
+                                  clearParticipantErrors(idx, ["sbaId"]);
+                                  setSbaStatus((prev) => ({ ...prev, [idx]: v.trim() ? prev[idx] : "idle" }));
+                                }}
+                                suggestions={
+                                  suggestions?.idx === idx
+                                    ? suggestions.matches
+                                    : []
+                                }
+                                onApplySuggestion={(s) => applyAutoFill(idx, s as unknown as Participant)}
+                                nationalityOptions={NATIONALITY_OPTIONS}
+                              />
+                            </div>
+                          ))}
+
+                          {participants.length < selectedProgram.maxPlayers && (
+                            <button onClick={addParticipant} className="flex items-center gap-2 text-sm font-medium" style={{ color: "var(--color-primary)" }}>
+                              <Plus className="h-4 w-4" /> Add Player
                             </button>
                           )}
                         </div>
-                        <ParticipantFieldsForm
-                          values={p}
-                          onChange={(patch) => {
-                            clearParticipantErrors(idx, errorKeysForParticipantPatch(patch));
-                            setParticipants((prev) =>
-                              prev.map((pp, i) => i === idx ? { ...pp, ...patch } : pp)
-                            );
-  // Restore suggestion trigger: fire when fullName changes
-                            if (typeof patch.fullName === "string") {
-                              const q = patch.fullName;
-                              if (q.length >= 3) {
-                                const matches = existingParticipants.filter((ep) =>
-                                  ep.fullName.toLowerCase().startsWith(q.toLowerCase())
-                                );
-                                setSuggestions(matches.length > 0 ? { idx, matches } : null);
-                              } else {
-                                setSuggestions(null);
-                              }
-                            }
-                          }}
-                          programFields={selectedProgram.fields}
-                          eventType={event.sportType}
-                          errors={Object.fromEntries(
-                            Object.entries(errors)
-                              .filter(([k]) => k.startsWith(`p${idx}.`))
-                              .map(([k, v]) => [k.replace(`p${idx}.`, ""), v])
-                          )}
-                          onFileChange={(file) =>
-                            {
-                              clearParticipantErrors(idx, ["documentUpload"]);
-                              setParticipants((prev) =>
-                                prev.map((pp, i) => i === idx ? { ...pp, documentFile: file } : pp)
-                              );
-                            }
-                          }
-                          newFile={p.documentFile ?? null}
-                          sbaEnabled={true}
-                          sbaStatus={sbaStatus[idx] ?? "idle"}
-                          onSbaRetrieve={() => retrieveBySbaId(idx, p.sbaId || "")}
-                          onSbaIdChange={(v) => {
-                            clearParticipantErrors(idx, ["sbaId"]);
-                            setSbaStatus((prev) => ({ ...prev, [idx]: v.trim() ? prev[idx] : "idle" }));
-                          }}
-                          suggestions={
-                            suggestions?.idx === idx
-                              ? suggestions.matches
-                              : []
-                          }
-                          onApplySuggestion={(s) => applyAutoFill(idx, s as unknown as Participant)}
-                          nationalityOptions={NATIONALITY_OPTIONS}
-                        />
-                      </div>
-                    ))}
 
-                    {participants.length < selectedProgram.maxPlayers && (
-                      <button onClick={addParticipant} className="flex items-center gap-2 text-sm font-medium mb-8" style={{ color: "var(--color-primary)" }}>
-                        <Plus className="h-4 w-4" /> Add Player
-                      </button>
-                    )}
-                    <div className="flex gap-3">
-                      <button onClick={() => { setStep(cart.length > 0 ? 3 : 1); setSelectedProgram(null); setEditingCartIndex(null); }}
-                        className="btn-outline px-6 py-2.5 text-sm font-medium">Back</button>
-                      <button onClick={handleAddToCart} className="btn-primary px-6 py-2.5 text-sm font-semibold">
-                        {editingCartIndex !== null ? "Update Registration List" : "Add to Registration List"}
-                      </button>
-                    </div>
+                        <DialogFooter className="shrink-0 flex-row justify-end gap-3 p-5 sm:p-7"
+                          style={{ borderTop: "1px solid var(--color-table-border)" }}>
+                          <button onClick={cancelParticipantEntry}
+                            className="btn-outline px-6 py-2.5 text-sm font-medium">Cancel</button>
+                          <button onClick={handleAddToCart} className="btn-primary px-6 py-2.5 text-sm font-semibold">
+                            {editingCartIndex !== null ? "Update Registration List" : "Add to Registration List"}
+                          </button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
                   </motion.div>
                 )}
 
@@ -1264,7 +1321,7 @@ export default function EventDetail() {
                     exit={{ opacity: 0, x: 20 }}
                     onAnimationComplete={() => {
                       if (pendingCartFocusIndex !== null) {
-                        scrollToCartSection("smooth");
+                        focusNextRegistrationStep("smooth");
                         setPendingCartFocusIndex(null);
                       }
                     }}
@@ -1313,7 +1370,12 @@ export default function EventDetail() {
   {/* Session restored banner - shown when user returns after payment cancel */}
   {/* Contact person - receipt will be sent here */}
                         {!isAdminPaymentBypass && (
-                        <div className="event-detail-panel p-5 mb-5" style={{ border: "1px solid var(--color-table-border)" }}>
+                        <div
+                          ref={contactSectionRef}
+                          tabIndex={-1}
+                          className="event-detail-panel p-5 mb-5"
+                          style={{ border: "1px solid var(--color-table-border)" }}
+                        >
                           <p className="text-xs font-semibold mb-4 opacity-60">CONTACT PERSON</p>
                           <p className="text-xs opacity-50 mb-4">The registration receipt will be emailed to this address.</p>
                           <div className="grid sm:grid-cols-3 gap-4">
@@ -1322,6 +1384,7 @@ export default function EventDetail() {
                                 Full Name <span style={{ color: "var(--badge-open-text)" }}>*</span>
                               </label>
                               <input
+                                ref={contactNameRef}
                                 className="field-input"
                                 placeholder="Name of person registering"
                                 value={contact.name}

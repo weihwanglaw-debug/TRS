@@ -15,6 +15,7 @@ import {
   apiGetRegistration, apiGetRegistrations,
   apiUpdateParticipant, apiGetEvents, apiUploadFile,
 } from "@/lib/api";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 import type { RegistrationParticipant, ParticipantGroup, Registration } from "@/types/registration";
 import type { TournamentEvent, ProgramFields } from "@/types/config";
 import ParticipantFieldsForm, {
@@ -97,8 +98,9 @@ interface DetailModalProps {
   row:           ParticipantRow;
   programFields: ProgramFields | null;
   eventType?:    string;
+  teamMode:      boolean;
   onClose:       () => void;
-  onSaved:       (updated: RegistrationParticipant) => void;
+  onSaved:       (updated: Registration) => void;
 }
 
 function PaymentBadge({ status }: { status?: string }) {
@@ -117,14 +119,22 @@ function PaymentBadge({ status }: { status?: string }) {
   );
 }
 
-function DetailModal({ row, programFields, eventType, onClose, onSaved }: DetailModalProps) {
+function DetailModal({ row, programFields, eventType, teamMode, onClose, onSaved }: DetailModalProps) {
   const p = row.participant;
 
   const [form,       setForm]       = useState<ParticipantFormValues>(() => toFormValues(p));
   const [newDocFile, setNewDocFile] = useState<File | null>(null);
   const [errors,     setErrors]     = useState<Record<string, string>>({});
-  const [saveError,  setSaveError]  = useState("");
   const [saving,     setSaving]     = useState(false);
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
+
+  const showSaveError = (description: string) =>
+    setFeedback({ open: true, variant: "error", title: "Participant could not be saved", description });
 
   // Ref to scroll to first error
   const topRef = useRef<HTMLDivElement>(null);
@@ -139,8 +149,6 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
   };
 
   const handleSave = async () => {
-    setSaveError("");
-
   // Client-side validation - same rules as registration form
   // Admin gets no exemption: wrong data is wrong data
     const errs = validateParticipant(form, {
@@ -166,7 +174,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
       if (newDocFile) {
         const uploadResult = await apiUploadFile(newDocFile, "participants");
         if (uploadResult.error) {
-          setSaveError(`Document upload failed: ${uploadResult.error.message}`);
+          showSaveError(`Document upload failed: ${uploadResult.error.message}`);
           return;
         }
         finalDocumentUrl = uploadResult.data;
@@ -197,35 +205,29 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
           setErrors({ fullName: r.error.message });
           topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         } else {
-          setSaveError(r.error.message);
+          showSaveError(r.error.message);
         }
         return;
       }
 
-      onSaved({
-        ...p,
-        fullName:          form.fullName,
-        dob,
-        gender:            form.gender,
-        nationality:       form.nationality,
-        clubSchoolCompany: form.clubSchoolCompany,
-        email:             form.email,
-        contactNumber:     form.contactNumber,
-        tshirtSize:        form.tshirtSize,
-        sbaId:             form.sbaId,
-        guardianName:      form.guardianName,
-        guardianContact:   form.guardianContact,
-        remark:            form.remark,
-        documentUrl:       finalDocumentUrl,
-        customFieldValues: { ...form.customFieldValues },
-      });
+      if (r.data) onSaved(r.data);
       onClose();
+    } catch {
+      showSaveError("Please check your connection and try again.");
     } finally {
       setSaving(false);
     }
   };
 
   return (
+    <>
+    <ActionFeedbackDialog
+      open={feedback.open}
+      variant={feedback.variant}
+      title={feedback.title}
+      description={feedback.description}
+      onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
+    />
     <Dialog open onOpenChange={v => { if (!v) onClose(); }}>
       <DialogContent
         className="max-w-2xl p-0"
@@ -257,18 +259,12 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
               Please fix the highlighted fields before saving.
             </div>
           )}
-          {saveError && (
-            <div className="p-3 text-sm"
-              style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
-              {saveError}
-            </div>
-          )}
-
           <ParticipantFieldsForm
             values={form}
             onChange={patch => setForm(prev => ({ ...prev, ...patch }))}
             programFields={fields}
             eventType={eventType}
+            teamMode={teamMode}
             errors={errors}
             onFileChange={file => { setNewDocFile(file); }}
             existingDocUrl={p.documentUrl}
@@ -291,6 +287,7 @@ function DetailModal({ row, programFields, eventType, onClose, onSaved }: Detail
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   );
 }
 
@@ -313,6 +310,15 @@ export default function ParticipantDetails() {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState("");
   const [events,  setEvents]  = useState<TournamentEvent[]>([]);
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
+
+  const showLoadError = (description: string) =>
+    setFeedback({ open: true, variant: "error", title: "Participants could not be loaded", description });
 
   const [detailRow, setDetailRow] = useState<ParticipantRow | null>(null);
 
@@ -321,7 +327,12 @@ export default function ParticipantDetails() {
   };
 
   useEffect(() => {
-    apiGetEvents().then(r => { if (r.data) setEvents(r.data); });
+    apiGetEvents()
+      .then(r => {
+        if (r.data) setEvents(r.data);
+        else if (r.error) showLoadError(r.error.message);
+      })
+      .catch(() => showLoadError("Events could not be loaded. Please check your connection and try again."));
   }, []);
 
   const programsForEvent = useMemo(
@@ -345,20 +356,28 @@ export default function ParticipantDetails() {
     return undefined;
   }, [events]);
 
+  const getProgramTeamMode = useCallback((group: ParticipantGroup): boolean => {
+    for (const ev of events) {
+      const prog = ev.programs.find(p => p.id === group.programId);
+      if (prog) return prog.teamMode ?? false;
+    }
+    return false;
+  }, [events]);
+
   const loadRows = useCallback(async () => {
     setLoading(true); setError("");
     try {
       let regs: Registration[] = [];
       if (filterRegId.trim()) {
         const r = await apiGetRegistration(filterRegId.trim());
-        if (r.error) { setError(r.error.message); return; }
+        if (r.error) { setError(r.error.message); showLoadError(r.error.message); return; }
         regs = [r.data!];
       } else {
         const filters: Record<string, string> = {};
         if (filterEvent)   filters.eventId   = filterEvent;
         if (filterProgram) filters.programId = filterProgram;
         const r = await apiGetRegistrations(filters, { page: 1, pageSize: 500 });
-        if (r.error) { setError(r.error.message); return; }
+        if (r.error) { setError(r.error.message); showLoadError(r.error.message); return; }
         regs = r.data!.items;
       }
       setRows(
@@ -379,6 +398,10 @@ export default function ParticipantDetails() {
           )
         )
       );
+    } catch {
+      const message = "Please check your connection and try again.";
+      setError(message);
+      showLoadError(message);
     } finally {
       setLoading(false);
     }
@@ -420,14 +443,32 @@ export default function ParticipantDetails() {
     return Array.from(byEntry.values());
   }, [visibleRows]);
 
-  const handleSaved = useCallback((updated: RegistrationParticipant) => {
-    setRows(prev => prev.map(r =>
-      r.participant.id === updated.id ? { ...r, participant: updated } : r
-    ));
+  const handleSaved = useCallback((updated: Registration) => {
+    const updatedByParticipantId = new Map<string, { participant: RegistrationParticipant; group: ParticipantGroup }>();
+    updated.groups.forEach(group => {
+      group.participants.forEach(participant => {
+        updatedByParticipantId.set(participant.id, { participant, group });
+      });
+    });
+
+    setRows(prev => prev.map(row => {
+      if (row.registrationId !== updated.id) return row;
+      const match = updatedByParticipantId.get(row.participant.id);
+      return match
+        ? { ...row, participant: match.participant, group: match.group, registration: updated }
+        : row;
+    }));
   }, []);
 
   return (
     <div>
+      <ActionFeedbackDialog
+        open={feedback.open}
+        variant={feedback.variant}
+        title={feedback.title}
+        description={feedback.description}
+        onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
+      />
       <div className="flex items-center justify-between mb-8">
         <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>Participant Details</h1></div>
       </div>
@@ -574,6 +615,7 @@ export default function ParticipantDetails() {
           row={detailRow}
           programFields={getProgramFields(detailRow.group)}
           eventType={getEventType(detailRow.group)}
+          teamMode={getProgramTeamMode(detailRow.group)}
           onClose={() => setDetailRow(null)}
           onSaved={handleSaved}
         />

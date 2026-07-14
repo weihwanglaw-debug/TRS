@@ -41,7 +41,7 @@ import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
 
 //  Types
 
-type RegStatus = "Pending" | "Confirmed" | "CancelPending" | "RefundFailed" | "Cancelled";
+type RegStatus = "Pending" | "Confirmed" | "CancelPending" | "RefundFailed" | "PartiallyRefunded" | "Cancelled";
 
 type SortState<T> = { key: keyof T | null; dir: "asc" | "desc" };
 function useSort<T>(data: T[]) {
@@ -80,6 +80,9 @@ function RegBadge({ status }: { status: string }) {
   const m: Record<string, [string, string]> = {
     "Confirmed":  ["var(--badge-open-bg)",   "var(--badge-open-text)"],
     "Pending":    ["var(--badge-soon-bg)",   "var(--badge-soon-text)"],
+    "CancelPending": ["var(--badge-soon-bg)", "var(--badge-soon-text)"],
+    "PartiallyRefunded": ["var(--badge-soon-bg)", "var(--badge-soon-text)"],
+    "RefundFailed": ["var(--badge-closed-bg)", "var(--badge-closed-text)"],
     "Cancelled":  ["var(--badge-closed-bg)", "var(--badge-closed-text)"],
   };
   const [bg, text] = m[status] ?? m["Pending"];
@@ -789,31 +792,6 @@ export default function AdminRegistrations() {
   const [savingConfirmReg, setSavingConfirmReg] = useState(false);
 
   useEffect(() => {
-    apiGetEvents().then(r => { if (r.data) setEvents(r.data); });
-  }, []);
-
-  useEffect(() => {
-    setLoadingRegs(true);
-    apiGetRegistrations(
-      {
-        eventId:   filterEvent   || undefined,
-        programId: filterProgram || undefined,
-        regStatus: filterReg     || undefined,
-        payStatus: filterPay     || undefined,
-        search:    filterSearch  || undefined,
-      },
-      { page, pageSize: perPage },
-    ).then(r => {
-      if (r.data) {
-        setRegs(r.data.items);
-        setRegTotal(r.data.total);
-        setRegTotalPgs(r.data.totalPages);
-      }
-    }).finally(() => setLoadingRegs(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterEvent, filterProgram, filterReg, filterPay, filterSearch, page, perPage]);
-
-  useEffect(() => {
     let active = true;
     const uniqueRegs = Array.from(new Map(regs.map(reg => [reg.id, reg])).values());
     if (uniqueRegs.length === 0) {
@@ -823,11 +801,15 @@ export default function AdminRegistrations() {
     Promise.all(
       uniqueRegs.map(async (reg) => {
         const result = await apiGetRefunds(reg.id);
+        if (result.error) throw new Error(result.error.message);
         return [reg.id, result.data ?? []] as const;
       }),
     ).then((entries) => {
       if (!active) return;
       setRefundsByReg(Object.fromEntries(entries));
+    }).catch((err) => {
+      if (!active) return;
+      setApiError(err instanceof Error ? err.message : "Refund history could not be loaded.");
     });
     return () => { active = false; };
   }, [regs]);
@@ -872,6 +854,42 @@ export default function AdminRegistrations() {
   const [savingRefund,    setSavingRefund]    = useState(false);
 
   //  Mutation helpers
+  const showApiError = (message: string) => setApiError(message);
+
+  useEffect(() => {
+    apiGetEvents()
+      .then(r => {
+        if (r.data) setEvents(r.data);
+        else if (r.error) showApiError(r.error.message);
+      })
+      .catch(() => showApiError("Events could not be loaded. Please check your connection and try again."));
+  }, []);
+
+  useEffect(() => {
+    setLoadingRegs(true);
+    apiGetRegistrations(
+      {
+        eventId:   filterEvent   || undefined,
+        programId: filterProgram || undefined,
+        regStatus: filterReg     || undefined,
+        payStatus: filterPay     || undefined,
+        search:    filterSearch  || undefined,
+      },
+      { page, pageSize: perPage },
+    ).then(r => {
+      if (r.data) {
+        setRegs(r.data.items);
+        setRegTotal(r.data.total);
+        setRegTotalPgs(r.data.totalPages);
+      } else if (r.error) {
+        showApiError(r.error.message);
+      }
+    }).catch(() => {
+      showApiError("Registrations could not be loaded. Please check your connection and try again.");
+    }).finally(() => setLoadingRegs(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterEvent, filterProgram, filterReg, filterPay, filterSearch, page, perPage]);
+
   const handleMarkPaid = async () => {
     if (!markPaidModal || !markPaidRemark.trim()) return;
     setSavingMarkPaid(true);
@@ -889,6 +907,8 @@ export default function AdminRegistrations() {
       setMarkPaidRemark("");
       setMarkPaidMethod("PayNow");
       showSuccess("Payment marked paid", "The registration payment status has been updated.");
+    } catch {
+      setApiError("Payment could not be updated. Please check your connection and try again.");
     } finally {
       setSavingMarkPaid(false);
     }
@@ -945,6 +965,8 @@ export default function AdminRegistrations() {
         refundMode === "refundPaidItems" ? "Registration cancelled with refund" : "Registration cancelled",
         "The registration record has been updated.",
       );
+    } catch {
+      setApiError("Registration could not be cancelled. Please check your connection and try again.");
     } finally {
       setSavingCancel(false);
     }
@@ -1038,6 +1060,8 @@ export default function AdminRegistrations() {
       setRefundReference("");
       setRefundAdminNote("");
       showSuccess(refundSource === "External" ? "External refund recorded" : "Refund executed", "The registration refund record has been updated.");
+    } catch {
+      setApiError("Refund could not be completed. Please check whether the refund went through before retrying.");
     } finally {
       setSavingRefund(false);
     }
@@ -1058,6 +1082,8 @@ export default function AdminRegistrations() {
       setConfirmRegModal(null);
       setConfirmRegNote("");
       showSuccess("Registration confirmed", "The registration has been confirmed.");
+    } catch {
+      setApiError("Registration could not be confirmed. Please check your connection and try again.");
     } finally {
       setSavingConfirmReg(false);
     }
@@ -1113,6 +1139,9 @@ export default function AdminRegistrations() {
                 <option value="">All</option>
                 <option value="Confirmed">Confirmed</option>
                 <option value="Pending">Pending</option>
+                <option value="CancelPending">Cancel Pending</option>
+                <option value="PartiallyRefunded">Partially Refunded</option>
+                <option value="RefundFailed">Refund Failed</option>
                 <option value="Cancelled">Cancelled</option>
               </select>
             </FG>

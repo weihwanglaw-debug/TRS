@@ -26,11 +26,12 @@ function remapProgram<T extends { fields?: { customFields?: any[] } }>(p: T): T 
     ...p,
     fields: {
       ...p.fields,
-      customFields: p.fields.customFields.map((cf: any) => ({
+      customFields: p.fields.customFields.map((cf: any, i: number) => ({
         label:      cf.label,
         fieldType:  cf.fieldType ?? cf.type ?? "text",
         isRequired: cf.isRequired ?? cf.required ?? false,
         options:    cf.options,
+        sortOrder:  cf.sortOrder ?? i,
       })),
     },
   };

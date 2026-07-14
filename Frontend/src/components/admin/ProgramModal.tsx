@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 import { apiGetSbaRankingTypes } from "@/lib/api";
 import type { Program, SbaRankingType } from "@/types/config";
 
@@ -75,7 +76,7 @@ type CF = { label: string; type: string; mandatory: boolean; options: string };
 interface Props {
   open:          boolean;
   onClose:       () => void;
-  onSave:        (program: Program) => void;
+  onSave:        (program: Program) => void | Promise<string | void>;
   program:       Program | null;
   isBadminton?:  boolean;   // true -> show SBA ranking type dropdown + SBA ID field
   isRacketSport?: boolean;  // true -> singles/doubles type selection
@@ -106,6 +107,7 @@ export default function ProgramModal({
     fee:             "0.00",
     paymentRequired: true,
     feeStructure:    "per_entry" as "per_entry" | "per_player",
+    teamMode:        false,
     minPlayers:      defaultType.minPlayers,
     maxPlayers:      defaultType.maxPlayers,
     minParticipants: 4,
@@ -124,12 +126,27 @@ export default function ProgramModal({
   });
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
   const [sbaTypes,   setSbaTypes]   = useState<SbaRankingType[]>([]);
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
+
+  const showFeedback = (variant: ActionFeedbackVariant, title: string, description?: string) =>
+    setFeedback({ open: true, variant, title, description });
 
   // Load SBA types once when modal opens for a badminton event
   useEffect(() => {
     if (!open || !isBadminton) return;
-    apiGetSbaRankingTypes().then(r => { if (r.data) setSbaTypes(r.data); });
+    apiGetSbaRankingTypes()
+      .then(r => {
+        if (r.data) setSbaTypes(r.data);
+        else if (r.error) showFeedback("error", "SBA types could not be loaded", r.error.message);
+      })
+      .catch(() => showFeedback("error", "SBA types could not be loaded", "Please check your connection and try again."));
   }, [open, isBadminton]);
 
   // Populate form when modal opens (create or edit)
@@ -147,6 +164,7 @@ export default function ProgramModal({
         fee:             program.fee.toFixed(2),
         paymentRequired: program.paymentRequired ?? true,
         feeStructure:    program.feeStructure ?? "per_entry",
+        teamMode:        program.teamMode ?? false,
         minPlayers:      program.minPlayers,
         maxPlayers:      program.maxPlayers,
         minParticipants: program.minParticipants ?? 4,
@@ -174,6 +192,7 @@ export default function ProgramModal({
         name: "", type: defaultType.value, sbaRankingType: "",
         gender: "Mixed", minAge: 18, maxAge: 45,
         fee: "0.00", paymentRequired: true, feeStructure: "per_entry",
+        teamMode: isTeamSport,
         minPlayers: defaultType.minPlayers, maxPlayers: defaultType.maxPlayers,
         minParticipants: 4, maxParticipants: isTeamSport ? 16 : 32,
         enableSbaId: false, enableDocumentUpload: false,
@@ -184,6 +203,7 @@ export default function ProgramModal({
       });
     }
     setFormErrors({});
+    setSaving(false);
   }, [program, open, isBadminton, isTeamSport]);
 
   const s = (k: string, v: unknown) => setForm(p => ({ ...p, [k]: v }));
@@ -225,7 +245,7 @@ export default function ProgramModal({
   const setEnabledField = (enabledKey: keyof typeof form, requiredKey: keyof typeof form, enabled: boolean) =>
     setForm(p => ({ ...p, [enabledKey]: enabled, [requiredKey]: enabled ? p[requiredKey] : false }));
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const errs: Record<string, string> = {};
     if (!form.name.trim())                           errs.name     = "Program name is required";
     if (isBadminton && !form.sbaRankingType.trim())  errs.sbaType  = "SBA ranking type is required";
@@ -239,7 +259,9 @@ export default function ProgramModal({
     setFormErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
-    onSave({
+    setSaving(true);
+    try {
+      const errorMessage = await onSave({
       id:             program?.id || "",
       name:           form.name,
       type:           form.type,                          // <- fixed: actual type value, not form.name
@@ -250,6 +272,7 @@ export default function ProgramModal({
       fee:            parseFloat(form.fee) || 0,
       paymentRequired: form.paymentRequired,
       feeStructure:   form.paymentRequired ? form.feeStructure : "per_entry",
+      teamMode:       form.teamMode,
       minPlayers:     form.minPlayers,
       maxPlayers:     form.maxPlayers,
       minParticipants:    form.minParticipants,
@@ -272,14 +295,28 @@ export default function ProgramModal({
           type:     cf.type,
           required: cf.mandatory,
           options:  cf.options || undefined,
-        })),
+        })), 
       },
-    });
+      });
+      if (errorMessage) showFeedback("error", "Program could not be saved", errorMessage);
+    } catch {
+      showFeedback("error", "Program could not be saved", "Please check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   //  Render
 
   return (
+    <>
+    <ActionFeedbackDialog
+      open={feedback.open}
+      variant={feedback.variant}
+      title={feedback.title}
+      description={feedback.description}
+      onOpenChange={nextOpen => setFeedback(prev => ({ ...prev, open: nextOpen }))}
+    />
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
       <DialogContent
         className="max-w-2xl max-h-[90vh] overflow-y-auto p-0"
@@ -354,6 +391,17 @@ export default function ProgramModal({
                   <option value="Open">Open (no gender restriction)</option>
                 </select>
               </div>
+
+              <label className="sm:col-span-2 flex items-start justify-between gap-4 p-3 cursor-pointer"
+                style={{ border: "1px solid var(--color-table-border)" }}>
+                <span>
+                  <span className="block text-sm font-semibold">Team mode</span>
+                  <span className="block text-xs opacity-60 mt-0.5">
+                    Use one shared team name for every participant in each entry.
+                  </span>
+                </span>
+                <Switch checked={form.teamMode} onCheckedChange={v => s("teamMode", v)} />
+              </label>
             </div>
           </Sec>
 
@@ -562,13 +610,14 @@ export default function ProgramModal({
         )}
 
         <DialogFooter className="p-8 pt-0">
-          <button onClick={onClose} className="btn-outline px-5 py-2.5 text-sm font-medium">Cancel</button>
-          <button onClick={handleSave} className="btn-primary px-5 py-2.5 text-sm font-semibold">
-            {isEdit ? "Update Program" : "Create Program"}
+          <button onClick={onClose} disabled={saving} className="btn-outline px-5 py-2.5 text-sm font-medium disabled:opacity-50">Cancel</button>
+          <button onClick={handleSave} disabled={saving} className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-50">
+            {saving ? "Saving..." : isEdit ? "Update Program" : "Create Program"}
           </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   );
 }
 

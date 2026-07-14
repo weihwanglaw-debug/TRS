@@ -390,6 +390,9 @@ namespace TRS_API.Controllers
             if (registration == null)
                 return NotFound(new { message = "Registration not found" });
 
+            if (registration.RegStatus != "Pending")
+                return BadRequest(new { message = $"Registration status is {registration.RegStatus}" });
+
             if (registration.RegistrationStatus == "C")
                 return BadRequest(new { message = "Already confirmed/paid" });
 

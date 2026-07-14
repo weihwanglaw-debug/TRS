@@ -80,17 +80,27 @@ export default function SbaRankings() {
 
   const loadRankings = async (type?: string) => {
     setLoading(true);
-    const r = await apiGetSbaRankings(type ? { type } : undefined);
-    setLoading(false);
-    if (r.data)  setRankings(r.data);
-    if (r.error) showFeedback("error", "Failed to load SBA rankings", r.error.message);
+    try {
+      const r = await apiGetSbaRankings(type ? { type } : undefined);
+      if (r.data)  setRankings(r.data);
+      if (r.error) showFeedback("error", "Failed to load SBA rankings", r.error.message);
+    } catch {
+      showFeedback("error", "Failed to load SBA rankings", "Please check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Load ranking types once on mount - separate from rankings to avoid stale closure
   useEffect(() => {
     if (typesLoaded.current) return;
     typesLoaded.current = true;
-    apiGetSbaRankingTypes().then(r => { if (r.data) setRankingTypes(r.data); });
+    apiGetSbaRankingTypes()
+      .then(r => {
+        if (r.data) setRankingTypes(r.data);
+        else if (r.error) showFeedback("error", "Failed to load SBA ranking types", r.error.message);
+      })
+      .catch(() => showFeedback("error", "Failed to load SBA ranking types", "Please check your connection and try again."));
     loadRankings();
   }, []);
 

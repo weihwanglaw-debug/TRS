@@ -11,6 +11,7 @@ import type { BracketState, MatchEntry } from "@/types/config";
 import { exportFixtureRoundCsv } from "@/lib/exportCsv";
 import { getAllMatches } from "@/lib/fixtureEngine";
 import { GroupStandingsTable } from "./GroupStandingsTable";
+import { getEntryDisplay } from "@/lib/entryDisplay";
 
 interface ScheduleFields {
   courtNo: string;
@@ -39,11 +40,7 @@ function ScoreStr({ match }: { match: MatchEntry }) {
 }
 
 function teamDisplay(team: MatchEntry["team1"]) {
-  const showPlayersAsMain = team.participants.length > 0 && team.participants.length <= 2;
-  return {
-    main: showPlayersAsMain ? team.participants.join(" / ") : team.label,
-    sub: showPlayersAsMain ? team.label : "",
-  };
+  return getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants });
 }
 
 function isByeMatch(match: MatchEntry) {

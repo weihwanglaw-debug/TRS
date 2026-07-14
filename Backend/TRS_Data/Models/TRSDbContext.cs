@@ -121,6 +121,7 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.Gender).HasMaxLength(20);
             e.Property(x => x.Fee).HasColumnType("decimal(10,2)");
             e.Property(x => x.FeeStructure).HasMaxLength(10).IsUnicode(false).HasDefaultValue("per_entry");
+            e.Property(x => x.TeamMode).HasDefaultValue(false);
             e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("open");
             e.Property(x => x.IsActive).HasDefaultValue(true);
             e.Property(x => x.MinAge).HasDefaultValue(0);

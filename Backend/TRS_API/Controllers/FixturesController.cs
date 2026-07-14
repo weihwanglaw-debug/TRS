@@ -285,7 +285,14 @@ public class FixturesController : ControllerBase
             return BadRequest(rawSaveValidation);
 
         var oldState = await LoadFixtureStateAsync(eventId, programId);
-        var f = await _db.Fixtures.FirstOrDefaultAsync(x => x.EventId == eventId && x.ProgramId == programId);
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var f = await _db.Fixtures
+            .FromSqlInterpolated($@"
+                SELECT *
+                FROM dbo.Fixtures WITH (UPDLOCK, ROWLOCK)
+                WHERE EventID = {eventId} AND ProgramID = {programId}")
+            .AsTracking()
+            .FirstOrDefaultAsync();
         if (f?.IsLocked == true)
             return BadRequest(new { code = "LOCKED", message = "Cannot overwrite fixture state after results have been entered." });
 
@@ -307,6 +314,7 @@ public class FixturesController : ControllerBase
         f.IsLocked = req.IsLocked;
         f.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        await tx.CommitAsync();
 
         var newState = ParseFixtureState(req.BracketStateJson);
         await AuditAsync(

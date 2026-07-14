@@ -10,6 +10,7 @@
  */
 
 import type { MatchEntry, SeedEntry } from "@/types/config";
+import { getEntryDisplay } from "@/lib/entryDisplay";
 import type { Registration } from "@/types/registration";
 
 function download(filename: string, content: string) {
@@ -162,8 +163,8 @@ export function exportFixtureRoundCsv(
     "Remark",
   ];
 
-  const teamPlayers = (team: MatchEntry["team1"]) => team.participants.join(" / ");
-  const teamName = (team: MatchEntry["team1"]) => teamPlayers(team) || team.label;
+  const teamName = (team: MatchEntry["team1"]) =>
+    getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants }).main || team.label;
   const score = (match: MatchEntry) => match.walkover
     ? "W/O"
     : match.games

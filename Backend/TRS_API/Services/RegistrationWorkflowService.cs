@@ -92,6 +92,7 @@ public class RegistrationWorkflowService
         foreach (var group in req.Groups)
         {
             var program = programs[group.ProgramId];
+            NormalizeGroupClubValues(group, program);
 
             if (!program.IsActive || string.Equals(program.Status, "closed", StringComparison.OrdinalIgnoreCase))
                 return RegistrationWorkflowResult<PricingQuote>.Fail("PROGRAM_CLOSED", $"'{program.Name}' is no longer accepting registrations.");
@@ -218,6 +219,8 @@ public class RegistrationWorkflowService
 
                 if (activeGroupCount >= program.MaxParticipants)
                     return await RollbackAndFail(tx, "PROGRAM_FULL", $"'{program.Name}' is full. No slots remaining.");
+
+                NormalizeGroupClubValues(groupDto, program);
 
                 var duplicateCheck = await FindDuplicateAsync(groupDto, groupDto.ProgramId, ct);
                 if (duplicateCheck)
@@ -518,6 +521,23 @@ public class RegistrationWorkflowService
         }
 
         return RegistrationWorkflowResult<object>.Ok(null);
+    }
+
+    private static void NormalizeGroupClubValues(CreateGroupDto group, TrsProgram program)
+    {
+        if (group.Participants == null || group.Participants.Count == 0)
+            return;
+
+        if (program.TeamMode)
+        {
+            var teamName = group.Participants[0].ClubSchoolCompany?.Trim() ?? "";
+            foreach (var participant in group.Participants)
+                participant.ClubSchoolCompany = teamName;
+            return;
+        }
+
+        foreach (var participant in group.Participants)
+            participant.ClubSchoolCompany = participant.ClubSchoolCompany?.Trim();
     }
 
     private static ProgramCustomField? ResolveCustomField(IEnumerable<ProgramCustomField> customFields, string key)

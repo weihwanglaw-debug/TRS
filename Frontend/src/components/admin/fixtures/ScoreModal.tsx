@@ -12,6 +12,7 @@ import { Plus, Trash2, AlertTriangle } from "lucide-react";
 import type { MatchEntry, Official } from "@/types/config";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { getEntryDisplay } from "@/lib/entryDisplay";
 
 const ROLE_SUGGESTIONS = ["Referee", "Linesman", "Umpire", "Court Marshal", "Scorer"];
 function genId() { return Math.random().toString(36).slice(2, 8); }
@@ -39,9 +40,7 @@ function TeamPanel({
   onClick: () => void;
 }) {
   const isWinner = walkover ? walkoverWinner === side : winner === side;
-  const showPlayersAsMain = team.participants.length > 0 && team.participants.length <= 2;
-  const mainLabel = showPlayersAsMain ? team.participants.join(" / ") : team.label;
-  const subLabel = showPlayersAsMain ? team.label : "";
+  const display = getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants });
 
   return (
     <button
@@ -72,10 +71,10 @@ function TeamPanel({
 
   {/* Team display */}
       <p className="font-bold text-base mb-1 leading-tight" style={{ color: isWinner ? "var(--color-primary)" : undefined }}>
-        {mainLabel}
+        {display.main}
       </p>
       <div className="flex-1">
-        {subLabel && <p className="text-xs opacity-60 leading-relaxed">{subLabel}</p>}
+        {display.sub && <p className="text-xs opacity-60 leading-relaxed">{display.sub}</p>}
       </div>
 
   {/* Click hint when no winner selected */}
@@ -137,9 +136,7 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
   const hasWinnerScore = hasValidGameScores && tiedGames === 0 && winnerMatchesScores;
   const isKnockout = draft.phase === "knockout";
   const teamDisplayLabel = (team: MatchEntry["team1"]) =>
-    team.participants.length > 0 && team.participants.length <= 2
-      ? team.participants.join(" / ")
-      : team.label;
+    getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants }).main;
   const sectionLabelClass = "text-xs font-bold uppercase tracking-wide";
   const fieldLabelClass = "block text-xs font-semibold mb-1.5";
   const secondaryTextStyle = { color: "var(--color-disabled-text)" };

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Trophy, Users, CheckCircle, Lock } from "lucide-react";
 import type { TeamEntry } from "@/types/config";
+import { getEntryDisplay } from "@/lib/entryDisplay";
 
 export function FG({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -44,6 +45,7 @@ export function CheckRow({ ok, label }: { ok: boolean; label: string }) {
 
 export function TeamCell({ team, isWinner }: { team: TeamEntry; isWinner: boolean }) {
   const [open, setOpen] = useState(false);
+  const display = getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants });
   const shown = open ? team.participants : team.participants.slice(0, 2);
   return (
     <div className="text-sm min-w-0">
@@ -54,7 +56,7 @@ export function TeamCell({ team, isWinner }: { team: TeamEntry; isWinner: boolea
             #{team.seed}
           </span>
         )}
-        <span className="font-semibold truncate max-w-[130px]" title={team.label}>{team.label}</span>
+        <span className="font-semibold truncate max-w-[130px]" title={display.main}>{display.main}</span>
         {isWinner && <Trophy className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--color-primary)" }} />}
       </div>
       {shown.map((p, i) => <div key={i} className="text-xs opacity-60 truncate">{p}</div>)}
@@ -71,6 +73,7 @@ export function TeamCell({ team, isWinner }: { team: TeamEntry; isWinner: boolea
 }
 
 export function TeamPanel({ team, isWinner }: { team: TeamEntry; isWinner: boolean }) {
+  const display = getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants });
   return (
     <div>
       <div className="flex items-center gap-1.5 mb-1 flex-wrap">
@@ -82,8 +85,8 @@ export function TeamPanel({ team, isWinner }: { team: TeamEntry; isWinner: boole
         )}
         {isWinner && <Trophy className="h-4 w-4" style={{ color: "var(--color-primary)" }} />}
       </div>
-      <p className="font-bold text-sm">{team.label}</p>
-      {team.participants.map((p, i) => <p key={i} className="text-xs opacity-60">{p}</p>)}
+      <p className="font-bold text-sm">{display.main}</p>
+      {display.sub && <p className="text-xs opacity-60">{display.sub}</p>}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { AlertTriangle, ChevronRight, ChevronLeft, Shuffle, CheckCircle, ArrowLe
 import type { SeedEntry, WizardConfig, SbaRanking, BracketState, TeamEntry, HeatsConfig, StandingPoints } from "@/types/config";
 import { generateDraw, swapTeams, computeGroupStandings } from "@/lib/fixtureEngine";
 import { NoticeDialog } from "@/components/ui/NoticeDialog";
+import { getEntryDisplay } from "@/lib/entryDisplay";
 
 export interface WizardResult {
   config:  WizardConfig;
@@ -80,11 +81,7 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
 
   const getSba = (s: SeedEntry) => matchSbaRanking(s, sbaRankings);
   const entryDisplay = (s: SeedEntry) => {
-    const showPlayersAsMain = s.participants.length > 0 && s.participants.length <= 2;
-    return {
-      main: showPlayersAsMain ? s.participants.join(" / ") : s.club,
-      sub: showPlayersAsMain ? s.club : "",
-    };
+    return getEntryDisplay({ teamMode: s.teamMode, club: s.club, participants: s.participants });
   };
 
   useEffect(() => {
@@ -407,7 +404,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
     bracket.groups.flatMap(g => g.matches).forEach(m => { add(m.team1); add(m.team2); });
     bracket.matches.forEach(m => { add(m.team1); add(m.team2); });
     if (bracket.format === "heats") {
-      seeds.forEach(s => seen.set(s.id, { id: s.id, label: s.club, participants: s.participants, seed: s.seed ?? undefined }));
+      seeds.forEach(s => seen.set(s.id, { id: s.id, label: s.club, participants: s.participants, teamMode: s.teamMode, seed: s.seed ?? undefined }));
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label));
   }, [bracket, seeds]);
@@ -445,15 +442,12 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
     id: s.id,
     label: s.club,
     participants: s.participants,
+    teamMode: s.teamMode,
     seed: s.seed ?? undefined,
   });
 
   const previewEntryDisplay = (team: TeamEntry) => {
-    const showPlayersAsMain = team.participants.length > 0 && team.participants.length <= 2;
-    return {
-      main: showPlayersAsMain ? team.participants.join(" / ") : team.label,
-      sub: showPlayersAsMain ? team.label : "",
-    };
+    return getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants });
   };
 
   const SwapPickButton = ({ team }: { team: TeamEntry }) => {

@@ -6,6 +6,7 @@ import { getEventStatus, formatDate } from "@/lib/eventUtils";
 import StatusBadge from "@/components/events/StatusBadge";
 import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
 import { PageLoader } from "@/components/ui/LoadingSpinner";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 import { Plus, Eye, Users, MoreVertical } from "lucide-react";
 
 export default function AdminEvents() {
@@ -17,11 +18,26 @@ export default function AdminEvents() {
   const [filterDateTo,   setFilterDateTo]   = useState("");
   const [filterRegStatus,setFilterRegStatus]= useState("");
   const [openAction,     setOpenAction]     = useState<{ id: string; anchorEl: HTMLElement } | null>(null);
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
 
   useEffect(() => {
-    apiGetEvents({ includeInactive: true }).then(r => {
-      if (r.data) setEvents(r.data);
-    }).finally(() => setLoading(false));
+    apiGetEvents({ includeInactive: true })
+      .then(r => {
+        if (r.data) setEvents(r.data);
+        else if (r.error) setFeedback({ open: true, variant: "error", title: "Events could not be loaded", description: r.error.message });
+      })
+      .catch(() => setFeedback({
+        open: true,
+        variant: "error",
+        title: "Events could not be loaded",
+        description: "Please check your connection and try again.",
+      }))
+      .finally(() => setLoading(false));
   }, []);
 
   // close handled by ActionDropdownPortal
@@ -42,6 +58,13 @@ export default function AdminEvents() {
 
   return (
     <div>
+      <ActionFeedbackDialog
+        open={feedback.open}
+        variant={feedback.variant}
+        title={feedback.title}
+        description={feedback.description}
+        onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
+      />
       <div className="flex items-center justify-between mb-8">
         <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>Events &amp; Programs</h1></div>
         <button onClick={() => navigate("/admin/events/new")}

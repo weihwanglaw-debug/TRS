@@ -121,6 +121,7 @@ export interface Program {
   fee: number;
   paymentRequired: boolean;
   feeStructure: "per_entry" | "per_player"; // per_entry = flat fee for whole group; per_player = fee x each player
+  teamMode: boolean;
   minPlayers: number;
   maxPlayers: number;
   minParticipants: number;
@@ -221,6 +222,7 @@ export interface TeamEntry {
   id: string;
   label: string;
   participants: string[];
+  teamMode?: boolean;
   seed?: number;
 }
 
@@ -253,6 +255,7 @@ export interface SeedEntry {
   id: string;
   club: string;
   participants: string[];
+  teamMode?: boolean;
   seed: number | null;
   sbaId?: string;
   sbaIds?: string[];
@@ -340,6 +343,7 @@ export interface CartEntry {
   programName: string;
   fee: number;               // total fee for this entry (feePerPlayer x players OR flat fee)
   feeStructure: "per_entry" | "per_player";
+  teamMode?: boolean;
   feePerPlayer?: number;     // only set when feeStructure = "per_player"
   participants: Participant[];
 }

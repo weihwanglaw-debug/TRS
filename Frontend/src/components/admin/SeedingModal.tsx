@@ -14,7 +14,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { ActionFeedbackDialog } from "@/components/ui/ActionFeedbackDialog";
+import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 import { apiGetRegistrations, apiUpdateGroupSeed } from "@/lib/api";
 import type { ParticipantGroup } from "@/lib/api";
 
@@ -42,6 +42,17 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState("");
   const [savedOpen, setSavedOpen] = useState(false);
+  const [feedback, setFeedback] = useState<{
+    open: boolean;
+    variant: ActionFeedbackVariant;
+    title: string;
+    description?: string;
+  }>({ open: false, variant: "info", title: "" });
+
+  const showError = (description: string) => {
+    setError(description);
+    setFeedback({ open: true, variant: "error", title: "Seeding action could not be completed", description });
+  };
 
   // Load participants when modal opens
   useEffect(() => {
@@ -54,7 +65,7 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
       { eventId, programId },  // include Pending + Confirmed; exclude Cancelled via groupStatus filter
       { page: 1, pageSize: 200 },
     ).then(r => {
-      if (r.error) { setError(r.error.message); return; }
+      if (r.error) { showError(r.error.message); return; }
       const groups: ParticipantGroup[] = (r.data?.items ?? [])
         .flatMap(reg => reg.groups.filter(g => g.programId === programId && g.groupStatus !== "Cancelled"));
       setRows(groups.map(g => ({
@@ -65,7 +76,8 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
         currentSeed:    g.seed,
         editSeed:       g.seed != null ? String(g.seed) : "",
       })));
-    }).finally(() => setLoading(false));
+    }).catch(() => showError("Please check your connection and try again."))
+      .finally(() => setLoading(false));
   }, [open, eventId, programId]);
 
   const setSeedVal = (groupId: string, val: string) =>
@@ -89,7 +101,7 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
       for (const row of changed) {
         const seed = row.editSeed === "" ? null : parseInt(row.editSeed);
         const result = await apiUpdateGroupSeed(row.registrationId, row.groupId, isNaN(seed as number) ? null : seed);
-        if (result.error) { setError(result.error.message); return; }
+        if (result.error) { showError(result.error.message); return; }
   // update local state to reflect saved value
         setRows(prev => prev.map(r => r.groupId === row.groupId
           ? { ...r, currentSeed: seed, editSeed: seed != null ? String(seed) : "" }
@@ -97,6 +109,8 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
         ));
       }
       setSavedOpen(true);
+    } catch {
+      showError("Please check your connection and try again.");
     } finally {
       setSaving(false);
     }
@@ -115,6 +129,13 @@ export default function SeedingModal({ open, onClose, eventId, programId }: Seed
           setSavedOpen(nextOpen);
           if (!nextOpen) onClose();
         }}
+      />
+      <ActionFeedbackDialog
+        open={feedback.open}
+        variant={feedback.variant}
+        title={feedback.title}
+        description={feedback.description}
+        onOpenChange={nextOpen => setFeedback(prev => ({ ...prev, open: nextOpen }))}
       />
       <Dialog open={open && !savedOpen} onOpenChange={(v) => { if (!v) onClose(); }}>
         <DialogContent className="max-w-lg p-0"

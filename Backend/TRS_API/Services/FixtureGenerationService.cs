@@ -34,7 +34,7 @@ public class FixtureGenerationService
         if (groups.Count < 2)
             return FixtureGenerationResult.Fail("NOT_ENOUGH", "At least 2 registered entries are required.");
 
-        var normalizedSeeds = NormalizeSeeds(groups, req.Seeds);
+        var normalizedSeeds = NormalizeSeeds(groups, req.Seeds, program.TeamMode);
         if (!normalizedSeeds.Success)
             return normalizedSeeds;
         var seedEntries = normalizedSeeds.State!.Seeds;
@@ -98,7 +98,8 @@ public class FixtureGenerationService
         if (req.IdA == req.IdB)
             return FixtureGenerationResult.Fail("INVALID_SWAP", "Choose two different teams to swap.");
 
-        var loaded = await LoadExistingStateAsync(eventId, programId);
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var loaded = await LoadExistingStateAsync(eventId, programId, forUpdate: true);
         if (!loaded.Success) return loaded;
         var state = loaded.State!;
 
@@ -153,12 +154,14 @@ public class FixtureGenerationService
         }
 
         await SaveStateAsync(loaded.Fixture!, state);
+        await tx.CommitAsync();
         return FixtureGenerationResult.Ok(state);
     }
 
     public async Task<FixtureGenerationResult> AdvanceToKnockoutAsync(int eventId, int programId)
     {
-        var loaded = await LoadExistingStateAsync(eventId, programId);
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var loaded = await LoadExistingStateAsync(eventId, programId, forUpdate: true);
         if (!loaded.Success) return loaded;
         var state = loaded.State!;
 
@@ -177,12 +180,14 @@ public class FixtureGenerationService
         state.Phase = "knockout";
         state.Matches = GenerateKnockoutFromGroups(state.Groups, state.Config);
         await SaveStateAsync(loaded.Fixture!, state);
+        await tx.CommitAsync();
         return FixtureGenerationResult.Ok(state);
     }
 
     public async Task<FixtureGenerationResult> AdvanceKnockoutRoundAsync(int eventId, int programId)
     {
-        var loaded = await LoadExistingStateAsync(eventId, programId);
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var loaded = await LoadExistingStateAsync(eventId, programId, forUpdate: true);
         if (!loaded.Success) return loaded;
         var state = loaded.State!;
 
@@ -209,12 +214,14 @@ public class FixtureGenerationService
 
         state.Matches.AddRange(GenerateNextKnockoutRound(state.Matches));
         await SaveStateAsync(loaded.Fixture!, state);
+        await tx.CommitAsync();
         return FixtureGenerationResult.Ok(state);
     }
 
     public async Task<FixtureGenerationResult> ResetLatestKnockoutRoundAsync(int eventId, int programId)
     {
-        var loaded = await LoadExistingStateAsync(eventId, programId);
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var loaded = await LoadExistingStateAsync(eventId, programId, forUpdate: true);
         if (!loaded.Success) return loaded;
         var state = loaded.State!;
 
@@ -234,12 +241,14 @@ public class FixtureGenerationService
         state.Matches = state.Matches.Where(m => m.Round != maxRound).ToList();
         state.Locked = IsLocked(state);
         await SaveStateAsync(loaded.Fixture!, state);
+        await tx.CommitAsync();
         return FixtureGenerationResult.Ok(state);
     }
 
     public async Task<FixtureGenerationResult> SaveScoreAsync(int eventId, int programId, string matchId, SaveFixtureScoreRequest req)
     {
-        var loaded = await LoadExistingStateAsync(eventId, programId);
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var loaded = await LoadExistingStateAsync(eventId, programId, forUpdate: true);
         if (!loaded.Success) return loaded;
         var state = loaded.State!;
 
@@ -266,12 +275,14 @@ public class FixtureGenerationService
         state.Locked = true;
 
         await SaveStateAsync(loaded.Fixture!, state);
+        await tx.CommitAsync();
         return FixtureGenerationResult.Ok(state);
     }
 
     public async Task<FixtureGenerationResult> ClearScoreAsync(int eventId, int programId, string matchId)
     {
-        var loaded = await LoadExistingStateAsync(eventId, programId);
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var loaded = await LoadExistingStateAsync(eventId, programId, forUpdate: true);
         if (!loaded.Success) return loaded;
         var state = loaded.State!;
 
@@ -295,6 +306,11 @@ public class FixtureGenerationService
             string.Equals(match.Phase, "group", StringComparison.OrdinalIgnoreCase) &&
             state.Matches.Any())
         {
+            if (state.Matches.Any(HasEnteredResult))
+                return FixtureGenerationResult.Fail(
+                    "KNOCKOUT_HAS_RESULTS",
+                    "Cannot clear this group result because knockout results already exist. Reset knockout results first.");
+
             state.Matches.Clear();
             state.Phase = "group";
         }
@@ -302,12 +318,14 @@ public class FixtureGenerationService
         state.Locked = IsLocked(state);
 
         await SaveStateAsync(loaded.Fixture!, state);
+        await tx.CommitAsync();
         return FixtureGenerationResult.Ok(state);
     }
 
     public async Task<FixtureGenerationResult> UpdateScheduleAsync(int eventId, int programId, string matchId, UpdateFixtureScheduleRequest req)
     {
-        var loaded = await LoadExistingStateAsync(eventId, programId);
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var loaded = await LoadExistingStateAsync(eventId, programId, forUpdate: true);
         if (!loaded.Success) return loaded;
         var state = loaded.State!;
 
@@ -321,12 +339,14 @@ public class FixtureGenerationService
         match.EndTime = req.EndTime ?? "";
 
         await SaveStateAsync(loaded.Fixture!, state);
+        await tx.CommitAsync();
         return FixtureGenerationResult.Ok(state);
     }
 
     public async Task<FixtureGenerationResult> SaveHeatResultAsync(int eventId, int programId, SaveHeatResultRequest req)
     {
-        var loaded = await LoadExistingStateAsync(eventId, programId);
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var loaded = await LoadExistingStateAsync(eventId, programId, forUpdate: true);
         if (!loaded.Success) return loaded;
         var state = loaded.State!;
 
@@ -346,12 +366,14 @@ public class FixtureGenerationService
         result.Result = req.Result ?? "";
 
         await SaveStateAsync(loaded.Fixture!, state);
+        await tx.CommitAsync();
         return FixtureGenerationResult.Ok(state);
     }
 
     public async Task<FixtureGenerationResult> AdvanceHeatsRoundAsync(int eventId, int programId, AdvanceHeatsRoundRequest req)
     {
-        var loaded = await LoadExistingStateAsync(eventId, programId);
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var loaded = await LoadExistingStateAsync(eventId, programId, forUpdate: true);
         if (!loaded.Success) return loaded;
         var state = loaded.State!;
 
@@ -393,12 +415,14 @@ public class FixtureGenerationService
             .ToList();
 
         await SaveStateAsync(loaded.Fixture!, state);
+        await tx.CommitAsync();
         return FixtureGenerationResult.Ok(state);
     }
 
     public async Task<FixtureGenerationResult> AssignHeatPlacesAsync(int eventId, int programId, AssignHeatPlacesRequest req)
     {
-        var loaded = await LoadExistingStateAsync(eventId, programId);
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var loaded = await LoadExistingStateAsync(eventId, programId, forUpdate: true);
         if (!loaded.Success) return loaded;
         var state = loaded.State!;
 
@@ -434,10 +458,11 @@ public class FixtureGenerationService
         finalRound.IsComplete = true;
 
         await SaveStateAsync(loaded.Fixture!, state);
+        await tx.CommitAsync();
         return FixtureGenerationResult.Ok(state);
     }
 
-    private FixtureGenerationResult NormalizeSeeds(List<ParticipantGroup> groups, List<FixtureSeedEntryRequest> requested)
+    private FixtureGenerationResult NormalizeSeeds(List<ParticipantGroup> groups, List<FixtureSeedEntryRequest> requested, bool teamMode)
     {
         var requestedById = requested.ToDictionary(s => s.Id, StringComparer.Ordinal);
         var actualIds = groups.Select(g => g.GroupId).OrderBy(x => x).ToList();
@@ -458,6 +483,7 @@ public class FixtureGenerationService
                 RegistrationId = g.RegistrationId.ToString(),
                 Club = g.ClubDisplay ?? "",
                 Participants = g.Participants.Select(p => p.FullName).ToList(),
+                TeamMode = teamMode,
                 Seed = req.Seed,
                 SbaId = g.Participants.FirstOrDefault()?.SbaId,
             };
@@ -609,9 +635,17 @@ public class FixtureGenerationService
         return FixtureGenerationResult.Ok(state, json);
     }
 
-    private async Task<FixtureGenerationResult> LoadExistingStateAsync(int eventId, int programId)
+    private async Task<FixtureGenerationResult> LoadExistingStateAsync(int eventId, int programId, bool forUpdate = false)
     {
-        var fixture = await _db.Fixtures.FirstOrDefaultAsync(f => f.EventId == eventId && f.ProgramId == programId);
+        var fixture = forUpdate
+            ? await _db.Fixtures
+                .FromSqlInterpolated($@"
+                    SELECT *
+                    FROM dbo.Fixtures WITH (UPDLOCK, ROWLOCK)
+                    WHERE EventID = {eventId} AND ProgramID = {programId}")
+                .AsTracking()
+                .FirstOrDefaultAsync()
+            : await _db.Fixtures.FirstOrDefaultAsync(f => f.EventId == eventId && f.ProgramId == programId);
         if (fixture == null)
             return FixtureGenerationResult.Fail("NOT_FOUND", "Fixture not found.");
 
@@ -1165,6 +1199,7 @@ public class FixtureGenerationService
         Id = seed.Id,
         Label = seed.Club,
         Participants = seed.Participants,
+        TeamMode = seed.TeamMode,
         Seed = seed.Seed,
     };
 
@@ -1300,6 +1335,7 @@ public class FixtureGenerationService
         public string Id { get; set; } = "";
         public string Club { get; set; } = "";
         public List<string> Participants { get; set; } = new();
+        public bool TeamMode { get; set; }
         public int? Seed { get; set; }
         public string? SbaId { get; set; }
         public string? RegistrationId { get; set; }
@@ -1311,6 +1347,7 @@ public class FixtureGenerationService
         public string Id { get; set; } = "";
         public string Label { get; set; } = "";
         public List<string> Participants { get; set; } = new();
+        public bool TeamMode { get; set; }
         public int? Seed { get; set; }
     }
 

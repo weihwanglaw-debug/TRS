@@ -26,6 +26,7 @@ import { groupsToSeedEntries } from "@/types/registration";
 import type { Registration } from "@/types/registration";
 import { computeProgramFixtureStatus } from "@/lib/fixtureStatus";
 import { singaporeDateKey } from "@/lib/eventUtils";
+import { getEntryDisplay } from "@/lib/entryDisplay";
 
 import { exportParticipantsCsv } from "@/lib/exportCsv";
 import { exportTournamentSoftwareWorkbook } from "@/lib/exportTournamentSoftwareWorkbook";
@@ -58,6 +59,7 @@ interface ProgramRow {
   startDate:   string;
   endDate:     string;
   closeDate:   string;
+  teamMode:    boolean;
   participants: SeedEntry[];
 }
 //  Status badges
@@ -131,11 +133,7 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, onSeedsSaved, o
   };
 
   const entryDisplay = (s: SeedEntry) => {
-    const showPlayersAsMain = s.participants.length > 0 && s.participants.length <= 2;
-    return {
-      main: showPlayersAsMain ? s.participants.join(" / ") : s.club,
-      sub: showPlayersAsMain ? s.club : s.participants.join(" / "),
-    };
+    return getEntryDisplay({ teamMode: s.teamMode, club: s.club, participants: s.participants });
   };
 
   useEffect(() => {
@@ -308,6 +306,10 @@ export default function AdminFixtures() {
   // Load events from real API on mount
   useEffect(() => {
     apiGetEvents({ includeInactive: false }).then(async r => {
+      if (r.error) {
+        setFeedback({ open: true, variant: "error", title: "Fixtures could not be loaded", description: r.error.message });
+        return;
+      }
       const evs = (r.data ?? []).filter(e => e.isSports);
       setAllEvents(evs);
   // Bulk-check which programs already have a fixture in the DB
@@ -315,8 +317,14 @@ export default function AdminFixtures() {
       if (progIds.length > 0) {
         const fxR = await apiGetFixtureStatus(progIds);
         if (fxR.data) setFixtureExists(fxR.data);
+        else if (fxR.error) setFeedback({ open: true, variant: "error", title: "Fixture status could not be loaded", description: fxR.error.message });
       }
-    });
+    }).catch(() => setFeedback({
+      open: true,
+      variant: "error",
+      title: "Fixtures could not be loaded",
+      description: "Please check your connection and try again.",
+    }));
   }, []);
   const [feedback, setFeedback] = useState<{
     open: boolean;
@@ -346,6 +354,7 @@ export default function AdminFixtures() {
         startDate:    ev.eventStartDate,
         endDate:      ev.eventEndDate,
         closeDate:    ev.closeDate,
+        teamMode:     p.teamMode ?? false,
         participants: (p.participantSeeds ?? []) as SeedEntry[],
       }))
     ), [allEvents]
@@ -412,18 +421,26 @@ export default function AdminFixtures() {
     let cancelled = false;
     apiGetFixture(selRow.eventId, selRow.programId).then(r => {
       if (cancelled) return;
+      if (r.error) {
+        feedbackApi.error(r.error.message);
+        setBracketState(null);
+        return;
+      }
       setBracketState(r.data ?? null);
       if (r.data) setActiveTab(r.data.format === "heats" ? "heats" : "draw");
+    }).catch(() => {
+      if (!cancelled) feedbackApi.error("Fixture could not be loaded. Please check your connection and try again.");
     });
     return () => { cancelled = true; };
-  }, [selRow?.eventId, selRow?.programId]);
+  }, [selRow?.eventId, selRow?.programId, feedbackApi]);
 
   useEffect(() => {
     if (!selRow?.sbaRankingType) { setSbaRankings([]); return; }
     apiGetSbaRankings({ type: selRow.sbaRankingType }).then(r => {
       if (r.data) setSbaRankings(r.data);
-    });
-  }, [selRow?.sbaRankingType]);
+      else if (r.error) feedbackApi.error(r.error.message);
+    }).catch(() => feedbackApi.error("SBA rankings could not be loaded. Please check your connection and try again."));
+  }, [selRow?.sbaRankingType, feedbackApi]);
 
   // Load confirmed participant groups from registrations API when a program row is selected.
   // The event API always returns participantSeeds = [] - real seeds live in registrations.
@@ -434,15 +451,18 @@ export default function AdminFixtures() {
         { eventId: row.eventId, programId: row.programId },
         { page: 1, pageSize: 500 },
       );
+      if (r.error) { feedbackApi.error(r.error.message); return; }
       if (!r.data) return;
       const allGroups = r.data.items.flatMap(reg =>
         reg.groups.filter(g => g.programId === row.programId)
       );
-      setSelRowParticipants(groupsToSeedEntries(allGroups));
+      setSelRowParticipants(groupsToSeedEntries(allGroups).map(seed => ({ ...seed, teamMode: row.teamMode })));
+    } catch {
+      feedbackApi.error("Participants could not be loaded. Please check your connection and try again.");
     } finally {
       setLoadingParticipants(false);
     }
-  }, []);
+  }, [feedbackApi]);
 
   useEffect(() => {
     if (!selRow) { setSelRowParticipants([]); return; }
@@ -457,9 +477,10 @@ export default function AdminFixtures() {
     if (progIds.length > 0) {
       apiGetFixtureStatus(progIds).then(r => {
         if (r.data) setFixtureExists(r.data);
-      });
+        else if (r.error) feedbackApi.error(r.error.message);
+      }).catch(() => feedbackApi.error("Fixture status could not be refreshed."));
     }
-  }, [allEvents]);
+  }, [allEvents, feedbackApi]);
 
   //  Wizard complete
   const handleWizardComplete = (result: WizardResult) => {

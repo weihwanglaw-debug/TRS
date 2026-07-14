@@ -325,6 +325,8 @@ export interface ParticipantFieldsFormProps {
   nationalityOptions?: { code: string; label: string }[];
 
   eventType?: string;
+  teamMode?: boolean;
+  participantIndex?: number;
 }
 
 export default function ParticipantFieldsForm({
@@ -334,6 +336,8 @@ export default function ParticipantFieldsForm({
   suggestions, onApplySuggestion,
   nationalityOptions,
   eventType,
+  teamMode = false,
+  participantIndex = 0,
 }: ParticipantFieldsFormProps) {
 
   const set = (patch: Partial<ParticipantFormValues>) => onChange(patch);
@@ -342,6 +346,9 @@ export default function ParticipantFieldsForm({
 
   const sbaLocked = sbaStatus === "found";
   const isBadminton = eventType?.toLowerCase() === "badminton";
+  const isInheritedTeamName = teamMode && participantIndex > 0;
+  const clubFieldLabel = teamMode ? "Team name" : (isBadminton ? "Club" : "Club / School / Company");
+  const clubFieldDisabled = disabled || isInheritedTeamName;
   const [badmintonClubs, setBadmintonClubs] = useState<BadmintonClub[]>([]);
   const [clubSelectValue, setClubSelectValue] = useState("");
   const [otherClubName, setOtherClubName] = useState("");
@@ -555,11 +562,11 @@ export default function ParticipantFieldsForm({
       </FieldWrapper>
 
   {/*  Club / School / Company  */}
-      <FieldWrapper label={`${isBadminton ? "Club" : "Club / School / Company"} *`} error={errors.clubSchoolCompany}>
-        {isBadminton ? (
+      <FieldWrapper label={`${clubFieldLabel} *`} error={errors.clubSchoolCompany}>
+        {isBadminton && !teamMode ? (
           <>
             <select className="field-input" value={clubSelectValue}
-              disabled={disabled}
+              disabled={clubFieldDisabled}
               onChange={e => {
                 const next = e.target.value;
                 setClubSelectValue(next);
@@ -586,7 +593,7 @@ export default function ParticipantFieldsForm({
 
             {clubSelectValue === CLUB_OTHERS_VALUE && (
               <input className="field-input mt-2" value={otherClubName}
-                disabled={disabled}
+                disabled={clubFieldDisabled}
                 onChange={e => {
                   setOtherClubName(e.target.value);
                   set({ clubSchoolCompany: e.target.value });
@@ -595,8 +602,11 @@ export default function ParticipantFieldsForm({
           </>
         ) : (
           <input className="field-input" value={values.clubSchoolCompany}
-            disabled={disabled}
+            disabled={clubFieldDisabled}
             onChange={e => set({ clubSchoolCompany: e.target.value })} />
+        )}
+        {isInheritedTeamName && (
+          <p className="text-xs opacity-50 mt-1">Inherited from Player 1.</p>
         )}
       </FieldWrapper>
 

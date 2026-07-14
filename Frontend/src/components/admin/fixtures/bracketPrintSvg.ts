@@ -10,6 +10,7 @@
  */
 
 import type { MatchEntry } from "@/types/config";
+import { getEntryDisplay } from "@/lib/entryDisplay";
 
 //  Layout (mirrors BracketView constants - keep in sync)
 const CW     = 240;   // card width
@@ -116,14 +117,14 @@ function svgCard(
   const score2  = !match ? null : match.walkover ? (match.walkoverWinner === "team2" ? "W/O" : "-") : isDone ? String(t2w) : null;
   const winner  = match?.winner ?? null;  // "team1" | "team2" | null
 
-  const showNames = !!match && match.team1.participants.length + match.team2.participants.length <= 4;
-
   const mkLabel = (t: MatchEntry["team1"]) => {
     const seed = t.seed != null ? `#${t.seed} ` : "";
-    return `${seed}${t.label}`;
+    return `${seed}${getEntryDisplay({ teamMode: t.teamMode, label: t.label, participants: t.participants }).main}`;
   };
-  const mkSub = (t: MatchEntry["team1"]) =>
-    showNames && t.participants.length ? t.participants.join(" / ") : null;
+  const mkSub = (t: MatchEntry["team1"]) => {
+    const sub = getEntryDisplay({ teamMode: t.teamMode, label: t.label, participants: t.participants }).sub;
+    return sub || null;
+  };
 
   const sched = match ? [
     match.courtNo,

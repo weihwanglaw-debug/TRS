@@ -11,6 +11,7 @@ import type { BracketState, MatchEntry } from "@/types/config";
 import { computeGroupStandings } from "@/lib/fixtureEngine";
 import { BracketView } from "./BracketView";
 import { NoticeDialog } from "@/components/ui/NoticeDialog";
+import { getEntryDisplay } from "@/lib/entryDisplay";
 
 interface Props {
   bracketState:     BracketState;
@@ -295,7 +296,9 @@ function GroupStandings({ state }: { state: BracketState }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {standings.map(s => (
+                  {standings.map(s => {
+                    const display = getEntryDisplay({ teamMode: s.team.teamMode, label: s.team.label, participants: s.team.participants });
+                    return (
                     <tr key={s.team.id}>
                       <td className="text-sm font-bold"
                         style={{ color: anyPlayed && s.rank <= (state.config.advancePerGroup ?? 2) ? "var(--color-primary)" : undefined }}>
@@ -308,9 +311,9 @@ function GroupStandings({ state }: { state: BracketState }) {
                             #{s.team.seed}
                           </span>
                         )}
-                        <span className="font-medium text-sm">{s.team.label}</span>
+                        <span className="font-medium text-sm">{display.main}</span>
                       </td>
-                      <td className="text-xs opacity-70">{s.team.participants.join(" / ")}</td>
+                      <td className="text-xs opacity-70">{display.sub}</td>
                       {anyPlayed && <>
                         <td>{s.played}</td>
                         <td className="font-semibold" style={{ color: "var(--badge-open-text)" }}>{s.wins}</td>
@@ -321,7 +324,7 @@ function GroupStandings({ state }: { state: BracketState }) {
                         <td className="font-bold">{s.points}</td>
                       </>}
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
