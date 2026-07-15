@@ -19,6 +19,7 @@ import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/u
 import type { RegistrationParticipant, ParticipantGroup, Registration, PaymentItem, RegStatus } from "@/types/registration";
 import { REG_STATUS_LABEL } from "@/types/registration";
 import type { TournamentEvent, ProgramFields } from "@/types/config";
+import { isTeamProgram } from "@/types/config";
 import ParticipantFieldsForm, {
   ParticipantFormValues,
   validateParticipant, buildDobString, parseDobString,
@@ -391,7 +392,7 @@ export default function ParticipantDetails() {
   const getProgramTeamMode = useCallback((group: ParticipantGroup): boolean => {
     for (const ev of events) {
       const prog = ev.programs.find(p => p.id === group.programId);
-      if (prog) return prog.teamMode ?? false;
+      if (prog) return isTeamProgram(prog.type);
     }
     return false;
   }, [events]);

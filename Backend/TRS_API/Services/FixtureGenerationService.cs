@@ -34,7 +34,7 @@ public class FixtureGenerationService
         if (groups.Count < 2)
             return FixtureGenerationResult.Fail("NOT_ENOUGH", "At least 2 registered entries are required.");
 
-        var normalizedSeeds = NormalizeSeeds(groups, req.Seeds, program.TeamMode);
+        var normalizedSeeds = NormalizeSeeds(groups, req.Seeds, ProgramTypeRules.IsTeamProgram(program.Type));
         if (!normalizedSeeds.Success)
             return normalizedSeeds;
         var seedEntries = normalizedSeeds.State!.Seeds;

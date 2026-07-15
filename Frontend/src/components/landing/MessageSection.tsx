@@ -113,7 +113,7 @@ export default function MessageSection() {
               />
             </div>
             <div className="trs-field">
-              <label htmlFor="landing-message-topic">Topic</label>
+              <label htmlFor="landing-message-topic">Subject</label>
               <input
                 id="landing-message-topic"
                 value={topic}

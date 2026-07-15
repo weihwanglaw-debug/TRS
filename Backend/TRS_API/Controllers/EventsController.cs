@@ -271,7 +271,7 @@ public class EventsController : ControllerBase
         var prog = await _db.Programs.Include(p => p.Fields).Include(p => p.CustomFields)
             .FirstOrDefaultAsync(p => p.ProgramId == pid && p.EventId == eid);
         if (prog == null) return NotFound(new { code = "NOT_FOUND", message = "Program not found." });
-        if (prog.TeamMode != req.TeamMode)
+        if (!string.Equals(prog.Type, req.Type, StringComparison.Ordinal))
         {
             var fixtureExists = await _db.Fixtures.AnyAsync(f => f.ProgramId == pid);
             if (fixtureExists)
@@ -279,7 +279,7 @@ public class EventsController : ControllerBase
                 return Conflict(new
                 {
                     code = "PROGRAM_FIXTURE_EXISTS",
-                    message = "Team mode cannot be changed after fixtures have been generated. Reset the fixture first."
+                    message = "Program type cannot be changed after fixtures have been generated. Reset the fixture first."
                 });
             }
         }
@@ -435,7 +435,6 @@ public class EventsController : ControllerBase
         p.SbaRankingType = string.IsNullOrWhiteSpace(r.SbaRankingType) ? null : r.SbaRankingType.Trim();
         p.Gender = r.Gender; p.Fee = r.Fee; p.PaymentRequired = r.PaymentRequired;
         p.FeeStructure = r.FeeStructure;
-        p.TeamMode = r.TeamMode;
         p.MinPlayers = r.MinPlayers; p.MaxPlayers = r.MaxPlayers;
         p.MinParticipants = r.MinParticipants; p.MaxParticipants = r.MaxParticipants;
         if (p.Fields != null)
@@ -474,7 +473,6 @@ public class EventsController : ControllerBase
     private static void ApplyRegisteredProgramSafeFields(TrsProgram p, UpsertProgramRequest r)
     {
         p.Name = r.Name;
-        p.TeamMode = r.TeamMode;
         p.MinParticipants = r.MinParticipants;
         p.MaxParticipants = r.MaxParticipants;
     }
@@ -589,7 +587,6 @@ public class EventsController : ControllerBase
     {
         id = p.ProgramId.ToString(), p.Name, p.Type, p.SbaRankingType,
         p.MinAge, p.MaxAge, p.Gender, p.Fee, p.PaymentRequired, p.FeeStructure,
-        p.TeamMode,
         p.MinPlayers, p.MaxPlayers, p.MinParticipants, p.MaxParticipants,
         currentParticipants, p.Status, participantSeeds = new List<object>(),
         fields = p.Fields == null
@@ -687,7 +684,6 @@ public class EventsController : ControllerBase
         p.Fee,
         p.PaymentRequired,
         p.FeeStructure,
-        p.TeamMode,
         p.MinPlayers,
         p.MaxPlayers,
         p.MinParticipants,

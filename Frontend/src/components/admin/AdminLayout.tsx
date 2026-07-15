@@ -111,7 +111,7 @@ export default function AdminLayout() {
             </>
           )}
           <button
-            onClick={async () => { await logout(); navigate("/login", { replace: true }); }}
+            onClick={async () => { await logout(); navigate("/", { replace: true }); }}
             title="Logout"
             className={`flex items-center gap-2 text-sm hover:bg-white/10 py-2.5 w-full transition-colors ${
               expanded ? "px-3" : "justify-center px-0"

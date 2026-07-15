@@ -110,10 +110,16 @@ export type BadmintonClubInput = Omit<BadmintonClub, "clubId">;
 
 //  Program
 
+export type ProgramType = "singles" | "doubles" | "team" | "individual" | "mixed";
+
+export function isTeamProgram(type?: string | null): boolean {
+  return type?.toLowerCase() === "team";
+}
+
 export interface Program {
   id: string;
   name: string;
-  type: string;
+  type: ProgramType | string;
   sbaRankingType?: string | null;
   minAge: number;
   maxAge: number;
@@ -121,7 +127,6 @@ export interface Program {
   fee: number;
   paymentRequired: boolean;
   feeStructure: "per_entry" | "per_player"; // per_entry = flat fee for whole group; per_player = fee x each player
-  teamMode: boolean;
   minPlayers: number;
   maxPlayers: number;
   minParticipants: number;
@@ -344,7 +349,6 @@ export interface CartEntry {
   programName: string;
   fee: number;               // total fee for this entry (feePerPlayer x players OR flat fee)
   feeStructure: "per_entry" | "per_player";
-  teamMode?: boolean;
   feePerPlayer?: number;     // only set when feeStructure = "per_player"
   participants: Participant[];
 }

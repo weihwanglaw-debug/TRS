@@ -79,7 +79,6 @@ public class UpsertProgramRequest
     public decimal Fee { get; set; }
     public bool PaymentRequired { get; set; } = true;
     public string FeeStructure { get; set; } = "per_entry";
-    public bool TeamMode { get; set; }
     public int MinPlayers { get; set; } = 1;
     public int MaxPlayers { get; set; } = 1;
     public int MinParticipants { get; set; } = 1;

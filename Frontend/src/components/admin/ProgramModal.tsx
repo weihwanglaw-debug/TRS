@@ -4,7 +4,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Switch } from "@/components/ui/switch";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 import { apiGetSbaRankingTypes } from "@/lib/api";
-import type { Program, SbaRankingType } from "@/types/config";
+import type { Program, ProgramType, SbaRankingType } from "@/types/config";
+import { isTeamProgram } from "@/types/config";
 
 //  Program type definitions
 
@@ -16,7 +17,6 @@ import type { Program, SbaRankingType } from "@/types/config";
  *  individual - 1 player per entry, no head-to-head (swimming heats, athletics, etc.)
  *  mixed  - catch-all for non-sports or custom programs
  */
-export type ProgramType = "singles" | "doubles" | "team" | "individual" | "mixed";
 
 interface ProgramTypeOption {
   value: ProgramType;
@@ -31,35 +31,22 @@ const RACKET_PROGRAM_TYPES: ProgramTypeOption[] = [
   { value: "doubles",  label: "Doubles",        minPlayers: 2, maxPlayers: 2 },
 ];
 
-/** Types available for team sports (basketball, football, etc.) */
-const TEAM_PROGRAM_TYPES: ProgramTypeOption[] = [
-  { value: "team", label: "Team", minPlayers: 5, maxPlayers: 15 },
-];
-
-/** Types available for individual/other sports (swimming, athletics, gymnastics, etc.) */
-const INDIVIDUAL_PROGRAM_TYPES: ProgramTypeOption[] = [
-  { value: "individual", label: "Individual", minPlayers: 1, maxPlayers: 1 },
-  { value: "team",       label: "Team Relay", minPlayers: 2, maxPlayers: 8 },
-];
-
-/** Fallback types for non-sports or unknown */
-const DEFAULT_PROGRAM_TYPES: ProgramTypeOption[] = [
+/** Types available for non-badminton events. Program type owns entry behavior. */
+const NON_BADMINTON_PROGRAM_TYPES: ProgramTypeOption[] = [
   { value: "singles",    label: "Singles / Individual", minPlayers: 1, maxPlayers: 1 },
   { value: "doubles",    label: "Pairs",                minPlayers: 2, maxPlayers: 2 },
   { value: "team",       label: "Team",                 minPlayers: 2, maxPlayers: 20 },
   { value: "mixed",      label: "Other / Mixed",        minPlayers: 1, maxPlayers: 99 },
 ];
 
-function getProgramTypes(isRacketSport: boolean, isTeamSport: boolean): ProgramTypeOption[] {
-  if (isRacketSport) return RACKET_PROGRAM_TYPES;
-  if (isTeamSport)   return TEAM_PROGRAM_TYPES;
-  return INDIVIDUAL_PROGRAM_TYPES.length ? INDIVIDUAL_PROGRAM_TYPES : DEFAULT_PROGRAM_TYPES;
-}
-
 /** Derive ProgramType from SBA ranking type label (badminton-specific shortcut). */
 function sbaTypeToProgType(sbaType: SbaRankingType | undefined): ProgramType {
   if (!sbaType) return "singles";
   return sbaType.players === 2 ? "doubles" : "singles";
+}
+
+function isFixedPlayerType(type: ProgramType | string, isBadminton: boolean): boolean {
+  return isBadminton || type === "singles" || type === "doubles" || type === "individual";
 }
 
 //  Supporting types
@@ -79,9 +66,6 @@ interface Props {
   onSave:        (program: Program) => void | Promise<string | void>;
   program:       Program | null;
   isBadminton?:  boolean;   // true -> show SBA ranking type dropdown + SBA ID field
-  isRacketSport?: boolean;  // true -> singles/doubles type selection
-  isTeamSport?:  boolean;   // true -> team type, configurable squad size
-  sportType?:    string;    // display label only (e.g. "Basketball")
 }
 
 //  Component
@@ -89,12 +73,9 @@ interface Props {
 export default function ProgramModal({
   open, onClose, onSave, program,
   isBadminton  = false,
-  isRacketSport = false,
-  isTeamSport  = false,
-  sportType    = "",
 }: Props) {
   const isEdit = !!program;
-  const programTypes = getProgramTypes(isRacketSport, isTeamSport);
+  const programTypes = isBadminton ? RACKET_PROGRAM_TYPES : NON_BADMINTON_PROGRAM_TYPES;
   const defaultType  = programTypes[0];
 
   const [form, setForm] = useState({
@@ -107,7 +88,6 @@ export default function ProgramModal({
     fee:             "0.00",
     paymentRequired: true,
     feeStructure:    "per_entry" as "per_entry" | "per_player",
-    teamMode:        false,
     minPlayers:      defaultType.minPlayers,
     maxPlayers:      defaultType.maxPlayers,
     minParticipants: 4,
@@ -164,7 +144,6 @@ export default function ProgramModal({
         fee:             program.fee.toFixed(2),
         paymentRequired: program.paymentRequired ?? true,
         feeStructure:    program.feeStructure ?? "per_entry",
-        teamMode:        program.teamMode ?? false,
         minPlayers:      program.minPlayers,
         maxPlayers:      program.maxPlayers,
         minParticipants: program.minParticipants ?? 4,
@@ -192,9 +171,8 @@ export default function ProgramModal({
         name: "", type: defaultType.value, sbaRankingType: "",
         gender: "Mixed", minAge: 18, maxAge: 45,
         fee: "0.00", paymentRequired: true, feeStructure: "per_entry",
-        teamMode: isTeamSport,
         minPlayers: defaultType.minPlayers, maxPlayers: defaultType.maxPlayers,
-        minParticipants: 4, maxParticipants: isTeamSport ? 16 : 32,
+        minParticipants: 4, maxParticipants: 32,
         enableSbaId: false, enableDocumentUpload: false,
         enableGuardianInfo: false, enableRemark: false, enableTshirt: true,
         requireSbaId: false, requireDocumentUpload: false,
@@ -204,7 +182,7 @@ export default function ProgramModal({
     }
     setFormErrors({});
     setSaving(false);
-  }, [program, open, isBadminton, isTeamSport]);
+  }, [program, open, isBadminton]);
 
   const s = (k: string, v: unknown) => setForm(p => ({ ...p, [k]: v }));
 
@@ -216,6 +194,7 @@ export default function ProgramModal({
       type:       opt.value,
       minPlayers: opt.minPlayers,
       maxPlayers: opt.maxPlayers,
+      gender: isTeamProgram(opt.value) && p.gender === "Mixed" ? "Open" : p.gender,
     }));
   };
 
@@ -272,7 +251,6 @@ export default function ProgramModal({
       fee:            parseFloat(form.fee) || 0,
       paymentRequired: form.paymentRequired,
       feeStructure:   form.paymentRequired ? form.feeStructure : "per_entry",
-      teamMode:       form.teamMode,
       minPlayers:     form.minPlayers,
       maxPlayers:     form.maxPlayers,
       minParticipants:    form.minParticipants,
@@ -310,13 +288,6 @@ export default function ProgramModal({
 
   return (
     <>
-    <ActionFeedbackDialog
-      open={feedback.open}
-      variant={feedback.variant}
-      title={feedback.title}
-      description={feedback.description}
-      onOpenChange={nextOpen => setFeedback(prev => ({ ...prev, open: nextOpen }))}
-    />
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
       <DialogContent
         className="max-w-2xl max-h-[90vh] overflow-y-auto p-0"
@@ -345,7 +316,7 @@ export default function ProgramModal({
                   </select>
                 ) : (
                   <input className="field-input" value={form.name} onChange={e => s("name", e.target.value)}
-                    placeholder={isTeamSport ? `e.g. Men's Open ${sportType || "Team"}` : "Program name"} />
+                    placeholder={isTeamProgram(form.type) ? "e.g. Singapore Open Team" : "Program name"} />
                 )}
                 {formErrors.name    && <Err>{formErrors.name}</Err>}
                 {formErrors.sbaType && <Err>{formErrors.sbaType}</Err>}
@@ -355,19 +326,12 @@ export default function ProgramModal({
               {!isBadminton && (
                 <div>
                   <Lbl>Program Type *</Lbl>
-                  {programTypes.length === 1 ? (
-  // Only one option (e.g. pure team sports) - show as read-only chip
-                    <div className="field-input opacity-60 cursor-default select-none">
-                      {programTypes[0].label}
-                    </div>
-                  ) : (
-                    <select className="field-input" value={form.type}
-                      onChange={e => selectProgramType(e.target.value as ProgramType)}>
-                      {programTypes.map(t => (
-                        <option key={t.value} value={t.value}>{t.label}</option>
-                      ))}
-                    </select>
-                  )}
+                  <select className="field-input" value={form.type}
+                    onChange={e => selectProgramType(e.target.value as ProgramType)}>
+                    {programTypes.map(t => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
                   {formErrors.type && <Err>{formErrors.type}</Err>}
                 </div>
               )}
@@ -391,17 +355,12 @@ export default function ProgramModal({
                   <option value="Open">Open (no gender restriction)</option>
                 </select>
               </div>
-
-              <label className="sm:col-span-2 flex items-start justify-between gap-4 p-3 cursor-pointer"
-                style={{ border: "1px solid var(--color-table-border)" }}>
-                <span>
-                  <span className="block text-sm font-semibold">Team mode</span>
-                  <span className="block text-xs opacity-60 mt-0.5">
-                    Use one shared team name for every participant in each entry.
-                  </span>
-                </span>
-                <Switch checked={form.teamMode} onCheckedChange={v => s("teamMode", v)} />
-              </label>
+              {isTeamProgram(form.type) && (
+                <div className="sm:col-span-2 p-3 text-xs opacity-70"
+                  style={{ border: "1px solid var(--color-table-border)" }}>
+                  Team entries use one shared team name for every participant in each entry.
+                </div>
+              )}
             </div>
           </Sec>
 
@@ -429,23 +388,23 @@ export default function ProgramModal({
               <div><Lbl>Max Entries</Lbl><input type="number" className="field-input" value={form.maxParticipants} onChange={e => s("maxParticipants", +e.target.value)} /></div>
               <div>
                 <Lbl>Min Players / Entry</Lbl>
-  {/* For racket sports with a fixed type, these are auto-set and read-only */}
+  {/* Fixed-size program types are auto-set and read-only. */}
                 <input type="number" className="field-input"
                   value={form.minPlayers}
-                  readOnly={isRacketSport || isBadminton}
-                  style={{ opacity: (isRacketSport || isBadminton) ? 0.6 : 1 }}
+                  readOnly={isFixedPlayerType(form.type, isBadminton)}
+                  style={{ opacity: isFixedPlayerType(form.type, isBadminton) ? 0.6 : 1 }}
                   onChange={e => s("minPlayers", +e.target.value)} />
               </div>
               <div>
                 <Lbl>Max Players / Entry</Lbl>
                 <input type="number" className="field-input"
                   value={form.maxPlayers}
-                  readOnly={isRacketSport || isBadminton}
-                  style={{ opacity: (isRacketSport || isBadminton) ? 0.6 : 1 }}
+                  readOnly={isFixedPlayerType(form.type, isBadminton)}
+                  style={{ opacity: isFixedPlayerType(form.type, isBadminton) ? 0.6 : 1 }}
                   onChange={e => s("maxPlayers", +e.target.value)} />
               </div>
             </div>
-            {(isRacketSport || isBadminton) && (
+            {isFixedPlayerType(form.type, isBadminton) && (
               <p className="text-xs opacity-40 mt-2">
                 Players per entry is fixed by program type ({form.type}).
               </p>
@@ -617,6 +576,13 @@ export default function ProgramModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <ActionFeedbackDialog
+      open={feedback.open}
+      variant={feedback.variant}
+      title={feedback.title}
+      description={feedback.description}
+      onOpenChange={nextOpen => setFeedback(prev => ({ ...prev, open: nextOpen }))}
+    />
     </>
   );
 }

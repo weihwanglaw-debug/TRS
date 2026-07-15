@@ -69,6 +69,26 @@ public class RegistrationDetailsPdfService
         string Display(string? value) =>
             string.IsNullOrWhiteSpace(value) ? "-" : value.Trim();
 
+        string CountryName(string? value)
+        {
+            var clean = value?.Trim();
+            if (string.IsNullOrWhiteSpace(clean)) return "-";
+
+            if (clean.Length == 2 && clean.All(char.IsLetter))
+            {
+                try
+                {
+                    return new System.Globalization.RegionInfo(clean.ToUpperInvariant()).EnglishName;
+                }
+                catch (ArgumentException)
+                {
+                    return clean;
+                }
+            }
+
+            return clean;
+        }
+
         string RegReference() =>
             ReceiptNumberGenerator.FallbackRegistrationReference(reg.RegistrationId);
 
@@ -78,14 +98,15 @@ public class RegistrationDetailsPdfService
             StatusCodesEx.Registration.Confirmed => "Confirmed",
             StatusCodesEx.Registration.CancelPending => "Cancel Pending",
             StatusCodesEx.Registration.RefundFailed => "Refund Failed",
+            StatusCodesEx.Registration.Cancelled => "Cancelled",
             StatusCodesEx.Participant.Active => "Active",
-            StatusCodesEx.Payment.PartiallyRefunded => "Partially Refunded",
-            StatusCodesEx.Payment.Success => "Paid",
             StatusCodesEx.PaymentItem.Refunded => "Refunded",
+            StatusCodesEx.Payment.Success => "Paid",
+            StatusCodesEx.Payment.PartiallyRefunded => "Partially Refunded",
             StatusCodesEx.Payment.FullyRefunded => "Refunded",
             StatusCodesEx.Payment.Waived => "Waived",
             StatusCodesEx.Payment.PendingCollection => "Pending Collection",
-            StatusCodesEx.Registration.Cancelled => "Cancelled",
+            StatusCodesEx.Payment.Failed => "Failed",
             null or "" => "-",
             _ => status,
         };
@@ -234,7 +255,7 @@ public class RegistrationDetailsPdfService
 
                                             Field("DOB", FormatDob(participant.DateOfBirth));
                                             Field("Gender", Display(participant.Gender));
-                                            Field("Nationality", Display(participant.Nationality));
+                                            Field("Nationality", CountryName(participant.Nationality));
                                             Field("SBA ID", Display(participant.SbaId));
                                             Field("Email", Display(participant.Email));
                                             Field("Contact", Display(participant.ContactNumber));

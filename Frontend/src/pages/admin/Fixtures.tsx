@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { ArrowLeft, ArrowRight, Loader2, Download, Search, X, Shuffle } from "lucide-react";
 import type { TournamentEvent, SeedEntry, BracketState, MatchEntry, WizardConfig, SbaRanking } from "@/types/config";
+import { isTeamProgram } from "@/types/config";
 import { isBracketLocked, isPhaseComplete, getAllMatches, getCurrentHeatRound } from "@/lib/fixtureEngine";
 import {
   apiGenerateDraw, apiGetFixture, apiResetFixture,
@@ -53,13 +54,13 @@ interface ProgramRow {
   eventName:   string;
   programId:   string;
   programName: string;
+  programType: string;
   sbaRankingType?: string | null;
   mode:        string;
   sportType:   string;
   startDate:   string;
   endDate:     string;
   closeDate:   string;
-  teamMode:    boolean;
   participants: SeedEntry[];
 }
 //  Status badges
@@ -348,13 +349,13 @@ export default function AdminFixtures() {
         eventName:    ev.name,
         programId:    p.id,
         programName:  p.name,
+        programType:  p.type,
         sbaRankingType: p.sbaRankingType,
         mode:         ev.fixtureMode,
         sportType:    ev.sportType,
         startDate:    ev.eventStartDate,
         endDate:      ev.eventEndDate,
         closeDate:    ev.closeDate,
-        teamMode:     p.teamMode ?? false,
         participants: (p.participantSeeds ?? []) as SeedEntry[],
       }))
     ), [allEvents]
@@ -456,7 +457,7 @@ export default function AdminFixtures() {
       const allGroups = r.data.items.flatMap(reg =>
         reg.groups.filter(g => g.programId === row.programId)
       );
-      setSelRowParticipants(groupsToSeedEntries(allGroups).map(seed => ({ ...seed, teamMode: row.teamMode })));
+      setSelRowParticipants(groupsToSeedEntries(allGroups).map(seed => ({ ...seed, teamMode: isTeamProgram(row.programType) })));
     } catch {
       feedbackApi.error("Participants could not be loaded. Please check your connection and try again.");
     } finally {

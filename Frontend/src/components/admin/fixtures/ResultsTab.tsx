@@ -163,7 +163,7 @@ function ResultRow({
 
   const statusColor = isDone
     ? { bg: "var(--badge-open-bg)", text: "var(--badge-open-text)" }
-    : match.status === "In Progress"
+    : match.status === "IP"
       ? { bg: "var(--badge-soon-bg)", text: "var(--badge-soon-text)" }
       : { bg: "var(--badge-closed-bg)", text: "var(--badge-closed-text)" };
 

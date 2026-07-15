@@ -1056,6 +1056,14 @@ export default function AdminRegistrations() {
     return { label: "Pending", bg: "var(--badge-soon-bg)", text: "var(--badge-soon-text)" };
   };
 
+  const refundCancelScopeBadge = (reg: Registration, item: PaymentItem): { label: string; bg: string; text: string } | null =>
+    isItemScopeActive(reg, item)
+      ? null
+      : { label: "Cancelled", bg: "var(--badge-closed-bg)", text: "var(--badge-closed-text)" };
+
+  const refundCancelSecondaryReason = (reason: string | null): string | null =>
+    reason === "Already cancelled" ? null : reason;
+
   const resetRefundCancelState = () => {
     setRefundCancelModal(null);
     setRefundCancelAction("refundOnly");
@@ -1662,28 +1670,39 @@ export default function AdminRegistrations() {
 
   {/* Refund / Cancel */}
       <Dialog open={!!refundCancelModal} onOpenChange={v => { if (!v) resetRefundCancelState(); }}>
-        <DialogContent className="w-[min(92vw,760px)] max-w-3xl max-h-[90vh] overflow-y-auto p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
-          <DialogHeader className="p-7 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
+        <DialogContent className="w-[min(96vw,1040px)] max-w-5xl max-h-[94vh] overflow-y-auto p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
+          <DialogHeader className="p-6 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
             <DialogTitle className="font-bold text-lg">Refund / Cancel</DialogTitle>
             {refundCancelModal && <p className="text-xs mt-1">{refundCancelModal.id} - {refundCancelModal.contactName}</p>}
           </DialogHeader>
-          <div className="p-7 space-y-4">
-            <FG label="Action">
-              <select
-                className="field-input"
-                value={refundCancelAction}
-                onChange={e => {
-                  const action = e.target.value as RefundCancelAction;
-                  setRefundCancelAction(action);
-                  setRefundSel({});
-                  setRefundCancelScope(action === "refundOnly" ? "selected" : "whole");
-                }}
-              >
-                <option value="refundOnly">Refund only</option>
-                <option value="cancelWithoutRefund">Cancel without refund</option>
-                <option value="cancelWithRefund">Cancel with refund</option>
-              </select>
-            </FG>
+          <div className="p-6 space-y-4">
+            <div className={refundCancelAction !== "cancelWithoutRefund" ? "grid gap-4 md:grid-cols-2" : "grid gap-4"}>
+              <FG label="Action">
+                <select
+                  className="field-input"
+                  value={refundCancelAction}
+                  onChange={e => {
+                    const action = e.target.value as RefundCancelAction;
+                    setRefundCancelAction(action);
+                    setRefundSel({});
+                    setRefundCancelScope(action === "refundOnly" ? "selected" : "whole");
+                  }}
+                >
+                  <option value="refundOnly">Refund only</option>
+                  <option value="cancelWithoutRefund">Cancel without refund</option>
+                  <option value="cancelWithRefund">Cancel with refund</option>
+                </select>
+              </FG>
+
+              {refundCancelAction !== "cancelWithoutRefund" && (
+                <FG label="Refund mode">
+                  <select className="field-input" value={refundSource} onChange={e => setRefundSource(e.target.value as RefundSource)}>
+                    <option value="System">Internal System Refund</option>
+                    <option value="External">Record External Refund</option>
+                  </select>
+                </FG>
+              )}
+            </div>
 
             <label className="flex items-center justify-between gap-4 p-4 cursor-pointer"
               style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
@@ -1704,37 +1723,27 @@ export default function AdminRegistrations() {
               />
             </label>
 
-            {refundCancelAction !== "cancelWithoutRefund" && (
-              <>
-                <FG label="Refund mode">
-                  <select className="field-input" value={refundSource} onChange={e => setRefundSource(e.target.value as RefundSource)}>
-                    <option value="System">Internal System Refund</option>
-                    <option value="External">Record External Refund</option>
+            {refundCancelAction !== "cancelWithoutRefund" && refundSource === "External" && (
+              <div className="grid gap-4 md:grid-cols-3">
+                <FG label="Refund method *">
+                  <select className="field-input" value={refundMethod} onChange={e => setRefundMethod(e.target.value as RefundMethod)}>
+                    {EXTERNAL_REFUND_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
                 </FG>
-                {refundSource === "External" && (
-                  <div className="space-y-3">
-                    <FG label="Refund method *">
-                      <select className="field-input" value={refundMethod} onChange={e => setRefundMethod(e.target.value as RefundMethod)}>
-                        {EXTERNAL_REFUND_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                      </select>
-                    </FG>
-                    <FG label={`Refund reference / ID${requiresRefundReference(refundMethod) ? " *" : " (optional)"}`}>
-                      <input className="field-input" value={refundReference} onChange={e => setRefundReference(e.target.value)} />
-                    </FG>
-                    <FG label="Admin note (optional)">
-                      <input className="field-input" value={refundAdminNote} onChange={e => setRefundAdminNote(e.target.value)} />
-                    </FG>
-                  </div>
-                )}
-              </>
+                <FG label={`Refund reference / ID${requiresRefundReference(refundMethod) ? " *" : " (optional)"}`}>
+                  <input className="field-input" value={refundReference} onChange={e => setRefundReference(e.target.value)} />
+                </FG>
+                <FG label="Admin note (optional)">
+                  <input className="field-input" value={refundAdminNote} onChange={e => setRefundAdminNote(e.target.value)} />
+                </FG>
+              </div>
             )}
 
             {refundCancelModal && (() => {
               const items = getRefundCancelItems(refundCancelModal, refundCancelAction);
               return (
                 <div className="space-y-3">
-                  <p className="text-xs font-semibold opacity-60">
+                  <p className="block text-xs font-semibold mb-1.5">
                     {refundCancelScope === "whole" ? "Included items" : "Select items"}
                   </p>
                   {items.length === 0 && (
@@ -1742,51 +1751,61 @@ export default function AdminRegistrations() {
                       No eligible items for this action.
                     </div>
                   )}
-                  {items.map(item => {
-                    const disabledReason = getRefundCancelItemDisabledReason(refundCancelModal, item, refundCancelAction);
-                    const eligible = !disabledReason;
-                    const checked = eligible && (refundCancelScope === "whole" || (refundSel[item.id]?.checked ?? false));
-                    const remaining = getRemainingRefundAmount(refundCancelModal, item);
-                    const statusBadge = refundCancelItemStatusBadge(item);
-                    return (
-                      <label key={item.id} className="flex items-start gap-3 p-4 cursor-pointer"
-                        style={{
-                          border: "1px solid var(--color-table-border)",
-                          opacity: eligible ? 1 : 0.55,
-                          cursor: eligible && refundCancelScope !== "whole" ? "pointer" : "default",
-                        }}>
-                        <Switch
-                          disabled={refundCancelScope === "whole" || !eligible}
-                          checked={checked}
-                          onCheckedChange={v => setRefundSel(prev => ({ ...prev, [item.id]: { checked: v, reason: cancelReason } }))}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-sm font-medium truncate">{item.programName}</span>
-                                <span className="text-xs px-1.5 py-0.5 font-semibold flex-shrink-0"
-                                  style={{ backgroundColor: statusBadge.bg, color: statusBadge.text }}>
-                                  {statusBadge.label}
-                                </span>
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {items.map(item => {
+                      const disabledReason = getRefundCancelItemDisabledReason(refundCancelModal, item, refundCancelAction);
+                      const eligible = !disabledReason;
+                      const checked = eligible && (refundCancelScope === "whole" || (refundSel[item.id]?.checked ?? false));
+                      const remaining = getRemainingRefundAmount(refundCancelModal, item);
+                      const statusBadge = refundCancelItemStatusBadge(item);
+                      const scopeBadge = refundCancelScopeBadge(refundCancelModal, item);
+                      const secondaryReason = refundCancelSecondaryReason(disabledReason);
+                      return (
+                        <label key={item.id} className="flex items-start gap-3 p-4 cursor-pointer min-h-[94px]"
+                          style={{
+                            border: "1px solid var(--color-table-border)",
+                            opacity: eligible ? 1 : 0.55,
+                            cursor: eligible && refundCancelScope !== "whole" ? "pointer" : "default",
+                          }}>
+                          <Switch
+                            disabled={refundCancelScope === "whole" || !eligible}
+                            checked={checked}
+                            onCheckedChange={v => setRefundSel(prev => ({ ...prev, [item.id]: { checked: v, reason: cancelReason } }))}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="text-sm font-medium truncate">{item.programName}</span>
+                                  <span className="text-xs px-1.5 py-0.5 font-semibold flex-shrink-0"
+                                    style={{ backgroundColor: statusBadge.bg, color: statusBadge.text }}>
+                                    {statusBadge.label}
+                                  </span>
+                                  {scopeBadge && (
+                                    <span className="text-xs px-1.5 py-0.5 font-semibold flex-shrink-0"
+                                      style={{ backgroundColor: scopeBadge.bg, color: scopeBadge.text }}>
+                                      {scopeBadge.label}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs mt-1">
+                                  {item.playerName && <span className="opacity-60">- {item.playerName}</span>}
+                                  {!item.participantId && <span className="opacity-40">(per entry)</span>}
+                                  {secondaryReason && <span className="opacity-50 ml-2">{secondaryReason}</span>}
+                                </div>
                               </div>
-                              <div className="text-xs mt-1">
-                                {item.playerName && <span className="opacity-60">- {item.playerName}</span>}
-                                {!item.participantId && <span className="opacity-40">(per entry)</span>}
-                                {disabledReason && <span className="opacity-50 ml-2">{disabledReason}</span>}
-                              </div>
+                              <span className="font-bold text-sm flex-shrink-0" style={{ color: "var(--color-primary)" }}>
+                                ${item.amount.toFixed(2)}
+                              </span>
                             </div>
-                            <span className="font-bold text-sm" style={{ color: "var(--color-primary)" }}>
-                              ${item.amount.toFixed(2)}
-                            </span>
+                            {refundCancelAction !== "cancelWithoutRefund" && (
+                              <p className="text-xs mt-1 opacity-60">Refundable: ${remaining.toFixed(2)}</p>
+                            )}
                           </div>
-                          {refundCancelAction !== "cancelWithoutRefund" && (
-                            <p className="text-xs mt-1 opacity-60">Refundable: ${remaining.toFixed(2)}</p>
-                          )}
-                        </div>
-                      </label>
-                    );
-                  })}
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               );
             })()}
@@ -1797,7 +1816,7 @@ export default function AdminRegistrations() {
                 placeholder="Enter reason..." />
             </FG>
           </div>
-          <DialogFooter className="p-7 pt-0">
+          <DialogFooter className="p-6 pt-0">
             <button onClick={resetRefundCancelState} className="btn-outline px-5 py-2.5 text-sm">Close</button>
             {refundCancelModal && (() => {
               const eligibleItems = getEligibleRefundCancelItems(refundCancelModal, refundCancelAction);

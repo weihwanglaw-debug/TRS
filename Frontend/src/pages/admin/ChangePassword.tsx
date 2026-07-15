@@ -72,7 +72,7 @@ export default function ChangePassword() {
           setFeedback(prev => ({ ...prev, open }));
           if (!open && logoutPending) {
             await logout();
-            navigate("/login", { replace: true });
+            navigate("/", { replace: true });
           }
         }}
       />
@@ -118,7 +118,7 @@ export default function ChangePassword() {
                 className="btn-outline px-5 py-2.5 text-sm font-medium">Cancel</button>
             )}
             {user?.mustChangePassword && (
-              <button type="button" onClick={() => logout()}
+              <button type="button" onClick={async () => { await logout(); navigate("/", { replace: true }); }}
                 className="btn-outline px-5 py-2.5 text-sm font-medium">Log Out</button>
             )}
             <button type="submit" disabled={saving}

@@ -357,7 +357,6 @@ export function groupsToSeedEntries(groups: ParticipantGroup[]) {
         id:           g.id,          // ParticipantGroup.id IS the SeedEntry.id
         club:         g.clubDisplay,
         participants: activeParticipants.map(p => p.fullName),
-        teamMode:     false,
         seed:         g.seed,
         sbaId:        activeParticipants[0]?.sbaId,
         sbaIds:       activeParticipants.map(p => p.sbaId).filter((id): id is string => !!id),

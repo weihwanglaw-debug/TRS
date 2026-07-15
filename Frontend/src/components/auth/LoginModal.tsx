@@ -12,21 +12,13 @@ interface LoginModalProps {
 }
 
 export default function LoginModal({ open, onClose }: LoginModalProps) {
-  const { login, mustChangePassword } = useAuth();
+  const { login } = useAuth();
   const navigate    = useNavigate();
-  const location    = useLocation();
   const [email,     setEmail]     = useState("");
   const [password,  setPassword]  = useState("");
   const [showPw,    setShowPw]    = useState(false);
   const [error,     setError]     = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  // When opened from a public page (landing, event detail) stay on that page.
-  // Only redirect to /admin when the user navigated directly to /login.
-  const isPublicPage =
-    location.pathname === "/" ||
-    location.pathname.startsWith("/event/") ||
-    location.pathname.startsWith("/payment/");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,15 +33,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
 
     setEmail(""); setPassword(""); setError("");
     onClose();
-
-    if (mustChangePassword) {
-      navigate("/admin/change-password");
-    } else if (!isPublicPage) {
-  // Only redirect to admin panel when on a non-public page (/login)
-      navigate("/admin");
-    }
-  // If isPublicPage: stay - page re-renders with isAuthenticated=true,
-  // enabling the admin registration flow.
+    navigate("/admin", { replace: true });
   };
 
   const handleCancel = () => {

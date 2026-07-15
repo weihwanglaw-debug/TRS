@@ -697,10 +697,11 @@ public class RegistrationsController : ControllerBase
 
         if (trimmedClub != null)
         {
-            if (program.TeamMode)
+            if (ProgramTypeRules.IsTeamProgram(program.Type))
             {
-                var currentTeamName = participant.Group.ClubDisplay?.Trim() ?? "";
-                if (!string.Equals(currentTeamName, trimmedClub, StringComparison.Ordinal))
+                var normalizedTeamName = NormalizeTeamName(trimmedClub);
+                var currentTeamName = NormalizeTeamName(participant.Group.ClubDisplay);
+                if (!string.Equals(currentTeamName, normalizedTeamName, StringComparison.OrdinalIgnoreCase))
                 {
                     var fixtureExists = await _db.Fixtures.AnyAsync(f => f.ProgramId == participant.Group.ProgramId);
                     if (fixtureExists)
@@ -711,6 +712,27 @@ public class RegistrationsController : ControllerBase
                             message = "Team name cannot be changed after fixtures have been generated. Reset the fixture first."
                         });
                     }
+
+                    var existingTeamNames = await _db.ParticipantGroups
+                        .Where(g =>
+                            g.ProgramId == participant.Group.ProgramId &&
+                            g.GroupId != participant.GroupId &&
+                            g.GroupStatus != StatusCodesEx.Registration.Cancelled)
+                        .Select(g => g.ClubDisplay)
+                        .ToListAsync();
+
+                    var duplicateTeamName = existingTeamNames
+                        .Select(NormalizeTeamName)
+                        .Any(name => string.Equals(name, normalizedTeamName, StringComparison.OrdinalIgnoreCase));
+
+                    if (duplicateTeamName)
+                    {
+                        return Conflict(new
+                        {
+                            code = "DUPLICATE_TEAM",
+                            message = $"Team '{normalizedTeamName}' is already registered in this program."
+                        });
+                    }
                 }
 
                 var activeParticipants = await _db.Participants
@@ -719,9 +741,9 @@ public class RegistrationsController : ControllerBase
                     .ToListAsync();
 
                 foreach (var sibling in activeParticipants)
-                    sibling.ClubSchoolCompany = trimmedClub;
+                    sibling.ClubSchoolCompany = normalizedTeamName;
 
-                participant.Group.ClubDisplay = trimmedClub;
+                participant.Group.ClubDisplay = normalizedTeamName;
             }
             else
             {
@@ -1543,6 +1565,12 @@ public class RegistrationsController : ControllerBase
         if (string.IsNullOrWhiteSpace(status)) return status;
         var code = status.Trim();
         return code.Length <= 5 ? code : "UNK";
+    }
+
+    private static string NormalizeTeamName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+        return string.Join(" ", value.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
     }
 
     private static string? AppendAuditStatusContext(string? notes, string? oldStatus, string? newStatus)

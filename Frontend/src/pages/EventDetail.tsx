@@ -9,6 +9,7 @@ import {
   Loader2,
 } from "lucide-react";
 import type { TournamentEvent, Program, Participant, CartEntry } from "@/types/config";
+import { isTeamProgram } from "@/types/config";
 import { getEventStatus, formatDate } from "@/lib/eventUtils";
 import { apiGetEvent, apiGetSbaMember, apiCreateRegistration, apiCreateEmbeddedPaymentAttempt, apiAbandonEmbeddedPaymentAttempt, apiConfirmRegistration, apiUploadFile, assetUrl } from "@/lib/api";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
@@ -519,7 +520,7 @@ export default function EventDetail() {
   };
 
   const syncTeamParticipants = (items: Participant[], program = selectedProgram) => {
-    if (!program?.teamMode || items.length === 0) return items;
+    if (!isTeamProgram(program?.type) || items.length === 0) return items;
     const teamName = items[0].clubSchoolCompany ?? "";
     return items.map((p) => ({ ...p, clubSchoolCompany: teamName }));
   };
@@ -538,7 +539,7 @@ export default function EventDetail() {
     setParticipants((prev) => {
       const next = [...prev, {
         ...blankParticipant(),
-        clubSchoolCompany: selectedProgram.teamMode ? (prev[0]?.clubSchoolCompany ?? "") : "",
+        clubSchoolCompany: isTeamProgram(selectedProgram.type) ? (prev[0]?.clubSchoolCompany ?? "") : "",
       }];
       return syncTeamParticipants(next, selectedProgram);
     });
@@ -688,7 +689,6 @@ export default function EventDetail() {
       programName: selectedProgram.name,
       fee: totalEntryFee,
       feeStructure: selectedProgram.feeStructure,
-      teamMode: selectedProgram.teamMode,
       feePerPlayer: isPerPlayer ? entryFee : undefined,
       participants: syncTeamParticipants([...participants], selectedProgram),
     };
@@ -1259,7 +1259,7 @@ export default function EventDetail() {
                                 }}
                                 programFields={selectedProgram.fields}
                                 eventType={event.sportType}
-                                teamMode={selectedProgram.teamMode}
+                                teamMode={isTeamProgram(selectedProgram.type)}
                                 participantIndex={idx}
                                 errors={Object.fromEntries(
                                   Object.entries(errors)

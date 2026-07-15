@@ -84,10 +84,23 @@ public class ReceiptService
             StatusCodesEx.Payment.FullyRefunded => "FULLY REFUNDED",
             StatusCodesEx.Payment.PartiallyRefunded => "PARTIALLY REFUNDED",
             StatusCodesEx.Payment.Success => "PAID",
+            StatusCodesEx.Payment.Waived => "FEE WAIVED",
+            StatusCodesEx.Payment.PendingCollection => "PENDING COLLECTION",
+            StatusCodesEx.Payment.Pending => "PENDING PAYMENT",
+            StatusCodesEx.Payment.Failed => "PAYMENT FAILED",
+            StatusCodesEx.Payment.Cancelled => "CANCELLED",
             _ => payment.PaymentStatus,
         };
-        var statusColor = payment.PaymentStatus is StatusCodesEx.Payment.FullyRefunded or StatusCodesEx.Payment.PartiallyRefunded
-            ? Colors.Orange.Darken1 : Colors.Green.Darken1;
+        var statusColor = payment.PaymentStatus switch
+        {
+            StatusCodesEx.Payment.Success or StatusCodesEx.Payment.Waived => Colors.Green.Darken1,
+            StatusCodesEx.Payment.Failed or StatusCodesEx.Payment.Cancelled => Colors.Red.Darken1,
+            StatusCodesEx.Payment.FullyRefunded or
+            StatusCodesEx.Payment.PartiallyRefunded or
+            StatusCodesEx.Payment.Pending or
+            StatusCodesEx.Payment.PendingCollection => Colors.Orange.Darken1,
+            _ => Colors.Grey.Darken1,
+        };
 
         var methodLabel = payment.PaymentMethod switch
         {

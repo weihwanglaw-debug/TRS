@@ -176,10 +176,6 @@ export default function EventEdit() {
   const [openAction,       setOpenAction]       = useState<{ prog: Program; anchorEl: HTMLElement } | null>(null);
   const [deleteConfirmOpen,setDeleteConfirmOpen]= useState(false);
 
-  const RACKET_SPORTS = ["Badminton", "Tennis", "Squash", "Table Tennis", "Pickleball"];
-  const TEAM_SPORTS   = ["Basketball", "Football", "Volleyball", "Rugby", "Hockey", "Netball"];
-  const isRacketSport = form.isSports && RACKET_SPORTS.includes(form.sportType);
-  const isTeamSport   = form.isSports && TEAM_SPORTS.includes(form.sportType);
   const isBadminton   = form.isSports && form.sportType === "Badminton";
 
   //  Load existing event
@@ -213,7 +209,7 @@ export default function EventEdit() {
         bannerUrl:        ev.bannerUrl || "",
         additionalInfo:   ev.additionalInfo || "",
         isSports:         ev.isSports ?? true,
-        sportType:        ev.sportType || "Badminton",
+        sportType:        ev.sportType === "Badminton" ? "Badminton" : "Non Badminton",
         fixtureMode:      (ev.fixtureMode || "internal") as "internal" | "external" | "not_required",
       });
     }).finally(() => setLoading(false));
@@ -627,19 +623,8 @@ export default function EventEdit() {
               <FF label="Sport Type">
                 <select className="field-input" value={form.sportType} disabled={!editing}
                   onChange={e => set("sportType", e.target.value)}>
-                  <optgroup label="Racket Sports">
-                    <option>Badminton</option><option>Tennis</option><option>Squash</option>
-                    <option>Table Tennis</option><option>Pickleball</option>
-                  </optgroup>
-                  <optgroup label="Team Sports">
-                    <option>Basketball</option><option>Football</option><option>Volleyball</option>
-                    <option>Rugby</option><option>Hockey</option><option>Netball</option>
-                  </optgroup>
-                  <optgroup label="Individual Sports">
-                    <option>Swimming</option><option>Athletics</option><option>Gymnastics</option>
-                    <option>Cycling</option><option>Archery</option>
-                  </optgroup>
-                  <optgroup label="Other"><option>Other</option></optgroup>
+                  <option>Badminton</option>
+                  <option>Non Badminton</option>
                 </select>
               </FF>
               <FF label="Fixture Management Mode">
@@ -742,8 +727,10 @@ export default function EventEdit() {
       <div className="mb-8">
         <div className="flex items-center justify-between mb-6">
           <SectionTitle>Programs</SectionTitle>
-          <button onClick={() => { setEditingProgram(null); setProgramModalOpen(true); }}
-            className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-semibold">
+          <button
+            onClick={() => { if (!editing) return; setEditingProgram(null); setProgramModalOpen(true); }}
+            disabled={!editing}
+            className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
             <Plus className="h-4 w-4" /> Add Program
           </button>
         </div>
@@ -794,8 +781,10 @@ export default function EventEdit() {
                     <td>
                       <div className="relative">
                         <button
-                          onClick={e => setOpenAction(openAction?.prog.id === prog.id ? null : { prog, anchorEl: e.currentTarget })}
-                          className="p-2 hover:opacity-70" style={{ color: "var(--color-primary)" }}>
+                          onClick={e => { if (!editing) return; setOpenAction(openAction?.prog.id === prog.id ? null : { prog, anchorEl: e.currentTarget }); }}
+                          disabled={!editing}
+                          className="p-2 hover:opacity-70 disabled:opacity-30 disabled:cursor-not-allowed"
+                          style={{ color: "var(--color-primary)" }}>
                           <MoreVertical className="h-4 w-4" />
                         </button>
                       </div>
@@ -814,8 +803,9 @@ export default function EventEdit() {
                     <p className="text-xs opacity-50 mt-0.5">{prog.type} - {prog.gender} - Age {prog.minAge}-{prog.maxAge}</p>
                   </div>
                   <button
-                    onClick={e => setOpenAction(openAction?.prog.id === prog.id ? null : { prog, anchorEl: e.currentTarget })}
-                    className="p-2 -mr-2 hover:opacity-70"
+                    onClick={e => { if (!editing) return; setOpenAction(openAction?.prog.id === prog.id ? null : { prog, anchorEl: e.currentTarget }); }}
+                    disabled={!editing}
+                    className="p-2 -mr-2 hover:opacity-70 disabled:opacity-30 disabled:cursor-not-allowed"
                     style={{ color: "var(--color-primary)" }}
                   >
                     <MoreVertical className="h-4 w-4" />
@@ -895,6 +885,7 @@ export default function EventEdit() {
         open={programModalOpen}
         onClose={() => { setProgramModalOpen(false); setEditingProgram(null); }}
         onSave={async (savedProgram: Program) => {
+          const wasEditingProgram = !!editingProgram;
           if (!isNew && eventId && eventId !== "new") {
             if (editingProgram) {
               const r = await apiUpdateProgram(eventId, savedProgram.id, savedProgram);
@@ -921,13 +912,18 @@ export default function EventEdit() {
           }
           setProgramModalOpen(false);
           setEditingProgram(null);
+          setFeedback({
+            open: true,
+            variant: "success",
+            title: wasEditingProgram ? "Program updated" : "Program added",
+            description: wasEditingProgram
+              ? "The program details have been updated."
+              : "The program has been added to this event.",
+          });
           return undefined;
         }}
         program={editingProgram}
         isBadminton={isBadminton}
-        isRacketSport={isRacketSport}
-        isTeamSport={isTeamSport}
-        sportType={form.sportType}
       />
 
       <SeedingModal open={seedingOpen} onClose={() => setSeedingOpen(false)}

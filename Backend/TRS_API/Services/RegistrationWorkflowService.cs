@@ -97,6 +97,8 @@ public class RegistrationWorkflowService
             .ToDictionary(g => g.Key, g => g.Count());
 
         var quoteGroups = new List<PricingQuoteGroup>();
+        var submittedParticipantIdentities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var submittedTeamNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var group in req.Groups)
         {
@@ -117,6 +119,26 @@ public class RegistrationWorkflowService
             var participantValidation = ValidateParticipants(group, program, existingParticipants);
             if (!participantValidation.Success)
                 return RegistrationWorkflowResult<PricingQuote>.Fail(participantValidation.Code!, participantValidation.Message);
+
+            foreach (var participant in group.Participants)
+            {
+                var dob = ParseDob(participant.Dob);
+                var participantKey = $"{program.ProgramId}|{participant.FullName?.Trim()}|{dob:yyyy-MM-dd}";
+                if (!submittedParticipantIdentities.Add(participantKey))
+                    return RegistrationWorkflowResult<PricingQuote>.Fail("DUPLICATE_REGISTRATION", $"Duplicate participant detected in '{program.Name}'.");
+            }
+
+            if (ProgramTypeRules.IsTeamProgram(program.Type))
+            {
+                var teamName = NormalizeTeamName(group.Participants.FirstOrDefault()?.ClubSchoolCompany);
+                var teamKey = $"{program.ProgramId}|{teamName}";
+                if (!submittedTeamNames.Add(teamKey))
+                    return RegistrationWorkflowResult<PricingQuote>.Fail("DUPLICATE_TEAM", $"Team '{teamName}' is already included for '{program.Name}'.");
+
+                var existingTeamName = await FindDuplicateTeamNameAsync(program.ProgramId, teamName, ct);
+                if (existingTeamName)
+                    return RegistrationWorkflowResult<PricingQuote>.Fail("DUPLICATE_TEAM", $"Team '{teamName}' is already registered for '{program.Name}'.");
+            }
 
             var expectedFee = program.PaymentRequired
                 ? program.Fee * (string.Equals(program.FeeStructure, "per_player", StringComparison.OrdinalIgnoreCase)
@@ -231,9 +253,17 @@ public class RegistrationWorkflowService
 
                 NormalizeGroupClubValues(groupDto, program);
 
-                var duplicateCheck = await FindDuplicateAsync(groupDto, groupDto.ProgramId, ct);
+                var duplicateCheck = await FindDuplicateAsync(groupDto, program, ct);
                 if (duplicateCheck)
-                    return await RollbackAndFail(tx, "DUPLICATE_REGISTRATION", $"One or more participants are already registered for '{program.Name}'.");
+                {
+                    var teamName = ProgramTypeRules.IsTeamProgram(program.Type)
+                        ? NormalizeTeamName(groupDto.Participants.FirstOrDefault()?.ClubSchoolCompany)
+                        : null;
+                    var message = teamName == null
+                        ? $"One or more participants are already registered for '{program.Name}'."
+                        : $"Team '{teamName}' or one of its participants is already registered for '{program.Name}'.";
+                    return await RollbackAndFail(tx, "DUPLICATE_REGISTRATION", message);
+                }
 
                 var persistedGroupFee = options.ValidatePricingAgainstCurrentPrograms
                     ? pricing.Value.Groups.First(g => g.ProgramId == groupDto.ProgramId).ExpectedFee
@@ -410,13 +440,13 @@ public class RegistrationWorkflowService
         }
     }
 
-    private async Task<bool> FindDuplicateAsync(CreateGroupDto group, int programId, CancellationToken ct)
+    private async Task<bool> FindDuplicateAsync(CreateGroupDto group, TrsProgram program, CancellationToken ct)
     {
 
                // Step 1: Server-side — EF translates these two predicates fine
         var existingParticipants = await _db.ParticipantGroups
             .Where(g =>
-                g.ProgramId == programId &&
+                g.ProgramId == program.ProgramId &&
                 g.GroupStatus != StatusCodesEx.Registration.Cancelled)
             .SelectMany(g => g.Participants
                 .Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
@@ -435,12 +465,38 @@ public class RegistrationWorkflowService
                 Dob = ParseDob(p.Dob)
             })
             .ToList();
-    
-        return existingParticipants.Any(existing =>
+
+        var duplicateParticipant = existingParticipants.Any(existing =>
             incoming.Any(i =>
                 string.Equals(i.FullName, existing.FullName, StringComparison.OrdinalIgnoreCase)
                 && i.Dob == existing.DateOfBirth));
 
+        if (duplicateParticipant)
+            return true;
+
+        if (!ProgramTypeRules.IsTeamProgram(program.Type))
+            return false;
+
+        var teamName = NormalizeTeamName(group.Participants.FirstOrDefault()?.ClubSchoolCompany);
+        return await FindDuplicateTeamNameAsync(program.ProgramId, teamName, ct);
+    }
+
+    private async Task<bool> FindDuplicateTeamNameAsync(int programId, string teamName, CancellationToken ct, int? excludingGroupId = null)
+    {
+        var normalizedTeamName = NormalizeTeamName(teamName);
+        if (string.IsNullOrWhiteSpace(normalizedTeamName)) return false;
+
+        var existingTeamNames = await _db.ParticipantGroups
+            .Where(g =>
+                g.ProgramId == programId &&
+                g.GroupStatus != StatusCodesEx.Registration.Cancelled &&
+                (!excludingGroupId.HasValue || g.GroupId != excludingGroupId.Value))
+            .Select(g => g.ClubDisplay)
+            .ToListAsync(ct);
+
+        return existingTeamNames
+            .Select(NormalizeTeamName)
+            .Any(existing => string.Equals(existing, normalizedTeamName, StringComparison.OrdinalIgnoreCase));
     }
 
     private RegistrationWorkflowResult<object> ValidateParticipants(
@@ -537,9 +593,9 @@ public class RegistrationWorkflowService
         if (group.Participants == null || group.Participants.Count == 0)
             return;
 
-        if (program.TeamMode)
+        if (ProgramTypeRules.IsTeamProgram(program.Type))
         {
-            var teamName = group.Participants[0].ClubSchoolCompany?.Trim() ?? "";
+            var teamName = NormalizeTeamName(group.Participants[0].ClubSchoolCompany);
             foreach (var participant in group.Participants)
                 participant.ClubSchoolCompany = teamName;
             return;
@@ -547,6 +603,12 @@ public class RegistrationWorkflowService
 
         foreach (var participant in group.Participants)
             participant.ClubSchoolCompany = participant.ClubSchoolCompany?.Trim();
+    }
+
+    private static string NormalizeTeamName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+        return string.Join(" ", value.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
     }
 
     private static ProgramCustomField? ResolveCustomField(IEnumerable<ProgramCustomField> customFields, string key)

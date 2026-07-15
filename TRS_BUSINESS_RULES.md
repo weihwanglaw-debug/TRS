@@ -21,6 +21,8 @@ Business rules below are extracted from current controller/service/frontend code
 ## Program Rules
 
 - Program status accepts short codes only: `O` open or `CL` closed.
+- Event sport type is intentionally binary: `Badminton` or `Non Badminton`.
+- Program type is the source of truth for entry behavior. `type='team'` means shared team-name/team-entry behavior; there is no separate persisted team-mode flag.
 - A program is registrable when `IsActive=true` and `Status` is not `CL`.
 - Program-level status, capacity, and fixture restrictions apply to both public and admin-assisted registration.
 - Fixture generation closes the affected program by setting `Program.Status='CL'`.
@@ -93,7 +95,10 @@ Duplicates:
 - Duplicate participant identity is `FullName + DOB`.
 - Duplicate checks are case-insensitive by name.
 - Duplicates within the same group fail.
+- Duplicates across separate groups in the same submission fail for the same program.
 - Existing non-cancelled participant groups for the same program are checked.
+- Team-mode programs additionally require active team names to be unique within the same program.
+- Admin team-name edits for team-mode programs reject duplicate active team names and remain blocked once fixtures exist.
 - Duplicate check is repeated during persistence inside the transaction.
 
 Capacity:
