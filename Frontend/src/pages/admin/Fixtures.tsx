@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { ArrowLeft, ArrowRight, Loader2, Download, Search, X, Shuffle } from "lucide-react";
+import { ArrowLeft, ArrowRight, Loader2, Download, X, Shuffle } from "lucide-react";
 import type { TournamentEvent, SeedEntry, BracketState, MatchEntry, WizardConfig, SbaRanking } from "@/types/config";
 import { isTeamProgram } from "@/types/config";
 import { isBracketLocked, isPhaseComplete, getAllMatches, getCurrentHeatRound } from "@/lib/fixtureEngine";
@@ -134,7 +134,12 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, onSeedsSaved, o
   };
 
   const entryDisplay = (s: SeedEntry) => {
-    return getEntryDisplay({ teamMode: s.teamMode, club: s.club, participants: s.participants });
+    return getEntryDisplay({
+      teamMode: s.teamMode,
+      club: s.club,
+      participants: s.participants,
+      participantClubs: s.participantClubs,
+    }, "detailed");
   };
 
   useEffect(() => {
@@ -159,6 +164,7 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, onSeedsSaved, o
   };
 
   const setSeedVal = (id: string, v: string) => setSeeds(seeds.map(s => s.id === id ? { ...s, seed: v === '' ? null : +v } : s));
+  const clearAllSeeds = () => setSeeds(seeds.map(s => ({ ...s, seed: null })));
   const seedNums = seeds.filter(s => s.seed !== null).map(s => s.seed as number);
   const hasDups  = seedNums.length !== new Set(seedNums).size;
   const outRange = seedNums.some(n => n < 1 || n > numSeeds);
@@ -223,6 +229,11 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, onSeedsSaved, o
               <Shuffle className="h-3.5 w-3.5" /> Auto-fill
             </button>
             <button onClick={() => setSeeding(false)} className="btn-outline px-4 py-2.5 text-sm font-semibold">Change seed count</button>
+            {seeds.some(s => s.seed !== null) && (
+              <button onClick={clearAllSeeds} className="btn-outline flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold">
+                <X className="h-3.5 w-3.5" /> Clear all seeds
+              </button>
+            )}
             <button disabled={hasDups || outRange || saving || !hasChange} onClick={() => persistSeeds(false)}
               className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 inline-flex items-center justify-center gap-2">
               {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</> : "Save Seeds"}
@@ -261,6 +272,9 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, onSeedsSaved, o
                     <td>
                       <span className="font-medium text-sm">{entry.main}</span>
                       {entry.sub && <div className="text-xs opacity-50">{entry.sub}</div>}
+                      {entry.detailLines.map((line) => (
+                        <div key={line} className="text-xs opacity-50">{line}</div>
+                      ))}
                     </td>
                     {isBadminton && <td className="font-mono text-xs whitespace-nowrap">{s.sbaId || <span className="opacity-45 italic">No SBA ID</span>}</td>}
                     {isBadminton && <td className="text-right font-mono text-xs whitespace-nowrap">{sba ? <span style={{ color: 'var(--color-primary)', fontWeight: 600 }}>{sba.accumulatedScore.toLocaleString()}</span> : <span className="opacity-45">-</span>}</td>}
@@ -277,7 +291,17 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, onSeedsSaved, o
                               fontWeight: 700,
                             }}
                             value={s.seed ?? ''} placeholder="-" onChange={e => setSeedVal(s.id, e.target.value)} />
-                          {s.seed !== null && <button onClick={() => setSeedVal(s.id, '')} className="text-xs opacity-30 hover:opacity-70">x</button>}
+                          {s.seed !== null && (
+                            <button
+                              type="button"
+                              onClick={() => setSeedVal(s.id, '')}
+                              title="Clear seed"
+                              aria-label={`Clear seed for ${entry.main}`}
+                              className="btn-outline inline-flex h-9 w-9 items-center justify-center p-0"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <span className="block text-center text-xs opacity-45">-</span>
@@ -362,21 +386,35 @@ export default function AdminFixtures() {
   );
 
   //  Filters
-  const [filterName, setFilterName] = useState("");
+  const [filterEvent, setFilterEvent] = useState("");
+  const [filterProgram, setFilterProgram] = useState("");
   const [filterMode, setFilterMode] = useState<"" | "internal" | "external" | "not_required">("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo,   setFilterTo]   = useState("");
 
+  const programFilterOptions = useMemo(() => {
+    const sourceRows = filterEvent
+      ? allRows.filter(row => row.eventId === filterEvent)
+      : allRows;
+    const byProgram = new Map<string, string>();
+    for (const row of sourceRows) {
+      if (!byProgram.has(row.programId)) byProgram.set(row.programId, row.programName);
+    }
+    return Array.from(byProgram.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [allRows, filterEvent]);
+
   const filtered = useMemo(() => allRows.filter(r => {
-    if (filterName && !r.eventName.toLowerCase().includes(filterName.toLowerCase()) &&
-                      !r.programName.toLowerCase().includes(filterName.toLowerCase())) return false;
+    if (filterEvent && r.eventId !== filterEvent) return false;
+    if (filterProgram && r.programId !== filterProgram) return false;
     if (filterMode && r.mode !== filterMode) return false;
     if (filterFrom && r.startDate < filterFrom) return false;
     if (filterTo   && r.endDate   > filterTo)   return false;
     return true;
-  }), [allRows, filterName, filterMode, filterFrom, filterTo]);
+  }), [allRows, filterEvent, filterProgram, filterMode, filterFrom, filterTo]);
 
-  const hasFilters = filterName || filterMode || filterFrom || filterTo;
+  const hasFilters = filterEvent || filterProgram || filterMode || filterFrom || filterTo;
 
   //  Selected program
   const [selRow,       setSelRow]       = useState<ProgramRow | null>(null);
@@ -707,14 +745,24 @@ export default function AdminFixtures() {
   {/* Filter bar */}
           <div className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4 p-5 mb-6"
             style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
-            <div className="flex-1 min-w-48">
-              <label className="block text-xs font-semibold mb-1.5 opacity-60">Search</label>
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 opacity-40" />
-                <input className="field-input with-left-icon w-full" placeholder="Event or program name..."
-                  value={filterName} onChange={e => setFilterName(e.target.value)} />
-              </div>
-            </div>
+            <FG label="Event">
+              <select className="field-input w-72" value={filterEvent}
+                onChange={e => { setFilterEvent(e.target.value); setFilterProgram(""); }}>
+                <option value="">All Events</option>
+                {allEvents.map(ev => (
+                  <option key={ev.id} value={ev.id}>{ev.name}</option>
+                ))}
+              </select>
+            </FG>
+            <FG label="Program">
+              <select className="field-input w-56" value={filterProgram}
+                onChange={e => setFilterProgram(e.target.value)}>
+                <option value="">All Programs</option>
+                {programFilterOptions.map(program => (
+                  <option key={program.id} value={program.id}>{program.name}</option>
+                ))}
+              </select>
+            </FG>
             <FG label="Mode">
               <select className="field-input w-40" value={filterMode}
                 onChange={e => setFilterMode(e.target.value as typeof filterMode)}>
@@ -731,7 +779,7 @@ export default function AdminFixtures() {
               <input type="date" className="field-input" value={filterTo} onChange={e => setFilterTo(e.target.value)} />
             </FG>
             {hasFilters && (
-              <button onClick={() => { setFilterName(""); setFilterMode(""); setFilterFrom(""); setFilterTo(""); }}
+              <button onClick={() => { setFilterEvent(""); setFilterProgram(""); setFilterMode(""); setFilterFrom(""); setFilterTo(""); }}
                 className="btn-outline flex items-center gap-1.5 px-3 py-2 text-xs self-end">
                 <X className="h-3.5 w-3.5" /> Clear
               </button>

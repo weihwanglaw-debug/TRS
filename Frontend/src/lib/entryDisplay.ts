@@ -3,22 +3,51 @@ export interface EntryDisplayInput {
   label?: string;
   club?: string;
   participants?: string[];
+  participantClubs?: string[];
 }
 
 export interface EntryDisplay {
   main: string;
   sub: string;
+  detailLines: string[];
 }
 
-export function getEntryDisplay(entry: EntryDisplayInput): EntryDisplay {
+export type EntryDisplayMode = "compact" | "standard" | "detailed";
+
+export function getEntryDisplay(entry: EntryDisplayInput, mode: EntryDisplayMode = "standard"): EntryDisplay {
   const participants = entry.participants ?? [];
+  const participantClubs = entry.participantClubs ?? [];
   const label = entry.label ?? entry.club ?? "";
   const participantNames = participants.join(" / ");
 
   if (entry.teamMode) {
     return {
       main: label || participantNames,
-      sub: participantNames,
+      sub: "",
+      detailLines: [],
+    };
+  }
+
+  const participantClubLines = participants
+    .map((name, index) => {
+      const club = participantClubs[index]?.trim();
+      return club ? `${name} - ${club}` : "";
+    })
+    .filter(Boolean);
+
+  if (mode === "compact") {
+    return {
+      main: participantNames || label,
+      sub: "",
+      detailLines: [],
+    };
+  }
+
+  if (mode === "detailed") {
+    return {
+      main: participantNames || label,
+      sub: participantClubLines.length ? "" : label,
+      detailLines: participantClubLines,
     };
   }
 
@@ -26,5 +55,6 @@ export function getEntryDisplay(entry: EntryDisplayInput): EntryDisplay {
   return {
     main: showPlayersAsMain ? participantNames : label,
     sub: showPlayersAsMain ? label : participantNames,
+    detailLines: [],
   };
 }

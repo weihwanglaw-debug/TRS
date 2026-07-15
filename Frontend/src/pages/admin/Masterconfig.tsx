@@ -35,6 +35,8 @@ const CONFIG_ROWS: ConfigRow[] = [
   { id: "adTitle",       group: "Ad Banner",  label: "Ad Headline",                               type: "text"     },
   { id: "adBody",        group: "Ad Banner",  label: "Ad Body Text",                              type: "textarea" },
   { id: "adButtonLabel", group: "Ad Banner",  label: "Ad Button Label",                           type: "text"     },
+  { id: "displayTimeZone", group: "Payment",  label: "Display UTC Offset (e.g. +08:00)",            type: "text"     },
+  { id: "displayDateTimeFormat", group: "Payment", label: "Date Time Display Format (e.g. dd/MM/yyyy HH:mm:ss)", type: "text" },
 ];
 
 const GROUPS = ["All", "Branding", "Hero", "Message", "Payment", "Footer", "Consent", "Ad Banner"];

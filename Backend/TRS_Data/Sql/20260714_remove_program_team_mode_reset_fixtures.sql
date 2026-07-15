@@ -13,6 +13,16 @@ WHERE IsSports = 1;
 -- generated fixtures and entered results for fresh testing.
 DELETE FROM dbo.Fixtures;
 
+-- Program.Type is now the sole source of truth for team-entry behavior.
+-- Preserve old team-entry behavior before dropping the legacy TeamMode flag.
+IF COL_LENGTH('dbo.Programs', 'TeamMode') IS NOT NULL
+BEGIN
+    UPDATE dbo.Programs
+    SET Type = 'team'
+    WHERE TeamMode = 1
+      AND Type <> 'team';
+END;
+
 -- Optional: if test programs were closed only because fixtures were generated,
 -- uncomment this line to reopen them for fresh fixture testing.
 -- UPDATE dbo.Programs SET Status = 'O' WHERE Status = 'CL' AND IsActive = 1;
@@ -33,7 +43,9 @@ WHERE s.name = 'dbo'
 
 IF @defaultConstraintName IS NOT NULL
 BEGIN
-    EXEC(N'ALTER TABLE dbo.Programs DROP CONSTRAINT ' + QUOTENAME(@defaultConstraintName));
+    DECLARE @dropConstraintSql nvarchar(max);
+    SET @dropConstraintSql = N'ALTER TABLE dbo.Programs DROP CONSTRAINT ' + QUOTENAME(@defaultConstraintName);
+    EXEC sp_executesql @dropConstraintSql;
 END;
 
 IF COL_LENGTH('dbo.Programs', 'TeamMode') IS NOT NULL

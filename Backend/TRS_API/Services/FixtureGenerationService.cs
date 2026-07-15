@@ -483,6 +483,7 @@ public class FixtureGenerationService
                 RegistrationId = g.RegistrationId.ToString(),
                 Club = g.ClubDisplay ?? "",
                 Participants = g.Participants.Select(p => p.FullName).ToList(),
+                ParticipantClubs = g.Participants.Select(p => p.ClubSchoolCompany ?? "").ToList(),
                 TeamMode = teamMode,
                 Seed = req.Seed,
                 SbaId = g.Participants.FirstOrDefault()?.SbaId,
@@ -1199,6 +1200,7 @@ public class FixtureGenerationService
         Id = seed.Id,
         Label = seed.Club,
         Participants = seed.Participants,
+        ParticipantClubs = seed.ParticipantClubs,
         TeamMode = seed.TeamMode,
         Seed = seed.Seed,
     };
@@ -1335,6 +1337,7 @@ public class FixtureGenerationService
         public string Id { get; set; } = "";
         public string Club { get; set; } = "";
         public List<string> Participants { get; set; } = new();
+        public List<string> ParticipantClubs { get; set; } = new();
         public bool TeamMode { get; set; }
         public int? Seed { get; set; }
         public string? SbaId { get; set; }
@@ -1347,6 +1350,7 @@ public class FixtureGenerationService
         public string Id { get; set; } = "";
         public string Label { get; set; } = "";
         public List<string> Participants { get; set; } = new();
+        public List<string> ParticipantClubs { get; set; } = new();
         public bool TeamMode { get; set; }
         public int? Seed { get; set; }
     }

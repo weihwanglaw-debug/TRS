@@ -136,6 +136,8 @@ Legacy hosted Checkout session-first code still exists for older return URLs and
 
 Status values are short codes in the database, backend API, frontend payloads, filters, and internal comparisons. Frontend screens display long labels through mapping tables only.
 
+Timestamp display uses Master Config `displayTimeZone` and `displayDateTimeFormat` (default `+08:00`, `dd/MM/yyyy HH:mm:ss`). `displayTimeZone` accepts fixed UTC offsets in `+HH:mm` or `-HH:mm` format only. Date-only event and registration-window business rules remain separate from timestamp display formatting.
+
 Payment status codes:
 
 - `P`: pending.
@@ -252,6 +254,12 @@ Participant update:
 - Admin can update participant personal/contact/team fields, document URL, remark, and custom field values.
 - If full name or DOB changes, duplicate participant check runs excluding the current participant.
 - Custom field updates are upserted only for labels belonging to the participant's program fields.
+- Participant details are blocked from editing once a fixture exists for the affected program; the fixture must be reset first.
+- Participant Entries is displayed as a flat grid with one row per participant. Doubles/team participants share the same group id in separate rows.
+- Participant Entries search includes participant name, SBA id, registration number, group id, event, program, and club/team/school.
+- `FeeStructure='per_player'` shows participant-specific payment item status; `FeeStructure='per_entry'` shows the shared group payment item status on every participant row in that group.
+- For `Program.Type='team'`, changing the club/team/school value confirms with the admin and then updates `ParticipantGroup.ClubDisplay` plus every participant in the group, including cancelled participants.
+- Team-name edits for team programs reject duplicate active team names within the same program.
 
 Manual confirmation:
 
@@ -300,6 +308,8 @@ Manual confirmation:
 - Fixture state is stored as JSON in `Fixture.BracketStateJson`.
 - Backend fixture APIs are the source of truth for generated draws, bracket advancement, score validation, heat advancement, and final placements.
 - Frontend fixture code should only preview/display state, collect admin input, call backend fixture actions, and show backend validation errors.
+- Fixture entry display is context-aware: team programs show only the team name in fixture UI; non-team programs show participant names. Full team participant lists are reserved for exports/reports.
+- Non-team detailed seeding/review views may show per-participant club/school detail. Compact bracket, result, score, draw, standings, print, and heats views must not show secondary club/player detail.
 - Score, schedule, swaps, advancement, heats results, and final places mutate the stored fixture state through backend fixture endpoints.
 - Structural fixture changes such as regenerate, reset/delete, raw state save, and team swaps are blocked after results have been entered.
 - Raw fixture state save accepts only clean unscored fixture state and rejects corrupt JSON, match results, heat results, advancement flags, and final placements.

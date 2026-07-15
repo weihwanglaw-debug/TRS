@@ -40,7 +40,12 @@ function TeamPanel({
   onClick: () => void;
 }) {
   const isWinner = walkover ? walkoverWinner === side : winner === side;
-  const display = getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants });
+  const display = getEntryDisplay({
+    teamMode: team.teamMode,
+    label: team.label,
+    participants: team.participants,
+    participantClubs: team.participantClubs,
+  }, "compact");
 
   return (
     <button
@@ -136,7 +141,12 @@ export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, on
   const hasWinnerScore = hasValidGameScores && tiedGames === 0 && winnerMatchesScores;
   const isKnockout = draft.phase === "knockout";
   const teamDisplayLabel = (team: MatchEntry["team1"]) =>
-    getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants }).main;
+    getEntryDisplay({
+      teamMode: team.teamMode,
+      label: team.label,
+      participants: team.participants,
+      participantClubs: team.participantClubs,
+    }, "compact").main;
   const sectionLabelClass = "text-xs font-bold uppercase tracking-wide";
   const fieldLabelClass = "block text-xs font-semibold mb-1.5";
   const secondaryTextStyle = { color: "var(--color-disabled-text)" };

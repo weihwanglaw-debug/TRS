@@ -32,20 +32,6 @@ function fmt(n: number) {
   return n.toLocaleString();
 }
 
-function fmtDateTime(value?: string) {
-  if (!value) return "Not imported yet";
-  const dt = new Date(value);
-  if (Number.isNaN(dt.getTime())) return "Not imported yet";
-  return dt.toLocaleString("en-SG", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-
 //  Toast (inline, same pattern as other admin pages)
 
 //  Page
@@ -156,13 +142,6 @@ export default function SbaRankings() {
 
     return rows;
   }, [rankings, search, sortKey, sortDir]);
-
-  const latestUpdatedAt = useMemo(() => {
-    return rankings
-      .map(r => r.updatedAt)
-      .filter((value): value is string => !!value)
-      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
-  }, [rankings]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");

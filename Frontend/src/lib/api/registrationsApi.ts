@@ -598,7 +598,10 @@ export async function apiUpdateParticipant(
       body: JSON.stringify(patch),
     },
   );
-  if (!res.ok) return err("UPDATE_FAILED", (await parseError(res)).message);
+  if (!res.ok) {
+    const parsed = await parseError(res);
+    return err(parsed.code, parsed.message);
+  }
   return ok(await res.json());
 }
 

@@ -75,7 +75,14 @@ function applyRoundLabels(matches: MatchEntry[]): MatchEntry[] {
 function pts(v: string): number { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
 
 function seedToTeam(s: SeedEntry): TeamEntry {
-  return { id: s.id, label: s.club, participants: s.participants, teamMode: s.teamMode, seed: s.seed ?? undefined };
+  return {
+    id: s.id,
+    label: s.club,
+    participants: s.participants,
+    participantClubs: s.participantClubs,
+    teamMode: s.teamMode,
+    seed: s.seed ?? undefined,
+  };
 }
 
 function sortedSeeds(seeds: SeedEntry[]): SeedEntry[] {

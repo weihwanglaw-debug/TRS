@@ -287,6 +287,7 @@ public class FixtureSeedEntryRequest
     [Required] public string Id { get; set; } = null!;
     public string Club { get; set; } = "";
     public List<string> Participants { get; set; } = new();
+    public List<string> ParticipantClubs { get; set; } = new();
     public int? Seed { get; set; }
     public string? SbaId { get; set; }
     public string? RegistrationId { get; set; }

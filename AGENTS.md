@@ -45,6 +45,8 @@ Do not:
 
 Keep changes focused and surgical.
 
+After every implementation, check whether repository documentation needs to be updated. If the change affects business rules, architecture, API behavior, database shape, setup/configuration, or operational workflow, update the relevant markdown files in the same task so documentation stays aligned with the code. If no documentation update is needed, mention that in the final response.
+
 Do not leave temporary build, browser, test, or scratch folders in the repository. If a temporary folder is necessary, explain why, keep it ignored or outside the repo when practical, and remove it before finishing.
 
 ## Existing Patterns First

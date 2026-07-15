@@ -228,6 +228,7 @@ export interface TeamEntry {
   id: string;
   label: string;
   participants: string[];
+  participantClubs?: string[];
   teamMode?: boolean;
   seed?: number;
 }
@@ -261,6 +262,7 @@ export interface SeedEntry {
   id: string;
   club: string;
   participants: string[];
+  participantClubs?: string[];
   teamMode?: boolean;
   seed: number | null;
   sbaId?: string;

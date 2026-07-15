@@ -119,10 +119,20 @@ function svgCard(
 
   const mkLabel = (t: MatchEntry["team1"]) => {
     const seed = t.seed != null ? `#${t.seed} ` : "";
-    return `${seed}${getEntryDisplay({ teamMode: t.teamMode, label: t.label, participants: t.participants }).main}`;
+    return `${seed}${getEntryDisplay({
+      teamMode: t.teamMode,
+      label: t.label,
+      participants: t.participants,
+      participantClubs: t.participantClubs,
+    }, "compact").main}`;
   };
   const mkSub = (t: MatchEntry["team1"]) => {
-    const sub = getEntryDisplay({ teamMode: t.teamMode, label: t.label, participants: t.participants }).sub;
+    const sub = getEntryDisplay({
+      teamMode: t.teamMode,
+      label: t.label,
+      participants: t.participants,
+      participantClubs: t.participantClubs,
+    }, "compact").sub;
     return sub || null;
   };
 

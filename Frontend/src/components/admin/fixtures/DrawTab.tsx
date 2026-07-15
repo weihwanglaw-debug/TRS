@@ -12,6 +12,8 @@ import { computeGroupStandings } from "@/lib/fixtureEngine";
 import { BracketView } from "./BracketView";
 import { NoticeDialog } from "@/components/ui/NoticeDialog";
 import { getEntryDisplay } from "@/lib/entryDisplay";
+import { useLiveConfig } from "@/contexts/LiveConfigContext";
+import { formatConfiguredDateTime } from "@/lib/dateTime";
 
 interface Props {
   bracketState:     BracketState;
@@ -117,10 +119,10 @@ function openPrintWindow(
   autoPrint:   boolean,
   isSplit?:    boolean,
   paperSize:   PrintPaperSize = "A4 landscape",
+  timeZone?:   string,
+  dateTimeFormat?: string,
 ): string | null {
-  const now = new Date().toLocaleString("en-SG", {
-    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
-  });
+  const now = formatConfiguredDateTime(new Date(), timeZone, dateTimeFormat);
 
   const html = `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8">
@@ -297,7 +299,12 @@ function GroupStandings({ state }: { state: BracketState }) {
                 </thead>
                 <tbody>
                   {standings.map(s => {
-                    const display = getEntryDisplay({ teamMode: s.team.teamMode, label: s.team.label, participants: s.team.participants });
+                    const display = getEntryDisplay({
+                      teamMode: s.team.teamMode,
+                      label: s.team.label,
+                      participants: s.team.participants,
+                      participantClubs: s.team.participantClubs,
+                    }, "compact");
                     return (
                     <tr key={s.team.id}>
                       <td className="text-sm font-bold"
@@ -341,6 +348,7 @@ export function DrawTab({
   bracketState, eventName, programName,
   readOnly = false, onOpenScore,
 }: Props) {
+  const { cfg } = useLiveConfig();
   const hasGroups  = bracketState.groups.length > 0;
   const hasKo      = bracketState.matches.length > 0;
   const isRoundRobin = bracketState.format === "round_robin";
@@ -377,7 +385,17 @@ export function DrawTab({
       svgHtml = captureSvgHtml(bracketRef);
     }
 
-    const message = openPrintWindow(eventName, programName, groupHtml, svgHtml, autoPrint, false, paperSize);
+    const message = openPrintWindow(
+      eventName,
+      programName,
+      groupHtml,
+      svgHtml,
+      autoPrint,
+      false,
+      paperSize,
+      cfg.displayTimeZone,
+      cfg.displayDateTimeFormat,
+    );
     if (message) setNotice(message);
   };
   return (

@@ -1,9 +1,11 @@
 
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { AlertCircle, CheckCircle, Loader2, RefreshCw } from "lucide-react";
 import { apiGetWebhookFailures, apiGetOrphanRefundHistory, apiMarkWebhookFailureReviewed, apiRecordExternalOrphanRefund, apiRefundOrphanedPayment } from "@/lib/api";
 import type { OrphanRefundHistory, RefundMethod, RefundSource, WebhookFailure } from "@/types/registration";
+import { useLiveConfig } from "@/contexts/LiveConfigContext";
+import { configuredDateKey, formatConfiguredDateTime } from "@/lib/dateTime";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
@@ -18,15 +20,6 @@ function FG({ label, children }: { label: string; children: React.ReactNode }) {
       {children}
     </div>
   );
-}
-
-function formatDateTime(value: string): string {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString("en-SG", {
-    day: "2-digit", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
 }
 
 const EXTERNAL_REFUND_METHODS: Array<{ value: RefundMethod; label: string }> = [
@@ -57,13 +50,37 @@ function RefundStatusBadge({ status }: { status: string }) {
   );
 }
 
+function RefundSourceBadge({ source }: { source: RefundSource | null }) {
+  const isExternal = source === "External";
+  return (
+    <span
+      className="inline-flex px-2 py-0.5 text-xs font-semibold"
+      style={{
+        backgroundColor: isExternal ? "var(--badge-soon-bg)" : "var(--badge-open-bg)",
+        color: isExternal ? "var(--badge-soon-text)" : "var(--badge-open-text)",
+      }}
+    >
+      {isExternal ? "External" : "TRS"}
+    </span>
+  );
+}
+
+function refundMethodLabel(method: RefundMethod | null): string {
+  if (!method) return "-";
+  return EXTERNAL_REFUND_METHODS.find(m => m.value === method)?.label ?? method;
+}
+
 export default function PaymentReconciliation() {
+  const { cfg } = useLiveConfig();
   const [activeTab,    setActiveTab]    = useState<"active" | "history">("active");
   const [failures,     setFailures]     = useState<WebhookFailure[]>([]);
   const [history,      setHistory]      = useState<OrphanRefundHistory[]>([]);
   const [loadingC,     setLoadingC]     = useState(true);
   const [loadingH,     setLoadingH]     = useState(true);
   const [apiError,     setApiError]     = useState("");
+  const [historyPayer, setHistoryPayer] = useState("");
+  const [historyFrom,  setHistoryFrom]  = useState("");
+  const [historyTo,    setHistoryTo]    = useState("");
   const [feedback, setFeedback] = useState<{
     open: boolean;
     variant: ActionFeedbackVariant;
@@ -123,6 +140,31 @@ export default function PaymentReconciliation() {
     loadFailures();
     loadHistory();
   }, [loadFailures, loadHistory]);
+
+  const filteredHistory = useMemo(() => {
+    const payer = historyPayer.trim().toLowerCase();
+    return history.filter(row => {
+      if (payer) {
+        const haystack = [
+          row.contactName,
+          row.contactEmail,
+          row.contactPhone,
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(payer)) return false;
+      }
+
+      const refundDate = configuredDateKey(row.processedAt ?? row.createdAt, cfg.displayTimeZone);
+      if (historyFrom && refundDate < historyFrom) return false;
+      if (historyTo && refundDate > historyTo) return false;
+      return true;
+    });
+  }, [history, historyPayer, historyFrom, historyTo, cfg.displayTimeZone]);
+
+  const formatDateTime = useCallback((value?: string | null) =>
+    formatConfiguredDateTime(value, cfg.displayTimeZone, cfg.displayDateTimeFormat),
+  [cfg.displayTimeZone, cfg.displayDateTimeFormat]);
+
+  const hasHistoryFilters = !!historyPayer.trim() || !!historyFrom || !!historyTo;
 
   const handleRefund = async () => {
     if (!refundTarget || !refundReason.trim()) return;
@@ -396,6 +438,40 @@ export default function PaymentReconciliation() {
       )}
 
       {activeTab === "history" && (
+        <>
+        <div
+          className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4 p-5 mb-6"
+          style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}
+        >
+          <FG label="Payer">
+            <input
+              className="field-input w-72"
+              value={historyPayer}
+              onChange={e => setHistoryPayer(e.target.value)}
+              placeholder="Name, email, phone..."
+            />
+          </FG>
+          <FG label="Date From">
+            <input type="date" className="field-input" value={historyFrom} onChange={e => setHistoryFrom(e.target.value)} />
+          </FG>
+          <FG label="Date To">
+            <input type="date" className="field-input" value={historyTo} onChange={e => setHistoryTo(e.target.value)} />
+          </FG>
+          {hasHistoryFilters && (
+            <button
+              type="button"
+              onClick={() => { setHistoryPayer(""); setHistoryFrom(""); setHistoryTo(""); }}
+              className="btn-outline px-4 py-2 text-xs font-semibold self-end"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        <p className="text-xs opacity-40 mb-3">
+          {filteredHistory.length} refund{filteredHistory.length !== 1 ? "s" : ""}{hasHistoryFilters ? ` matching filters from ${history.length}` : ""}
+        </p>
+
         <div className="hidden md:block overflow-x-auto" style={{ border: "1px solid var(--color-table-border)" }}>
           <table className="trs-table">
             <thead>
@@ -403,29 +479,30 @@ export default function PaymentReconciliation() {
                 <th>Payer</th>
                 <th>Amount</th>
                 <th>Status</th>
+                <th>Source</th>
                 <th>Refunded</th>
                 <th>Reason</th>
                 <th>Session ID</th>
-                <th>Gateway Refund</th>
+                <th>Method / Reference</th>
               </tr>
             </thead>
             <tbody>
               {loadingH && (
                 <tr>
-                  <td colSpan={7} className="text-center py-6">
+                  <td colSpan={8} className="text-center py-6">
                     <LoadingSpinner size="sm" label="Loading..." />
                   </td>
                 </tr>
               )}
-              {!loadingH && history.length === 0 && (
+              {!loadingH && filteredHistory.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 opacity-40">
+                  <td colSpan={8} className="text-center py-10 opacity-40">
                     <CheckCircle className="h-5 w-5 inline mr-2" />
-                    No reconciliation refunds yet.
+                    {history.length === 0 ? "No reconciliation refunds yet." : "No refunds match the current filters."}
                   </td>
                 </tr>
               )}
-              {history.map(r => (
+              {filteredHistory.map(r => (
                 <tr key={r.refundId}>
                   <td>
                     <p className="font-semibold text-sm">{r.contactName ?? "-"}</p>
@@ -435,6 +512,7 @@ export default function PaymentReconciliation() {
                     {r.currency} {r.refundAmount.toFixed(2)}
                   </td>
                   <td><RefundStatusBadge status={r.refundStatus} /></td>
+                  <td><RefundSourceBadge source={r.refundSource} /></td>
                   <td className="text-xs opacity-60 whitespace-nowrap">
                     {formatDateTime(r.processedAt ?? r.createdAt)}
                     <p className="opacity-50">{r.requestedBy ?? "admin"}</p>
@@ -446,13 +524,15 @@ export default function PaymentReconciliation() {
                     {r.gatewaySessionId ?? "-"}
                   </td>
                   <td className="font-mono text-xs opacity-50 max-w-[160px] truncate" title={r.gatewayRefundId ?? ""}>
-                    {r.gatewayRefundId ?? "-"}
+                    <span className="font-sans opacity-80">{refundMethodLabel(r.refundMethod)}</span>
+                    <p className="font-mono truncate">{r.gatewayRefundId ?? "-"}</p>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {activeTab === "history" && (
@@ -462,20 +542,23 @@ export default function PaymentReconciliation() {
               <LoadingSpinner size="sm" label="Loading..." />
             </div>
           )}
-          {!loadingH && history.length === 0 && (
+          {!loadingH && filteredHistory.length === 0 && (
             <div className="text-center py-10 opacity-40 text-sm">
               <CheckCircle className="h-5 w-5 inline mr-2" />
-              No reconciliation refunds yet.
+              {history.length === 0 ? "No reconciliation refunds yet." : "No refunds match the current filters."}
             </div>
           )}
-          {history.map(r => (
+          {filteredHistory.map(r => (
             <div key={r.refundId} className="p-4" style={{ border: "1px solid var(--color-table-border)" }}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-semibold text-sm truncate">{r.contactName ?? "-"}</p>
                   <p className="text-xs opacity-50 truncate">{r.contactEmail ?? "-"}</p>
                 </div>
-                <RefundStatusBadge status={r.refundStatus} />
+                <div className="flex flex-col items-end gap-1">
+                  <RefundStatusBadge status={r.refundStatus} />
+                  <RefundSourceBadge source={r.refundSource} />
+                </div>
               </div>
               <div className="mt-3 flex items-center justify-between gap-3">
                 <p className="font-semibold text-sm" style={{ color: "var(--color-primary)" }}>
@@ -489,7 +572,8 @@ export default function PaymentReconciliation() {
               <p className="mt-3 text-xs opacity-70">{r.refundReason ?? "-"}</p>
               <div className="mt-3 space-y-1 font-mono text-xs opacity-50">
                 <p className="truncate" title={r.gatewaySessionId ?? ""}>Session: {r.gatewaySessionId ?? "-"}</p>
-                <p className="truncate" title={r.gatewayRefundId ?? ""}>Refund: {r.gatewayRefundId ?? "-"}</p>
+                <p className="truncate" title={r.gatewayRefundId ?? ""}>Method: {refundMethodLabel(r.refundMethod)}</p>
+                <p className="truncate" title={r.gatewayRefundId ?? ""}>Reference: {r.gatewayRefundId ?? "-"}</p>
               </div>
             </div>
           ))}

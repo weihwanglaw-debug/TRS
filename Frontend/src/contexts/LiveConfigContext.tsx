@@ -10,6 +10,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { apiGetConfig, apiUpdateConfig } from "@/lib/api";
+import { DEFAULT_DISPLAY_DATE_TIME_FORMAT, DEFAULT_DISPLAY_TIME_ZONE } from "@/lib/dateTime";
 
 export interface LiveConfig {
   appName:       string;
@@ -20,6 +21,8 @@ export interface LiveConfig {
   heroSubtitle:  string;
   heroImageUrl:  string;
   currency:      string;
+  displayTimeZone: string;
+  displayDateTimeFormat: string;
   contactEmail:  string;
   copyrightText: string;
   consentText:   string;
@@ -49,6 +52,8 @@ const EMPTY: LiveConfig = {
   heroTitle: "",
   heroSubtitle: "",
   heroImageUrl: "", currency: "SGD", contactEmail: "",
+  displayTimeZone: DEFAULT_DISPLAY_TIME_ZONE,
+  displayDateTimeFormat: DEFAULT_DISPLAY_DATE_TIME_FORMAT,
   copyrightText: "", consentText: "",
   messageTitle: "Questions before joining?",
   messageBody: "Players, parents, coaches, and club representatives can leave a message for the tournament team.\nUse this space for event questions, program clarification, venue help, or registration support.",

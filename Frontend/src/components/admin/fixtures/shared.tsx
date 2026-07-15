@@ -45,8 +45,13 @@ export function CheckRow({ ok, label }: { ok: boolean; label: string }) {
 
 export function TeamCell({ team, isWinner }: { team: TeamEntry; isWinner: boolean }) {
   const [open, setOpen] = useState(false);
-  const display = getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants });
-  const shown = open ? team.participants : team.participants.slice(0, 2);
+  const display = getEntryDisplay({
+    teamMode: team.teamMode,
+    label: team.label,
+    participants: team.participants,
+    participantClubs: team.participantClubs,
+  }, "compact");
+  const shown = team.teamMode ? [] : open ? team.participants : team.participants.slice(0, 2);
   return (
     <div className="text-sm min-w-0">
       <div className="flex items-center gap-1.5 flex-wrap">
@@ -60,7 +65,7 @@ export function TeamCell({ team, isWinner }: { team: TeamEntry; isWinner: boolea
         {isWinner && <Trophy className="h-3.5 w-3.5 flex-shrink-0" style={{ color: "var(--color-primary)" }} />}
       </div>
       {shown.map((p, i) => <div key={i} className="text-xs opacity-60 truncate">{p}</div>)}
-      {team.participants.length > 2 && (
+      {!team.teamMode && team.participants.length > 2 && (
         <button onClick={() => setOpen(!open)}
           className="text-xs font-medium flex items-center gap-0.5 mt-0.5"
           style={{ color: "var(--color-primary)" }}>
@@ -73,7 +78,12 @@ export function TeamCell({ team, isWinner }: { team: TeamEntry; isWinner: boolea
 }
 
 export function TeamPanel({ team, isWinner }: { team: TeamEntry; isWinner: boolean }) {
-  const display = getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants });
+  const display = getEntryDisplay({
+    teamMode: team.teamMode,
+    label: team.label,
+    participants: team.participants,
+    participantClubs: team.participantClubs,
+  }, "compact");
   return (
     <div>
       <div className="flex items-center gap-1.5 mb-1 flex-wrap">

@@ -8,7 +8,7 @@ import { Sun, Moon, Trophy } from "lucide-react";
 import LoginModal from "@/components/auth/LoginModal";
 
 export default function Header() {
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { cfg } = useLiveConfig();
   const navigate = useNavigate();
@@ -40,6 +40,7 @@ export default function Header() {
     ? "landing-nav-link"
     : "text-sm font-semibold uppercase tracking-[0.18em] hover:opacity-80 transition-opacity";
   const headerLogoUrl = cfg.logoDarkUrl || cfg.logoUrl;
+  const roleLabel = user?.role === "superadmin" ? "Super Admin" : user?.role === "eventadmin" ? "Event Admin" : "";
 
   const scrollToLandingSection = (id: string) => {
     if (!isLandingPage) {
@@ -104,6 +105,10 @@ export default function Header() {
               </button>
             ) : (
               <>
+                <div className="hidden lg:block text-right leading-tight">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em]">{user?.name || user?.email}</p>
+                  <p className="text-[10px] uppercase tracking-[0.16em] opacity-55">{roleLabel}</p>
+                </div>
                 {config.nav.menuItems.map((item) => (
                   <Link key={item.href} to={item.href} className={navActionClass}>
                     {item.label}
@@ -134,6 +139,10 @@ export default function Header() {
               </button>
             ) : (
               <>
+                <div className="text-right leading-tight">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em]">{user?.name || user?.email}</p>
+                  <p className="text-[9px] uppercase tracking-[0.14em] opacity-55">{roleLabel}</p>
+                </div>
                 {config.nav.menuItems.map((item) => (
                   <Link key={item.href} to={item.href} className={navActionClass}>
                     {item.label}

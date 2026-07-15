@@ -8,6 +8,7 @@
 import React, { useEffect, useState } from "react";
 import { ArrowRight, CheckCircle, ChevronDown, ChevronUp } from "lucide-react";
 import type { BracketState, HeatRound } from "@/types/config";
+import { getEntryDisplay } from "@/lib/entryDisplay";
 
 interface Props {
   bracketState:    BracketState;
@@ -26,8 +27,16 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
   const placesAwarded = hc?.placesAwarded ?? 3;
   const advanceCount  = hc?.advancePerRound ?? 4;
 
-  const getTeamLabel = (teamId: string) => seeds.find(s => s.id === teamId)?.club ?? teamId;
-  const getPlayers   = (teamId: string) => seeds.find(s => s.id === teamId)?.participants.join(" / ") ?? "";
+  const getEntry = (teamId: string) => {
+    const seed = seeds.find(s => s.id === teamId);
+    if (!seed) return { main: teamId, sub: "", detailLines: [] };
+    return getEntryDisplay({
+      teamMode: seed.teamMode,
+      club: seed.club,
+      participants: seed.participants,
+      participantClubs: seed.participantClubs,
+    }, "compact");
+  };
 
   //  Round card
 
@@ -173,8 +182,8 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
                   {round.results.map(res => (
                     <tr key={res.teamId}
                       style={round.isComplete && res.advanced ? { backgroundColor: "var(--badge-open-bg)" } : undefined}>
-                      <td className="font-medium text-sm">{getTeamLabel(res.teamId)}</td>
-                      <td className="text-xs opacity-60">{getPlayers(res.teamId)}</td>
+                      <td className="font-medium text-sm">{getEntry(res.teamId).main}</td>
+                      <td className="text-xs opacity-60">{getEntry(res.teamId).sub}</td>
                       <td>
                         {round.isComplete
                           ? <span className="font-mono text-sm">{res.result || <span className="opacity-30">-</span>}</span>
@@ -293,8 +302,8 @@ export function HeatsTab({ bracketState, eventName, programName, onSaveResult, o
                   {r.place}{["st","nd","rd"][r.place!-1] ?? "th"}
                 </span>
                 <div>
-                  <p className="font-bold text-sm">{getTeamLabel(r.teamId)}</p>
-                  <p className="text-xs opacity-60">{getPlayers(r.teamId)}</p>
+                  <p className="font-bold text-sm">{getEntry(r.teamId).main}</p>
+                  {getEntry(r.teamId).sub && <p className="text-xs opacity-60">{getEntry(r.teamId).sub}</p>}
                 </div>
               </div>
             ))}

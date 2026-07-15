@@ -155,7 +155,12 @@ function MatchCard({
     team?: MatchEntry["team1"]; isWinner: boolean; score: number | string | null; detail?: string;
   }) => {
     const seed  = team?.seed != null ? `#${team.seed} ` : "";
-    const display = team ? getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants }) : null;
+    const display = team ? getEntryDisplay({
+      teamMode: team.teamMode,
+      label: team.label,
+      participants: team.participants,
+      participantClubs: team.participantClubs,
+    }, "compact") : null;
     const label = display ? `${seed}${display.main}` : "";
     const sub   = display?.sub || null;
 

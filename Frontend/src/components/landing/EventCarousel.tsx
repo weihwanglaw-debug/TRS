@@ -12,6 +12,7 @@ import {
   CarouselItem,
   CarouselNext,
   CarouselPrevious,
+  type CarouselApi,
 } from "@/components/ui/carousel";
 import eventBanner1 from "@/assets/event-banner-1.jpg";
 import eventBanner2 from "@/assets/event-banner-2.jpg";
@@ -24,6 +25,9 @@ export default function EventCarousel() {
   const { isAuthenticated } = useAuth();
   const [visibleEvents, setVisibleEvents] = useState<TournamentEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [carouselApi, setCarouselApi] = useState<CarouselApi | null>(null);
+  const [currentSnap, setCurrentSnap] = useState(0);
+  const [snapCount, setSnapCount] = useState(0);
 
   useEffect(() => {
     apiGetEvents()
@@ -47,6 +51,24 @@ export default function EventCarousel() {
       })
       .finally(() => setLoading(false));
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!carouselApi) return;
+
+    const syncDots = () => {
+      setCurrentSnap(carouselApi.selectedScrollSnap());
+      setSnapCount(carouselApi.scrollSnapList().length);
+    };
+
+    syncDots();
+    carouselApi.on("select", syncDots);
+    carouselApi.on("reInit", syncDots);
+
+    return () => {
+      carouselApi.off("select", syncDots);
+      carouselApi.off("reInit", syncDots);
+    };
+  }, [carouselApi]);
 
   return (
     <section id="events-section" className="landing-section white section-anchor">
@@ -93,6 +115,7 @@ export default function EventCarousel() {
               align: "start",
               loop: false,
             }}
+            setApi={setCarouselApi}
             className="trs-event-carousel"
           >
             <CarouselContent className="-ml-6">
@@ -157,6 +180,20 @@ export default function EventCarousel() {
                 <CarouselPrevious className="trs-event-carousel-control left-2 md:-left-4 lg:-left-6" />
                 <CarouselNext className="trs-event-carousel-control right-2 md:-right-4 lg:-right-6" />
               </>
+            )}
+            {snapCount > 1 && (
+              <div className="trs-event-carousel-dots" aria-label="Event carousel pages">
+                {Array.from({ length: snapCount }, (_, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    className={`trs-event-carousel-dot ${index === currentSnap ? "is-active" : ""}`}
+                    aria-label={`Show event page ${index + 1} of ${snapCount}`}
+                    aria-current={index === currentSnap ? "true" : undefined}
+                    onClick={() => carouselApi?.scrollTo(index)}
+                  />
+                ))}
+              </div>
             )}
           </Carousel>
         )}

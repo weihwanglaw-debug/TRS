@@ -29,7 +29,12 @@ export function GroupStandingsTable({ group, advancePerGroup = 2, standingPoints
           </thead>
           <tbody>
             {standings.map(s => {
-              const display = getEntryDisplay({ teamMode: s.team.teamMode, label: s.team.label, participants: s.team.participants });
+              const display = getEntryDisplay({
+                teamMode: s.team.teamMode,
+                label: s.team.label,
+                participants: s.team.participants,
+                participantClubs: s.team.participantClubs,
+              }, "compact");
               return (
               <tr key={s.team.id}>
                 <td className="font-bold text-sm"

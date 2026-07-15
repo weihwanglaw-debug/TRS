@@ -612,6 +612,17 @@ public class RegistrationsController : ControllerBase
         if (program == null)
             return NotFound(new { code = "PROGRAM_NOT_FOUND", message = "Program not found." });
 
+        var fixtureImpact = await GetFixtureImpactAsync(new[] { participant.Group });
+        if (fixtureImpact.Count > 0)
+        {
+            return Conflict(new
+            {
+                code = "PROGRAM_FIXTURE_EXISTS",
+                message = "Participant details cannot be changed after fixtures have been generated. Reset the fixture first.",
+                fixtureImpact
+            });
+        }
+
         var trimmedClub = req.ClubSchoolCompany?.Trim();
         if (req.ClubSchoolCompany != null && string.IsNullOrWhiteSpace(trimmedClub))
             return BadRequest(new { code = "MISSING_REQUIRED_FIELD", message = "Club / school / company is required." });
@@ -703,16 +714,6 @@ public class RegistrationsController : ControllerBase
                 var currentTeamName = NormalizeTeamName(participant.Group.ClubDisplay);
                 if (!string.Equals(currentTeamName, normalizedTeamName, StringComparison.OrdinalIgnoreCase))
                 {
-                    var fixtureExists = await _db.Fixtures.AnyAsync(f => f.ProgramId == participant.Group.ProgramId);
-                    if (fixtureExists)
-                    {
-                        return Conflict(new
-                        {
-                            code = "PROGRAM_FIXTURE_EXISTS",
-                            message = "Team name cannot be changed after fixtures have been generated. Reset the fixture first."
-                        });
-                    }
-
                     var existingTeamNames = await _db.ParticipantGroups
                         .Where(g =>
                             g.ProgramId == participant.Group.ProgramId &&
@@ -735,12 +736,12 @@ public class RegistrationsController : ControllerBase
                     }
                 }
 
-                var activeParticipants = await _db.Participants
-                    .Where(p => p.GroupId == participant.GroupId && p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
+                var groupParticipants = await _db.Participants
+                    .Where(p => p.GroupId == participant.GroupId)
                     .OrderBy(p => p.ParticipantId)
                     .ToListAsync();
 
-                foreach (var sibling in activeParticipants)
+                foreach (var sibling in groupParticipants)
                     sibling.ClubSchoolCompany = normalizedTeamName;
 
                 participant.Group.ClubDisplay = normalizedTeamName;
@@ -1707,7 +1708,7 @@ public class RegistrationsController : ControllerBase
 
     private static object MapReg(EventRegistration r)
     {
-        var payment = r.Payments.FirstOrDefault();
+        var payment = r.Payments.OrderByDescending(p => p.CreatedAt).FirstOrDefault();
         return new
         {
             id = r.RegistrationId.ToString(),

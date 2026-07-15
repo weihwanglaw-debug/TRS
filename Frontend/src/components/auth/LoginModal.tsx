@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLiveConfig } from "@/contexts/LiveConfigContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { Trophy, Eye, EyeOff, Loader2 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -13,6 +15,8 @@ interface LoginModalProps {
 
 export default function LoginModal({ open, onClose }: LoginModalProps) {
   const { login } = useAuth();
+  const { cfg } = useLiveConfig();
+  const { theme } = useTheme();
   const navigate    = useNavigate();
   const [email,     setEmail]     = useState("");
   const [password,  setPassword]  = useState("");
@@ -40,13 +44,21 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
     setEmail(""); setPassword(""); setError(""); onClose();
   };
 
+  const logoUrl = theme === "b"
+    ? (cfg.logoDarkUrl || cfg.logoUrl || cfg.logoLightUrl)
+    : (cfg.logoLightUrl || cfg.logoUrl || cfg.logoDarkUrl);
+
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleCancel(); }}>
       <DialogContent className="max-w-sm p-0 gap-0"
         style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
         <DialogHeader className="p-8 pb-0">
           <div className="flex items-center justify-center gap-2 mb-2">
-            <Trophy className="h-6 w-6" style={{ color: "var(--color-primary)" }} />
+            {logoUrl ? (
+              <img src={logoUrl} alt={cfg.appName || "Admin"} className="h-[3.75rem] w-[3.75rem] object-contain" />
+            ) : (
+              <Trophy className="h-6 w-6" style={{ color: "var(--color-primary)" }} />
+            )}
             <DialogTitle className="font-heading font-bold text-xl">Admin Login</DialogTitle>
           </div>
         </DialogHeader>

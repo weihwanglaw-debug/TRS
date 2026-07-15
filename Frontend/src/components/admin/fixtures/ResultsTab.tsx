@@ -40,7 +40,12 @@ function ScoreStr({ match }: { match: MatchEntry }) {
 }
 
 function teamDisplay(team: MatchEntry["team1"]) {
-  return getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants });
+  return getEntryDisplay({
+    teamMode: team.teamMode,
+    label: team.label,
+    participants: team.participants,
+    participantClubs: team.participantClubs,
+  }, "compact");
 }
 
 function isByeMatch(match: MatchEntry) {

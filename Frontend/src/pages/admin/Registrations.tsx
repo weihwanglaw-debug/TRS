@@ -15,7 +15,7 @@
  *  - Single source: both admin and user hit GET /api/registrations/:id/receipt
  */
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   CreditCard, CheckCircle, XCircle, RefreshCw,
@@ -23,8 +23,9 @@ import {
   Clock, AlertCircle, Download, Loader2,
 } from "lucide-react";
 import type { TournamentEvent } from "@/types/config";
-import type { Registration, ParticipantGroup, Payment, PaymentItem, Refund, PaymentMethod, PaymentStatus, PaymentAuditEntry, RefundMethod, RefundSource, RegStatus } from "@/types/registration";
-import { totalFee, PAYMENT_STATUS_LABEL, PAYMENT_METHOD_LABEL, REG_STATUS_LABEL } from "@/types/registration";
+import { isTeamProgram } from "@/types/config";
+import type { Registration, ParticipantGroup, Payment, PaymentItem, Refund, PaymentMethod, PaymentStatus, PaymentAuditEntry, RefundMethod, RefundSource, RegStatus, ItemStatus, ParticipantStatus, GroupStatus } from "@/types/registration";
+import { totalFee, PAYMENT_STATUS_LABEL, PAYMENT_METHOD_LABEL, REG_STATUS_LABEL, ITEM_STATUS_LABEL, PARTICIPANT_STATUS_LABEL } from "@/types/registration";
 import {
   apiGetEvents, apiGetRegistration, apiGetRegistrations,
   apiUpdatePayment,
@@ -37,6 +38,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Pagination } from "@/components/ui/TableControls";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
 import { Switch } from "@/components/ui/switch";
+import { useLiveConfig } from "@/contexts/LiveConfigContext";
+import { formatConfiguredDateTime } from "@/lib/dateTime";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
 
@@ -152,27 +155,6 @@ function formatDate(value?: string): string {
   return date.toLocaleDateString("en-SG", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function formatDateTime(value?: string): string {
-  if (!value) return "-";
-  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return value;
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Singapore",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date).reduce<Record<string, string>>((acc, part) => {
-    if (part.type !== "literal") acc[part.type] = part.value;
-    return acc;
-  }, {});
-  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
-}
-
 //  Helpers
 
 /** Sum of Success refunds for a registration/payment item list. */
@@ -212,69 +194,102 @@ function requiresRefundReference(method: RefundMethod): boolean {
 
 //  Payment Log helpers
 
-/**
- * Groups PaymentItems by programName, mirrors what ReceiptService.cs does.
- * Returns one entry per program with aggregated amounts and participant count.
- */
-interface ProgramGroup {
-  programName:      string;
-  isPerPlayer:      boolean;   // true when any item has participantId set
-  items:            PaymentItem[];
-  participantCount: number;    // total participants across all groups for this program
-  quantity:         number;    // billable quantity: participants for per-head, entries for per-entry
-  subtotal:         number;
-  refundedAmount:   number;    // sum of successful refunds for this program's items
-  hasRefunds:       boolean;
+interface PaymentLineRow {
+  id:             string;
+  programName:    string;
+  typeLabel:      string;
+  regStatus:      string;
+  paymentStatus:  string;
+  entryLabel:     string;
+  remark?:        string;
+  amount:         number;
+  refundedAmount: number;
+  netAmount:      number;
+  refundRefs:     string[];
 }
 
-function buildProgramGroups(
+function itemStatusLabel(status: string): string {
+  return ITEM_STATUS_LABEL[status as ItemStatus] ?? status;
+}
+
+function groupStatusLabel(status?: GroupStatus): string {
+  if (status === "X") return "Cancelled";
+  if (status === "C") return "Confirmed";
+  if (status === "P") return "Pending";
+  return status ?? "-";
+}
+
+function participantStatusLabel(status?: ParticipantStatus): string {
+  if (status === "A") return "Confirmed";
+  return status ? PARTICIPANT_STATUS_LABEL[status] : "-";
+}
+
+function rowPaymentStatusLabel(paymentStatus: PaymentStatus, itemStatus: ItemStatus): string {
+  if (itemStatus === "R") return "Refunded";
+  if (itemStatus === "X") return "Cancelled";
+  if (paymentStatus === "W" || paymentStatus === "PC" || paymentStatus === "P" || paymentStatus === "F") {
+    return PAYMENT_STATUS_LABEL[paymentStatus];
+  }
+  return itemStatusLabel(itemStatus);
+}
+
+function buildPaymentLineRows(
   payment:  Payment,
   groups:   ParticipantGroup[],
   refunds:  Refund[],
-): ProgramGroup[] {
-  const byProgram = new Map<string, PaymentItem[]>();
-  for (const item of payment.items) {
-    const key = item.programName;
-    if (!byProgram.has(key)) byProgram.set(key, []);
-    byProgram.get(key)!.push(item);
-  }
+): PaymentLineRow[] {
+  const groupsById = new Map(groups.map(group => [group.id, group]));
+  const rows: PaymentLineRow[] = [];
 
-  return Array.from(byProgram.entries()).map(([programName, items]) => {
-    const isPerPlayer = items.some(i => !!i.participantId);
+  function describeItem(item: PaymentItem) {
+    const group = groupsById.get(item.participantGroupId);
+    const participant = group?.participants.find(p => p.id === item.participantId);
+    const isPerPlayer = !!item.participantId;
+    const participantCount = group?.participants.length ?? 1;
+    const teamOrClub = group?.clubDisplay?.trim();
 
-  // Participant count:
-  // per_player -> each item = 1 participant
-  // per_entry  -> sum participants across the groups that belong to this program
-    let participantCount: number;
-    if (isPerPlayer) {
-      participantCount = items.length;
-    } else {
-      const groupIds = new Set(items.map(i => i.participantGroupId));
-      participantCount = groups
-        .filter(g => groupIds.has(g.id))
-        .reduce((sum, g) => sum + g.participants.length, 0);
+    let entryLabel = item.playerName ?? participant?.fullName ?? group?.namesDisplay ?? item.description ?? item.programName;
+    if (isPerPlayer && participantCount > 2 && teamOrClub) {
+      entryLabel = `${teamOrClub} - ${item.playerName ?? participant?.fullName ?? "Participant"}`;
+    } else if (!isPerPlayer && participantCount > 2) {
+      entryLabel = `${teamOrClub || group?.namesDisplay || item.description || item.programName} (${participantCount} participants)`;
     }
-    const quantity = items.length;
-
-    const subtotal = items.reduce((s, i) => s + i.amount, 0);
-
-    const refundedAmount = items.reduce((s, item) => {
-      return s + refunds
-        .filter(r => r.paymentItemId === item.id && r.refundStatus === "S")
-        .reduce((rs, r) => rs + r.refundAmount, 0);
-    }, 0);
 
     return {
-      programName,
       isPerPlayer,
-      items,
-      participantCount,
-      quantity,
-      subtotal,
-      refundedAmount,
-      hasRefunds: refundedAmount > 0,
+      entryLabel,
+      regStatus: isPerPlayer
+        ? participantStatusLabel(participant?.participantStatus)
+        : groupStatusLabel(group?.groupStatus),
     };
-  });
+  }
+
+  for (const item of payment.items) {
+    const description = describeItem(item);
+    const successfulRefunds = refunds.filter(r => r.paymentItemId === item.id && r.refundStatus === "S");
+    const refundedAmount = successfulRefunds.reduce((sum, refund) => sum + refund.refundAmount, 0);
+    const refundReasons = successfulRefunds
+      .map(refund => refund.refundReason?.trim())
+      .filter((reason): reason is string => !!reason);
+    const refundRefs = successfulRefunds
+      .map(refund => refund.gatewayRefundId?.trim() || refund.id)
+      .filter(Boolean);
+    rows.push({
+      id: `item-${item.id}`,
+      programName: item.programName,
+      typeLabel: description.isPerPlayer ? "Per head" : "Per entry",
+      regStatus: description.regStatus,
+      paymentStatus: rowPaymentStatusLabel(payment.paymentStatus, item.itemStatus as ItemStatus),
+      entryLabel: description.entryLabel,
+      remark: refundReasons.length ? Array.from(new Set(refundReasons)).join("; ") : undefined,
+      amount: item.amount,
+      refundedAmount,
+      netAmount: Math.max(0, item.amount - refundedAmount),
+      refundRefs: Array.from(new Set(refundRefs)),
+    });
+  }
+
+  return rows;
 }
 
 /**
@@ -342,6 +357,7 @@ interface PaymentLogModalProps {
 }
 
 function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
+  const { cfg } = useLiveConfig();
   const payment = getPayment(reg);
   const [auditRows, setAuditRows] = useState<PaymentAuditEntry[]>([]);
   const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -349,8 +365,8 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
   const detailsPdfUrl = `${API_BASE}/api/registrations/${reg.id}/details-pdf`;
   const hasReceipt = !!payment?.receiptNo;
 
-  const programGroups = payment
-    ? buildProgramGroups(payment, reg.groups, refunds)
+  const paymentLineRows = payment
+    ? buildPaymentLineRows(payment, reg.groups, refunds)
     : [];
   const timeline = payment ? buildTimeline(payment, refunds) : [];
   const totalPaid = payment?.amount ?? 0;
@@ -358,6 +374,9 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
     .filter(r => r.refundStatus === "S")
     .reduce((s, r) => s + r.refundAmount, 0);
   const netAmount = totalPaid - totalRefunded;
+  const formatDateTime = useCallback((value?: string | null) =>
+    formatConfiguredDateTime(value, cfg.displayTimeZone, cfg.displayDateTimeFormat),
+  [cfg.displayTimeZone, cfg.displayDateTimeFormat]);
 
   useEffect(() => {
     let active = true;
@@ -425,132 +444,124 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
                 Programs &amp; Line Items
               </p>
 
-              {programGroups.length === 0 && (
+              {paymentLineRows.length === 0 && (
                 <p className="text-sm opacity-40">No payment items found.</p>
               )}
 
-              <div className="space-y-3">
-                {programGroups.map((pg, idx) => {
-  // Unit price calculation: mirrors ReceiptService.cs logic
-                  const unitPrice = pg.isPerPlayer
-                    ? (pg.items[0]?.amount ?? 0)
-                    : (pg.quantity > 0
-                        ? pg.subtotal / pg.quantity
-                        : 0);
+              {paymentLineRows.length > 0 && (
+                <div className="space-y-3">
+                  {paymentLineRows.map(row => {
+                    const hasRefund = row.refundedAmount > 0;
+                    const regBadgeStyle = {
+                      backgroundColor: row.regStatus === "Cancelled"
+                        ? "var(--badge-open-bg)"
+                        : row.regStatus === "Confirmed" || row.regStatus === "Active"
+                        ? "var(--color-row-hover)"
+                        : "var(--badge-soon-bg)",
+                      color: row.regStatus === "Cancelled"
+                        ? "var(--badge-open-text)"
+                        : row.regStatus === "Confirmed" || row.regStatus === "Active"
+                        ? "var(--color-primary)"
+                        : "var(--badge-soon-text)",
+                    };
+                    const payBadgeStyle = {
+                      backgroundColor: row.paymentStatus === "Refunded"
+                        ? "var(--badge-open-bg)"
+                        : row.paymentStatus === "Paid" || row.paymentStatus === "Waived"
+                        ? "var(--color-row-hover)"
+                        : "var(--badge-soon-bg)",
+                      color: row.paymentStatus === "Refunded"
+                        ? "var(--badge-open-text)"
+                        : row.paymentStatus === "Paid" || row.paymentStatus === "Waived"
+                        ? "var(--color-primary)"
+                        : "var(--badge-soon-text)",
+                    };
 
-                  return (
-                    <div
-                      key={`${pg.programName}-${idx}`}
-                      style={{
-                        border: "1px solid var(--color-table-border)",
-                        backgroundColor: "var(--color-row-hover)",
-                      }}
-                    >
-  {/* Program header row */}
+                    return (
                       <div
-                        className="flex items-center justify-between gap-3 px-4 py-3"
-                        style={{ borderBottom: "1px solid var(--color-table-border)" }}
+                        key={row.id}
+                        className="p-4"
+                        style={{
+                          border: "1px solid var(--color-table-border)",
+                          backgroundColor: "var(--color-row-hover)",
+                        }}
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <p className="font-semibold text-sm truncate">{pg.programName}</p>
-  {/* Fee type badge */}
-                          <span
-                            className="flex-shrink-0 text-xs px-2 py-0.5 font-medium"
+                        <div className="flex items-start justify-between gap-5">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-semibold">{row.programName}</span>
+                              <span
+                                className="text-xs px-2 py-0.5"
+                                style={{
+                                  color: "var(--color-body-text)",
+                                  backgroundColor: "var(--color-card-bg)",
+                                  border: "1px solid var(--color-table-border)",
+                                }}
+                              >
+                                {row.typeLabel}
+                              </span>
+                              <span className="inline-flex px-2 py-0.5 text-xs font-semibold" style={regBadgeStyle}>
+                                Reg. {row.regStatus}
+                              </span>
+                              <span className="inline-flex px-2 py-0.5 text-xs font-semibold" style={payBadgeStyle}>
+                                {row.paymentStatus}
+                              </span>
+                            </div>
+                            <p className="text-sm mt-2 whitespace-normal break-words">{row.entryLabel}</p>
+                          </div>
+                          <div className="flex-shrink-0">
+                            <div className="text-right">
+                              <div className="font-semibold text-sm whitespace-nowrap" style={{ color: "var(--color-primary)" }}>
+                                SGD {row.amount.toFixed(2)}
+                              </div>
+                              {hasRefund && (
+                                <>
+                                  <div className="text-xs font-semibold mt-1 whitespace-nowrap" style={{ color: "var(--badge-open-text)" }}>
+                                    - SGD {row.refundedAmount.toFixed(2)} refunded
+                                  </div>
+                                  <div className="text-xs opacity-60 mt-0.5 whitespace-nowrap">
+                                    Net SGD {row.netAmount.toFixed(2)}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {(row.remark || row.refundRefs.length > 0) && (
+                          <div
+                            className="mt-3 px-3 py-2 text-xs"
                             style={{
-                              backgroundColor: pg.isPerPlayer ? "var(--badge-open-bg)" : "var(--badge-soon-bg)",
-                              color: pg.isPerPlayer ? "var(--badge-open-text)" : "var(--badge-soon-text)",
+                              borderTop: "1px dashed var(--color-table-border)",
+                              backgroundColor: "var(--color-card-bg)",
                             }}
                           >
-                            {pg.isPerPlayer ? "Per head" : "Per entry"}
-                          </span>
-                        </div>
-                        <div className="flex-shrink-0 text-right">
-                          <p
-                            className="font-bold text-sm"
-                            style={{ color: "var(--color-primary)" }}
-                          >
-                            SGD {pg.subtotal.toFixed(2)}
-                          </p>
-                          {pg.hasRefunds && (
-                            <p className="text-xs" style={{ color: "var(--badge-open-text)" }}>
-                              − SGD {pg.refundedAmount.toFixed(2)} refunded
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-  {/* Program detail rows */}
-                      <div className="px-4 py-3 grid gap-2 text-xs" style={{ gridTemplateColumns: "1fr auto auto" }}>
-  {/* Participant count */}
-                        <div className="flex items-center gap-1.5 opacity-60">
-                          <Users className="h-3.5 w-3.5" />
-                          <span>
-                            {pg.participantCount} participant{pg.participantCount !== 1 ? "s" : ""}
-                          </span>
-                        </div>
-  {/* Qty x unit */}
-                        <span className="opacity-50">
-                          {pg.quantity} x SGD {unitPrice.toFixed(2)}
-                        </span>
-  {/* Item count (entries) */}
-                        {!pg.isPerPlayer && pg.items.length > 1 && (
-                          <span className="opacity-40">{pg.items.length} entries</span>
-                        )}
-                        {pg.isPerPlayer && (
-                          <span className="opacity-40">{pg.items.length} items</span>
-                        )}
-                      </div>
-
-  {/* Per-item status breakdown - only when some items are refunded */}
-                      {pg.items.some(i => i.itemStatus === "R") && (
-                        <div
-                          className="px-4 pb-3 space-y-1"
-                          style={{ borderTop: "1px solid var(--color-table-border)", paddingTop: 10 }}
-                        >
-                          <p className="text-xs opacity-40 font-semibold uppercase tracking-wide mb-2">
-                            Item status
-                          </p>
-                          {pg.items.map(item => {
-                            const itemRefunds = refunds.filter(r => r.paymentItemId === item.id);
-                            const successRefund = itemRefunds.find(r => r.refundStatus === "S");
-                            return (
-                              <div key={item.id} className="flex items-center justify-between gap-2 text-xs">
-                                <span className="opacity-70 truncate">
-                                  {item.playerName ?? item.description ?? item.programName}
-                                </span>
-                                <div className="flex items-center gap-2 flex-shrink-0">
-                                  {item.itemStatus === "R" && successRefund && (
-                                    <span className="opacity-50">
-                                      SGD {successRefund.refundAmount.toFixed(2)}
-                                    </span>
-                                  )}
-                                  <span
-                                    className="px-1.5 py-0.5 font-semibold"
-                                    style={{
-                                      backgroundColor: item.itemStatus === "R"
-                                        ? "var(--badge-open-bg)" : item.itemStatus === "S"
-                                        ? "transparent" : "var(--badge-soon-bg)",
-                                      color: item.itemStatus === "R"
-                                        ? "var(--badge-open-text)" : item.itemStatus === "S"
-                                        ? "var(--color-primary)" : "var(--badge-soon-text)",
-                                      border: item.itemStatus === "S"
-                                        ? "1px solid var(--color-table-border)" : "none",
-                                    }}
-                                  >
-                                    {item.itemStatus === "R" ? "Refunded"
-                                      : item.itemStatus === "S" ? "Paid"
-                                      : "Pending"}
+                            <div
+                              className="grid gap-x-4 gap-y-1"
+                              style={{ gridTemplateColumns: "max-content minmax(0, 1fr)" }}
+                            >
+                              {row.remark && (
+                                <>
+                                  <span className="font-semibold opacity-60">Remark</span>
+                                  <span className="whitespace-normal break-words">{row.remark}</span>
+                                </>
+                              )}
+                              {row.refundRefs.length > 0 && (
+                                <>
+                                  <span className="font-semibold opacity-60">Refund Ref</span>
+                                  <span className="font-mono opacity-70 whitespace-normal break-all">
+                                    {row.refundRefs.join(", ")}
                                   </span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
   {/* Programs total row */}
               {payment && (
@@ -855,7 +866,6 @@ export default function AdminRegistrations() {
   const [markPaidModal,   setMarkPaidModal]   = useState<Registration | null>(null);
   const [paymentLogModal, setPaymentLogModal] = useState<Registration | null>(null);
   const [cancelModal,     setCancelModal]     = useState<Registration | null>(null);
-  const [refundModal,     setRefundModal]     = useState<Registration | null>(null);
   const [refundCancelModal, setRefundCancelModal] = useState<Registration | null>(null);
   const [refundCancelAction, setRefundCancelAction] = useState<RefundCancelAction>("refundOnly");
   const [refundCancelScope, setRefundCancelScope] = useState<RefundCancelScope>("selected");
@@ -1016,6 +1026,32 @@ export default function AdminRegistrations() {
     return payment.items;
   };
 
+  const getRefundCancelItemEntryLabel = (reg: Registration, item: PaymentItem): string | null => {
+    const group = reg.groups.find(g => g.id === item.participantGroupId);
+    const participant = item.participantId
+      ? group?.participants.find(p => p.id === item.participantId)
+      : null;
+
+    if (item.participantId) {
+      return item.playerName || participant?.fullName || null;
+    }
+
+    const event = events.find(e => e.id === (group?.eventId || reg.eventId));
+    const program = event?.programs.find(p => p.id === group?.programId);
+    const isTeamEntry = isTeamProgram(program?.type);
+
+    if (isTeamEntry) {
+      return group?.clubDisplay?.trim()
+        || group?.namesDisplay?.trim()
+        || item.description?.trim()
+        || null;
+    }
+
+    return group?.namesDisplay?.trim()
+      || item.description?.trim()
+      || null;
+  };
+
   const canApplyRefundCancelAction = (reg: Registration, item: PaymentItem, action: RefundCancelAction): boolean => {
     if (action === "cancelWithoutRefund") {
       return isItemScopeActive(reg, item);
@@ -1076,94 +1112,6 @@ export default function AdminRegistrations() {
     setRefundAdminNote("");
   };
 
-  const isLastActiveRefundItem = (reg: Registration, itemId: string): boolean =>
-    getActiveRefundableItemIds(reg).length === 1 &&
-    getActiveRefundableItemIds(reg)[0] === itemId;
-
-  const getRefundScopeWarning = (reg: Registration, itemId: string): string | null => {
-    if (isLastActiveRefundItem(reg, itemId)) {
-      return "This is the only active paid item in the registration. Refunding it will also cancel the registration.";
-    }
-    return null;
-  };
-
-  const refundItemWithScopeCancellation = async (
-    reg: Registration,
-    item: PaymentItem,
-    reason: string,
-  ) => {
-    const cancelOptions = refundSource === "External"
-      ? {
-          refundSource: "External" as const,
-          refundMethod,
-          refundReference,
-          adminNote: refundAdminNote,
-        }
-      : undefined;
-
-    if (isLastActiveRefundItem(reg, item.id)) {
-      return apiCancelRegistration(reg.id, reason, "refundPaidItems", cancelOptions);
-    }
-
-    if (item.participantId) {
-      return apiCancelRegistrationParticipant(reg.id, item.participantId, reason, "refundPaidItems", cancelOptions);
-    }
-
-    if (item.participantGroupId) {
-      return apiCancelRegistrationGroup(reg.id, item.participantGroupId, reason, "refundPaidItems", cancelOptions);
-    }
-
-    return apiCancelRegistration(reg.id, reason, "refundPaidItems", cancelOptions);
-  };
-
-  const handleRefund = async () => {
-    if (!refundModal) return;
-    const payment = getPayment(refundModal);
-    if (!payment) { setApiError("This registration has no payment record to refund."); return; }
-    if (refundSource === "External" && requiresRefundReference(refundMethod) && !refundReference.trim()) {
-      setApiError("Refund reference / ID is required for this external refund method.");
-      return;
-    }
-    setSavingRefund(true);
-    try {
-      const refundErrors: string[] = [];
-      for (const [itemId, sel] of Object.entries(refundSel)) {
-        if (!sel.checked || !sel.reason.trim()) continue;
-        const item = payment.items.find(i => i.id === itemId);
-        if (!item) continue;
-        const refundResult = await refundItemWithScopeCancellation(refundModal, item, sel.reason);
-        if (refundResult.error) refundErrors.push(`${item.programName}: ${refundResult.error.message}`);
-        if (refundResult.data?.errors?.length) {
-          refundErrors.push(...refundResult.data.errors.map(error => `${item.programName}: ${error}`));
-        }
-      }
-      const [regR, refR] = await Promise.all([
-        apiGetRegistration(refundModal.id),
-        apiGetRefunds(refundModal.id),
-      ]);
-      if (regR.data) {
-        setRegs(prev => prev.map(r => r.id === refundModal.id ? regR.data! : r));
-      }
-      if (refR.data) {
-        setRefundsByReg(prev => ({ ...prev, [refundModal.id]: refR.data! }));
-      }
-      if (refundErrors.length > 0) {
-        setApiError(`Some refunds failed: ${refundErrors.join(" | ")}`);
-        return;
-      }
-      setRefundModal(null);
-      setRefundSel({});
-      setRefundSource("System");
-      setRefundReference("");
-      setRefundAdminNote("");
-      showSuccess(refundSource === "External" ? "External refund recorded" : "Refund executed", "The registration refund record has been updated.");
-    } catch {
-      setApiError("Refund could not be completed. Please check whether the refund went through before retrying.");
-    } finally {
-      setSavingRefund(false);
-    }
-  };
-
   const getRemainingRefundAmount = (reg: Registration, item: PaymentItem): number => {
     const refunded = (refundsByReg[reg.id] ?? [])
       .filter(r => r.paymentItemId === item.id && r.refundStatus === "S")
@@ -1213,9 +1161,7 @@ export default function AdminRegistrations() {
     }
 
     const availableItems = getEligibleRefundCancelItems(refundCancelModal, refundCancelAction);
-    const selectedItems = refundCancelScope === "whole"
-      ? availableItems
-      : availableItems.filter(item => refundSel[item.id]?.checked);
+    const selectedItems = availableItems.filter(item => refundSel[item.id]?.checked);
 
     if (refundCancelScope === "selected" && selectedItems.length === 0) {
       setApiError("Select at least one item.");
@@ -1594,7 +1540,7 @@ export default function AdminRegistrations() {
                     setRefundSel({});
                     setCancelReason("");
                     setRefundCancelAction(canRefund ? "refundOnly" : "cancelWithoutRefund");
-                    setRefundCancelScope(canRefund ? "selected" : "whole");
+                    setRefundCancelScope("selected");
                     setRefundCancelModal(openAction.reg);
                     setOpenAction(null);
                   }}
@@ -1685,7 +1631,7 @@ export default function AdminRegistrations() {
                     const action = e.target.value as RefundCancelAction;
                     setRefundCancelAction(action);
                     setRefundSel({});
-                    setRefundCancelScope(action === "refundOnly" ? "selected" : "whole");
+                    setRefundCancelScope("selected");
                   }}
                 >
                   <option value="refundOnly">Refund only</option>
@@ -1718,7 +1664,14 @@ export default function AdminRegistrations() {
                 checked={refundCancelScope === "whole"}
                 onCheckedChange={checked => {
                   setRefundCancelScope(checked ? "whole" : "selected");
-                  setRefundSel({});
+                  if (checked && refundCancelModal) {
+                    const eligibleItems = getEligibleRefundCancelItems(refundCancelModal, refundCancelAction);
+                    setRefundSel(Object.fromEntries(
+                      eligibleItems.map(item => [item.id, { checked: true, reason: cancelReason }]),
+                    ));
+                  } else {
+                    setRefundSel({});
+                  }
                 }}
               />
             </label>
@@ -1755,22 +1708,26 @@ export default function AdminRegistrations() {
                     {items.map(item => {
                       const disabledReason = getRefundCancelItemDisabledReason(refundCancelModal, item, refundCancelAction);
                       const eligible = !disabledReason;
-                      const checked = eligible && (refundCancelScope === "whole" || (refundSel[item.id]?.checked ?? false));
-                      const remaining = getRemainingRefundAmount(refundCancelModal, item);
+                      const checked = eligible && (refundSel[item.id]?.checked ?? false);
                       const statusBadge = refundCancelItemStatusBadge(item);
                       const scopeBadge = refundCancelScopeBadge(refundCancelModal, item);
                       const secondaryReason = refundCancelSecondaryReason(disabledReason);
+                      const entryLabel = getRefundCancelItemEntryLabel(refundCancelModal, item);
+                      const showScopeBadge = !!scopeBadge && scopeBadge.label !== statusBadge.label;
                       return (
                         <label key={item.id} className="flex items-start gap-3 p-4 cursor-pointer min-h-[94px]"
                           style={{
                             border: "1px solid var(--color-table-border)",
                             opacity: eligible ? 1 : 0.55,
-                            cursor: eligible && refundCancelScope !== "whole" ? "pointer" : "default",
+                            cursor: eligible ? "pointer" : "default",
                           }}>
                           <Switch
-                            disabled={refundCancelScope === "whole" || !eligible}
+                            disabled={!eligible}
                             checked={checked}
-                            onCheckedChange={v => setRefundSel(prev => ({ ...prev, [item.id]: { checked: v, reason: cancelReason } }))}
+                            onCheckedChange={v => {
+                              if (!v) setRefundCancelScope("selected");
+                              setRefundSel(prev => ({ ...prev, [item.id]: { checked: v, reason: cancelReason } }));
+                            }}
                           />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-3">
@@ -1781,7 +1738,7 @@ export default function AdminRegistrations() {
                                     style={{ backgroundColor: statusBadge.bg, color: statusBadge.text }}>
                                     {statusBadge.label}
                                   </span>
-                                  {scopeBadge && (
+                                  {showScopeBadge && scopeBadge && (
                                     <span className="text-xs px-1.5 py-0.5 font-semibold flex-shrink-0"
                                       style={{ backgroundColor: scopeBadge.bg, color: scopeBadge.text }}>
                                       {scopeBadge.label}
@@ -1789,8 +1746,8 @@ export default function AdminRegistrations() {
                                   )}
                                 </div>
                                 <div className="text-xs mt-1">
-                                  {item.playerName && <span className="opacity-60">- {item.playerName}</span>}
-                                  {!item.participantId && <span className="opacity-40">(per entry)</span>}
+                                  {entryLabel && <span className="opacity-60">- {entryLabel}</span>}
+                                  {!item.participantId && <span className="opacity-40 ml-2">(per entry)</span>}
                                   {secondaryReason && <span className="opacity-50 ml-2">{secondaryReason}</span>}
                                 </div>
                               </div>
@@ -1798,9 +1755,6 @@ export default function AdminRegistrations() {
                                 ${item.amount.toFixed(2)}
                               </span>
                             </div>
-                            {refundCancelAction !== "cancelWithoutRefund" && (
-                              <p className="text-xs mt-1 opacity-60">Refundable: ${remaining.toFixed(2)}</p>
-                            )}
                           </div>
                         </label>
                       );
@@ -1820,9 +1774,7 @@ export default function AdminRegistrations() {
             <button onClick={resetRefundCancelState} className="btn-outline px-5 py-2.5 text-sm">Close</button>
             {refundCancelModal && (() => {
               const eligibleItems = getEligibleRefundCancelItems(refundCancelModal, refundCancelAction);
-              const hasSelected = refundCancelScope === "whole"
-                ? eligibleItems.length > 0
-                : eligibleItems.some(item => refundSel[item.id]?.checked);
+              const hasSelected = eligibleItems.some(item => refundSel[item.id]?.checked);
               return (
                 <button
                   onClick={handleRefundCancel}
@@ -1942,103 +1894,6 @@ export default function AdminRegistrations() {
                 </button>
               );
             })()}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-  {/* Refund */}
-      <Dialog open={!!refundModal} onOpenChange={v => { if (!v) { setRefundModal(null); setRefundSel({}); setRefundSource("System"); setRefundReference(""); setRefundAdminNote(""); } }}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto p-0" style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
-          <DialogHeader className="p-7 pb-4" style={{ borderBottom: "1px solid var(--color-table-border)" }}>
-            <DialogTitle className="font-bold text-lg">Process Refund</DialogTitle>
-            {refundModal && <p className="text-xs mt-1">{refundModal.id} - {refundModal.contactName}</p>}
-          </DialogHeader>
-          <div className="p-7 space-y-4">
-            <FG label="Refund mode">
-              <select className="field-input" value={refundSource} onChange={e => setRefundSource(e.target.value as RefundSource)}>
-                <option value="System">Internal System Refund</option>
-                <option value="External">Record External Refund</option>
-              </select>
-            </FG>
-            {refundSource === "External" && (
-              <div className="space-y-3">
-                <div className="px-3 py-2 text-xs" style={{ backgroundColor: "var(--badge-open-bg)", color: "var(--badge-open-text)" }}>
-                  This records a refund completed outside the system. It will not send money through the payment gateway.
-                </div>
-                <FG label="Refund method *">
-                  <select className="field-input" value={refundMethod} onChange={e => setRefundMethod(e.target.value as RefundMethod)}>
-                    {EXTERNAL_REFUND_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                  </select>
-                </FG>
-                <FG label={`Refund reference / ID${requiresRefundReference(refundMethod) ? " *" : " (optional)"}`}>
-                  <input className="field-input" value={refundReference} onChange={e => setRefundReference(e.target.value)} />
-                </FG>
-                <FG label="Admin note (optional)">
-                  <input className="field-input" value={refundAdminNote} onChange={e => setRefundAdminNote(e.target.value)} />
-                </FG>
-              </div>
-            )}
-            {(getPayment(refundModal as Registration)?.items ?? []).map(item => {
-              const alreadyRefunded = item.itemStatus === "R";
-              const existingRefund  = (refundModal ? (refundsByReg[refundModal.id] ?? []) : [])
-                .find(r => r.paymentItemId === item.id && r.refundStatus === "S");
-              const warning = refundModal && refundSel[item.id]?.checked
-                ? getRefundScopeWarning(refundModal, item.id) : null;
-              const isPerPlayer = !!item.participantId;
-              return (
-                <div key={item.id} className="p-4 space-y-3"
-                  style={{ border: `1px solid ${warning ? "var(--badge-closed-text)" : "var(--color-table-border)"}`, opacity: alreadyRefunded ? 0.5 : 1 }}>
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <Switch disabled={alreadyRefunded}
-                      checked={refundSel[item.id]?.checked ?? false}
-                      onCheckedChange={v => setRefundSel(p => ({ ...p, [item.id]: { checked: v, reason: p[item.id]?.reason ?? "" } }))} />
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-sm font-medium">{item.programName}</span>
-                          {isPerPlayer && item.playerName && (
-                            <span className="text-xs opacity-60 ml-2">- {item.playerName}</span>
-                          )}
-                          {!isPerPlayer && (
-                            <span className="text-xs opacity-40 ml-2">(per entry)</span>
-                          )}
-                        </div>
-                        <span className="font-bold text-sm ml-3" style={{ color: "var(--color-primary)" }}>
-                          ${item.amount.toFixed(2)}
-                        </span>
-                      </div>
-                      {alreadyRefunded && existingRefund && (
-                        <p className="text-xs mt-0.5 opacity-60">
-                          Already refunded ${existingRefund.refundAmount.toFixed(2)} on {formatDateTime(existingRefund.createdAt)}
-                        </p>
-                      )}
-                    </div>
-                  </label>
-                  {warning && (
-                    <div className="flex items-start gap-2 p-3 text-xs font-medium"
-                      style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
-                      <span>!</span> {warning}
-                    </div>
-                  )}
-                  {refundSel[item.id]?.checked && (
-                    <input className="field-input" placeholder="Reason *"
-                      value={refundSel[item.id]?.reason ?? ""}
-                      onChange={e => setRefundSel(p => ({ ...p, [item.id]: { ...p[item.id], reason: e.target.value } }))} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <DialogFooter className="p-7 pt-0">
-            <button onClick={() => setRefundModal(null)} className="btn-outline px-5 py-2.5 text-sm">Close</button>
-            <button onClick={handleRefund}
-              disabled={!Object.entries(refundSel).some(([id, s]) => {
-                if (!s.checked || !s.reason.trim()) return false;
-                return true;
-              }) || savingRefund}
-              className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 inline-flex items-center justify-center gap-2">
-              {savingRefund ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</> : refundSource === "External" ? "Save" : "Execute Refund"}
-            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

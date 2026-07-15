@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from "react";
-import { AlertTriangle, ChevronRight, ChevronLeft, Shuffle, CheckCircle, ArrowLeftRight, Loader2 } from "lucide-react";
+import { AlertTriangle, ChevronRight, ChevronLeft, Shuffle, CheckCircle, ArrowLeftRight, Loader2, X } from "lucide-react";
 import type { SeedEntry, WizardConfig, SbaRanking, BracketState, TeamEntry, HeatsConfig, StandingPoints } from "@/types/config";
 import { generateDraw, swapTeams, computeGroupStandings } from "@/lib/fixtureEngine";
 import { NoticeDialog } from "@/components/ui/NoticeDialog";
@@ -81,7 +81,12 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
 
   const getSba = (s: SeedEntry) => matchSbaRanking(s, sbaRankings);
   const entryDisplay = (s: SeedEntry) => {
-    return getEntryDisplay({ teamMode: s.teamMode, club: s.club, participants: s.participants });
+    return getEntryDisplay({
+      teamMode: s.teamMode,
+      club: s.club,
+      participants: s.participants,
+      participantClubs: s.participantClubs,
+    }, "detailed");
   };
 
   useEffect(() => {
@@ -116,6 +121,7 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
 
   const setSeedValue = (id: string, val: string) =>
     setSeeds(seeds.map(s => s.id === id ? { ...s, seed: val === "" ? null : +val } : s));
+  const clearAllSeeds = () => setSeeds(seeds.map(s => ({ ...s, seed: null })));
 
   const effectiveSeeds = numSeeds > 0 ? seeds : seeds.map(s => ({ ...s, seed: null }));
   const seedNums = effectiveSeeds.filter(s => s.seed !== null).map(s => s.seed as number);
@@ -257,12 +263,19 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
               </select>
             </div>
             {showSeeds && (
-              <div className="self-end">
+              <div className="self-end flex flex-wrap gap-2">
                 <button onClick={autoSeed}
                   className="btn-outline flex items-center gap-2 px-4 py-2.5 text-sm font-semibold">
                   <Shuffle className="h-3.5 w-3.5" />
                   {isBadminton ? "Auto-fill from SBA" : "Auto-fill by rank"}
                 </button>
+                {seeds.some(s => s.seed !== null) && (
+                  <button onClick={clearAllSeeds}
+                    className="btn-outline flex items-center gap-2 px-4 py-2.5 text-sm font-semibold">
+                    <X className="h-3.5 w-3.5" />
+                    Clear all seeds
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -307,6 +320,9 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
                     <td>
                       <div className="font-medium text-sm">{entry.main}</div>
                       {entry.sub && <div className="text-xs opacity-50">{entry.sub}</div>}
+                      {entry.detailLines.map((line) => (
+                        <div key={line} className="text-xs opacity-50">{line}</div>
+                      ))}
                     </td>
                     {isBadminton && (
                       <td className="font-mono text-xs whitespace-nowrap">
@@ -338,8 +354,15 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
                             value={s.seed ?? ""} placeholder="-"
                             onChange={e => setSeedValue(s.id, e.target.value)} />
                           {s.seed !== null && (
-                            <button onClick={() => setSeedValue(s.id, "")}
-                              className="text-xs opacity-30 hover:opacity-70">✕</button>
+                            <button
+                              type="button"
+                              onClick={() => setSeedValue(s.id, "")}
+                              title="Clear seed"
+                              aria-label={`Clear seed for ${entry.main}`}
+                              className="btn-outline inline-flex h-9 w-9 items-center justify-center p-0"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
                           )}
                         </div>
                       </td>
@@ -404,7 +427,14 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
     bracket.groups.flatMap(g => g.matches).forEach(m => { add(m.team1); add(m.team2); });
     bracket.matches.forEach(m => { add(m.team1); add(m.team2); });
     if (bracket.format === "heats") {
-      seeds.forEach(s => seen.set(s.id, { id: s.id, label: s.club, participants: s.participants, teamMode: s.teamMode, seed: s.seed ?? undefined }));
+      seeds.forEach(s => seen.set(s.id, {
+        id: s.id,
+        label: s.club,
+        participants: s.participants,
+        participantClubs: s.participantClubs,
+        teamMode: s.teamMode,
+        seed: s.seed ?? undefined,
+      }));
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label));
   }, [bracket, seeds]);
@@ -442,12 +472,18 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
     id: s.id,
     label: s.club,
     participants: s.participants,
+    participantClubs: s.participantClubs,
     teamMode: s.teamMode,
     seed: s.seed ?? undefined,
   });
 
   const previewEntryDisplay = (team: TeamEntry) => {
-    return getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants });
+    return getEntryDisplay({
+      teamMode: team.teamMode,
+      label: team.label,
+      participants: team.participants,
+      participantClubs: team.participantClubs,
+    }, "compact");
   };
 
   const SwapPickButton = ({ team }: { team: TeamEntry }) => {
@@ -484,8 +520,15 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
           {seeds.map((s, i) => (
             <tr key={s.id} style={selectedTeamId === s.id ? { backgroundColor: "var(--badge-open-bg)" } : undefined}>
               <td className="opacity-30 font-mono text-xs">{i + 1}</td>
-              <td className="font-medium text-sm">{s.club}</td>
-              <td className="text-xs opacity-60">{s.participants.join(" / ")}</td>
+              <td className="font-medium text-sm">{getEntryDisplay({
+                teamMode: s.teamMode,
+                club: s.club,
+                participants: s.participants,
+                participantClubs: s.participantClubs,
+              }, "compact").main}</td>
+              <td className="text-xs opacity-60">
+                {s.teamMode ? "" : s.participants.join(" / ")}
+              </td>
               <td>{s.seed != null
                 ? <span className="text-xs font-bold px-1.5 py-0.5" style={{ backgroundColor: "var(--color-primary)", color: "var(--color-hero-text)" }}>#{s.seed}</span>
                 : <span className="opacity-25 text-xs">-</span>}

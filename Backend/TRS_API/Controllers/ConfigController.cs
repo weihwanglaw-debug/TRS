@@ -21,6 +21,8 @@ public class ConfigController : ControllerBase
         {
             ["logoLightUrl"] = "/images/app/logo_light_mode.png",
             ["logoDarkUrl"] = "/images/app/logo_dark_mode.png",
+            ["displayTimeZone"] = "+08:00",
+            ["displayDateTimeFormat"] = "dd/MM/yyyy HH:mm:ss",
         };
         foreach (var row in rows)
         {

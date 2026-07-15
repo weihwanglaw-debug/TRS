@@ -29,16 +29,16 @@ export default function AdminLayout() {
     { to: "/admin",                         label: "Dashboard",             icon: LayoutDashboard, end: true  },
     { to: "/admin/events",                  label: "Events & Programs",     icon: CalendarDays,    end: false },
     { to: "/admin/registrations",           label: "Registrations",         icon: Users,           end: false },
+    { to: "/admin/participants",            label: "Participant Details",   icon: UserSquare,      end: false },
     { to: "/admin/payment-reconciliation",  label: "Payment Reconciliation",icon: CreditCard,      end: false },
     { to: "/admin/fixtures",                label: "Fixtures",              icon: GitBranch,       end: false },
     { to: "/admin/sba-rankings",            label: "SBA Rankings",          icon: ListOrdered,     end: false },
     { to: "/admin/badminton-clubs",          label: "Badminton Clubs",       icon: Building2,       end: false },
-    { to: "/admin/participants",            label: "Participant Details",   icon: UserSquare,      end: false },
     ...(isSuperAdmin ? [
       { to: "/admin/users",  label: "User Management", icon: Shield,    end: false },
       { to: "/admin/config", label: "Master Config",   icon: Settings,  end: false },
     ] : []),
-    { to: "/",             label: "Landing Page",      icon: Home,      end: true  },
+    { to: "/",             label: "Landing Page",      icon: Home,      end: true, dividerBefore: true },
   ];
 
   const expanded = !collapsed || hovered;
@@ -75,20 +75,27 @@ export default function AdminLayout() {
 
         <nav className="flex-1 space-y-1 py-4">
           {links.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              end={link.end}
-              title={!expanded ? link.label : undefined}
-              className={({ isActive }) =>
-                `flex items-center gap-3 py-3 text-sm font-medium transition-colors ${
-                  expanded ? "px-4" : "px-0 justify-center"
-                } ${isActive ? "bg-white/15" : "hover:bg-white/10"}`
-              }
-            >
-              <link.icon className="h-4 w-4 flex-shrink-0" />
-              {expanded && <span className="whitespace-nowrap">{link.label}</span>}
-            </NavLink>
+            <div key={link.to}>
+              {link.dividerBefore && (
+                <div
+                  className={expanded ? "mx-4 my-3" : "mx-3 my-3"}
+                  style={{ borderTop: "1px solid var(--admin-header-border)" }}
+                />
+              )}
+              <NavLink
+                to={link.to}
+                end={link.end}
+                title={!expanded ? link.label : undefined}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 py-3 text-sm font-medium transition-colors ${
+                    expanded ? "px-4" : "px-0 justify-center"
+                  } ${isActive ? "bg-white/15" : "hover:bg-white/10"}`
+                }
+              >
+                <link.icon className="h-4 w-4 flex-shrink-0" />
+                {expanded && <span className="whitespace-nowrap">{link.label}</span>}
+              </NavLink>
+            </div>
           ))}
         </nav>
 

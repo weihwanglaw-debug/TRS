@@ -15,10 +15,11 @@ import {
   apiGetRegistration, apiGetRegistrations,
   apiUpdateParticipant, apiGetEvents, apiUploadFile,
 } from "@/lib/api";
+import { apiGetFixtureStatus } from "@/lib/fixtureApi";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
-import type { RegistrationParticipant, ParticipantGroup, Registration, PaymentItem, RegStatus } from "@/types/registration";
-import { REG_STATUS_LABEL } from "@/types/registration";
-import type { TournamentEvent, ProgramFields } from "@/types/config";
+import type { RegistrationParticipant, ParticipantGroup, Registration, PaymentItem, RegStatus, PaymentStatus, ItemStatus } from "@/types/registration";
+import { REG_STATUS_LABEL, PAYMENT_STATUS_LABEL, ITEM_STATUS_LABEL } from "@/types/registration";
+import type { TournamentEvent, ProgramFields, Program } from "@/types/config";
 import { isTeamProgram } from "@/types/config";
 import ParticipantFieldsForm, {
   ParticipantFormValues,
@@ -35,16 +36,10 @@ interface ParticipantRow {
   eventName:      string;
   programName:    string;
   registrationId: string;
-}
-
-interface EntryRow {
-  key:            string;
-  group:          ParticipantGroup;
-  registration:   Registration;
-  eventName:      string;
-  programName:    string;
-  registrationId: string;
-  participants:   ParticipantRow[];
+  program?:       Program;
+  programType:    string;
+  feeStructure:   "per_entry" | "per_player";
+  fixtureExists:  boolean;
 }
 
 // Helpers
@@ -71,6 +66,68 @@ function StatusBadge({ status }: { status: string }) {
     <span className="inline-flex px-2 py-0.5 text-xs font-semibold"
       style={{ backgroundColor: bg, color }}>{label}</span>
   );
+}
+
+function PaymentBadge({ status }: { status?: string }) {
+  const label =
+    ITEM_STATUS_LABEL[status as ItemStatus] ??
+    PAYMENT_STATUS_LABEL[status as PaymentStatus] ??
+    status ??
+    "-";
+
+  const m: Record<string, [string, string]> = {
+    S:  ["var(--badge-open-bg)",   "var(--badge-open-text)"],
+    R:  ["var(--badge-open-bg)",   "var(--badge-open-text)"],
+    FR: ["var(--badge-open-bg)",   "var(--badge-open-text)"],
+    W:  ["var(--badge-soon-bg)",   "var(--badge-soon-text)"],
+    PC: ["var(--badge-soon-bg)",   "var(--badge-soon-text)"],
+    PR: ["var(--badge-soon-bg)",   "var(--badge-soon-text)"],
+    P:  ["var(--badge-soon-bg)",   "var(--badge-soon-text)"],
+    X:  ["var(--badge-closed-bg)", "var(--badge-closed-text)"],
+    F:  ["var(--badge-closed-bg)", "var(--badge-closed-text)"],
+  };
+  const [bg, color] = m[status ?? ""] ?? ["var(--color-row-hover)", "var(--color-body-text)"];
+  return (
+    <span className="inline-flex px-2 py-0.5 text-xs font-semibold"
+      style={{ backgroundColor: bg, color }}>{label}</span>
+  );
+}
+
+const GAME_TYPE_LABEL: Record<string, string> = {
+  singles: "Singles / Individual",
+  individual: "Individual",
+  doubles: "Pairs / Doubles",
+  mixed: "Custom / Mixed",
+  team: "Team",
+};
+
+const PAYMENT_TYPE_LABEL: Record<"per_entry" | "per_player", string> = {
+  per_entry: "Per Entry",
+  per_player: "Per Headcount",
+};
+
+function gameTypeLabel(type: string): string {
+  return GAME_TYPE_LABEL[type.toLowerCase()] ?? (type || "-");
+}
+
+function getRowRegistrationStatus(row: ParticipantRow): string {
+  return row.participant.participantStatus === "X" ? "X" : row.group.groupStatus;
+}
+
+function getPaymentItemForRow(row: ParticipantRow): PaymentItem | undefined {
+  const items = row.registration.payment?.items ?? [];
+
+  if (row.feeStructure === "per_player") {
+    return items.find(item => item.participantId === row.participant.id);
+  }
+
+  return items.find(item =>
+    item.participantGroupId === row.group.id && !item.participantId
+  ) ?? items.find(item => item.participantGroupId === row.group.id);
+}
+
+function getRowPaymentStatus(row: ParticipantRow): string | undefined {
+  return getPaymentItemForRow(row)?.itemStatus ?? row.registration.payment?.paymentStatus;
 }
 
 // Convert RegistrationParticipant to ParticipantFormValues
@@ -102,30 +159,12 @@ interface DetailModalProps {
   programFields: ProgramFields | null;
   eventType?:    string;
   teamMode:      boolean;
+  readOnly:      boolean;
   onClose:       () => void;
   onSaved:       (updated: Registration) => void;
 }
 
-function PaymentBadge({ status }: { status?: string }) {
-  const m: Record<string, [string, string, string]> = {
-    S:  ["Paid", "var(--badge-open-bg)", "var(--badge-open-text)"],
-    R:  ["Refunded", "var(--badge-open-bg)", "var(--badge-open-text)"],
-    PR: ["Partially Refunded", "var(--badge-soon-bg)", "var(--badge-soon-text)"],
-    FR: ["Refunded", "var(--badge-open-bg)", "var(--badge-open-text)"],
-    W:  ["Waived", "var(--badge-soon-bg)", "var(--badge-soon-text)"],
-    PC: ["Pending Collection", "var(--badge-soon-bg)", "var(--badge-soon-text)"],
-    P:  ["Pending", "var(--badge-soon-bg)", "var(--badge-soon-text)"],
-    X:  ["Cancelled", "var(--badge-closed-bg)", "var(--badge-closed-text)"],
-    F:  ["Failed", "var(--badge-closed-bg)", "var(--badge-closed-text)"],
-  };
-  const [label, bg, color] = m[status ?? ""] ?? [status || "-", "var(--color-row-hover)", "var(--color-body-text)"];
-  return (
-    <span className="inline-flex px-2 py-0.5 text-xs font-semibold"
-      style={{ backgroundColor: bg, color }}>{label}</span>
-  );
-}
-
-function DetailModal({ row, programFields, eventType, teamMode, onClose, onSaved }: DetailModalProps) {
+function DetailModal({ row, programFields, eventType, teamMode, readOnly, onClose, onSaved }: DetailModalProps) {
   const p = row.participant;
 
   const [form,       setForm]       = useState<ParticipantFormValues>(() => toFormValues(p));
@@ -155,6 +194,8 @@ function DetailModal({ row, programFields, eventType, teamMode, onClose, onSaved
   };
 
   const handleSave = async () => {
+    if (readOnly) return;
+
   // Client-side validation - same rules as registration form
   // Admin gets no exemption: wrong data is wrong data
     const errs = validateParticipant(form, {
@@ -173,6 +214,14 @@ function DetailModal({ row, programFields, eventType, teamMode, onClose, onSaved
     }
 
     setErrors({});
+
+    const originalTeamName = (row.group.clubDisplay || p.clubSchoolCompany || "").trim();
+    const nextTeamName = (form.clubSchoolCompany || "").trim();
+    if (teamMode && originalTeamName !== nextTeamName) {
+      const ok = window.confirm("This will update the team name for all participants in this group. Continue?");
+      if (!ok) return;
+    }
+
     setSaving(true);
     try {
   // Upload new document if chosen
@@ -209,6 +258,9 @@ function DetailModal({ row, programFields, eventType, teamMode, onClose, onSaved
       if (r.error) {
         if (r.error.code === "DUPLICATE_PARTICIPANT") {
           setErrors({ fullName: r.error.message });
+          topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        } else if (r.error.code === "DUPLICATE_TEAM") {
+          setErrors({ clubSchoolCompany: r.error.message });
           topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         } else {
           showSaveError(r.error.message);
@@ -253,7 +305,7 @@ function DetailModal({ row, programFields, eventType, teamMode, onClose, onSaved
                 {row.eventName} - {row.programName} - Reg {row.registrationId}
               </p>
             </div>
-            <StatusBadge status={row.group.groupStatus} />
+            <StatusBadge status={getRowRegistrationStatus(row)} />
           </div>
         </DialogHeader>
 
@@ -263,6 +315,12 @@ function DetailModal({ row, programFields, eventType, teamMode, onClose, onSaved
             <div className="p-3 text-sm font-medium"
               style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
               Please fix the highlighted fields before saving.
+            </div>
+          )}
+          {readOnly && (
+            <div className="p-3 text-sm font-medium"
+              style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
+              Participant details cannot be changed after fixtures have been generated. Reset the fixture first.
             </div>
           )}
           <ParticipantFieldsForm
@@ -277,6 +335,7 @@ function DetailModal({ row, programFields, eventType, teamMode, onClose, onSaved
             newFile={newDocFile}
   // No SBA lookup in admin edit - plain text input only
             sbaEnabled={false}
+            disabled={readOnly}
           />
         </div>
 
@@ -285,7 +344,7 @@ function DetailModal({ row, programFields, eventType, teamMode, onClose, onSaved
           <button onClick={onClose}
             className="btn-outline px-5 py-2.5 text-sm font-medium">Cancel</button>
           <button onClick={handleSave}
-            disabled={saving || !form.fullName.trim()}
+            disabled={readOnly || saving || !form.fullName.trim()}
             className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 flex items-center gap-2">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {saving ? "Saving..." : "Save Changes"}
@@ -295,32 +354,6 @@ function DetailModal({ row, programFields, eventType, teamMode, onClose, onSaved
     </Dialog>
     </>
   );
-}
-
-function getPaymentItemsForEntry(entry: EntryRow): PaymentItem[] {
-  const paymentItems = entry.registration.payment?.items ?? [];
-  const participantIds = new Set(entry.participants.map(row => row.participant.id));
-
-  const participantItems = paymentItems.filter(item =>
-    item.participantId && participantIds.has(item.participantId)
-  );
-  if (participantItems.length > 0) return participantItems;
-
-  return paymentItems.filter(item =>
-    !item.participantId && item.participantGroupId === entry.group.id
-  );
-}
-
-function getEntryPaymentStatus(entry: EntryRow): string | undefined {
-  const items = getPaymentItemsForEntry(entry);
-  if (items.length === 0) return entry.registration.payment?.paymentStatus;
-
-  const statuses = new Set(items.map(item => item.itemStatus));
-  if (statuses.size === 1) return items[0].itemStatus;
-  if (statuses.has("R")) return "PR";
-  if (statuses.has("S")) return "S";
-  if (statuses.has("X")) return "X";
-  return items[0].itemStatus;
 }
 
 // Main page
@@ -389,12 +422,12 @@ export default function ParticipantDetails() {
     return undefined;
   }, [events]);
 
-  const getProgramTeamMode = useCallback((group: ParticipantGroup): boolean => {
+  const getProgramForGroup = useCallback((group: ParticipantGroup): Program | undefined => {
     for (const ev of events) {
       const prog = ev.programs.find(p => p.id === group.programId);
-      if (prog) return isTeamProgram(prog.type);
+      if (prog) return prog;
     }
-    return false;
+    return undefined;
   }, [events]);
 
   const loadRows = useCallback(async () => {
@@ -413,20 +446,32 @@ export default function ParticipantDetails() {
         if (r.error) { setError(r.error.message); showLoadError(r.error.message); return; }
         regs = r.data!.items;
       }
+      const programIds = Array.from(new Set(regs.flatMap(reg => reg.groups.map(g => g.programId))));
+      const fixtureStatusResult = await apiGetFixtureStatus(programIds);
+      const fixtureStatus = fixtureStatusResult.data ?? {};
+      if (fixtureStatusResult.error) showLoadError(fixtureStatusResult.error.message);
+
       setRows(
         regs.flatMap(reg =>
           reg.groups
-            .flatMap(g =>
-            g.participants
-              .map(p => ({
-              participant:    p,
-              group:          g,
-              registration:   reg,
-              eventName:      reg.eventName,
-              programName:    g.programName,
-              registrationId: reg.id,
-            }))
-          )
+            .flatMap(g => {
+              const program = getProgramForGroup(g);
+              const programType = program?.type ?? "";
+              const feeStructure = program?.feeStructure ?? "per_entry";
+              return g.participants
+                .map(p => ({
+                  participant:    p,
+                  group:          g,
+                  registration:   reg,
+                  eventName:      reg.eventName,
+                  programName:    g.programName,
+                  registrationId: reg.id,
+                  program,
+                  programType,
+                  feeStructure,
+                  fixtureExists:  fixtureStatus[g.programId] ?? false,
+                }));
+            })
         )
       );
     } catch {
@@ -436,7 +481,7 @@ export default function ParticipantDetails() {
     } finally {
       setLoading(false);
     }
-  }, [filterEvent, filterProgram, filterRegId]);
+  }, [filterEvent, filterProgram, filterRegId, getProgramForGroup]);
 
   useEffect(() => { loadRows(); }, [loadRows]);
 
@@ -444,42 +489,19 @@ export default function ParticipantDetails() {
     const q = filterSearch.trim().toLowerCase();
     return rows.filter(r => {
       if (filterStatus) {
-        const matchesGroupStatus = r.group.groupStatus === filterStatus;
-        const matchesParticipantStatus = filterStatus === "X" &&
-          r.participant.participantStatus === "X";
-        if (!matchesGroupStatus && !matchesParticipantStatus) return false;
+        if (getRowRegistrationStatus(r) !== filterStatus) return false;
       }
-
       if (!q) return true;
       return r.participant.fullName.toLowerCase().includes(q) ||
         (r.participant.sbaId ?? "").toLowerCase().includes(q) ||
-        r.programName.toLowerCase().includes(q);
+        r.registrationId.toLowerCase().includes(q) ||
+        r.group.id.toLowerCase().includes(q) ||
+        r.eventName.toLowerCase().includes(q) ||
+        r.programName.toLowerCase().includes(q) ||
+        (r.group.clubDisplay ?? "").toLowerCase().includes(q) ||
+        (r.participant.clubSchoolCompany ?? "").toLowerCase().includes(q);
     });
   }, [rows, filterSearch, filterStatus]);
-
-  const visibleEntries = useMemo(() => {
-    const byEntry = new Map<string, EntryRow>();
-
-    for (const row of visibleRows) {
-      const key = row.group.id || `${row.registrationId}-${row.programName}-${row.group.namesDisplay}`;
-      const existing = byEntry.get(key);
-      if (existing) {
-        existing.participants.push(row);
-      } else {
-        byEntry.set(key, {
-          key,
-          group: row.group,
-          registration: row.registration,
-          eventName: row.eventName,
-          programName: row.programName,
-          registrationId: row.registrationId,
-          participants: [row],
-        });
-      }
-    }
-
-    return Array.from(byEntry.values());
-  }, [visibleRows]);
 
   const handleSaved = useCallback((updated: Registration) => {
     const updatedByParticipantId = new Map<string, { participant: RegistrationParticipant; group: ParticipantGroup }>();
@@ -508,7 +530,7 @@ export default function ParticipantDetails() {
         onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
       />
       <div className="flex items-center justify-between mb-8">
-        <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>Participant Details</h1></div>
+        <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>Participant Entries</h1></div>
       </div>
 
   {/* Filters */}
@@ -517,7 +539,7 @@ export default function ParticipantDetails() {
         <div className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4">
           <FG label="Search">
             <div className="relative">
-              <input className="field-input with-right-icon w-48" placeholder="Name, SBA ID..."
+              <input className="field-input with-right-icon w-56" placeholder="Name, SBA ID, team..."
                 value={filterSearch} onChange={e => setFilterSearch(e.target.value)} />
               {filterSearch && (
                 <button onClick={() => setFilterSearch("")}
@@ -562,7 +584,7 @@ export default function ParticipantDetails() {
       </div>
 
       <p className="text-xs opacity-50 mb-3">
-        {loading ? <span className="inline-flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</span> : `${visibleEntries.length} entr${visibleEntries.length !== 1 ? "ies" : "y"} - ${visibleRows.length} participant${visibleRows.length !== 1 ? "s" : ""}${
+        {loading ? <span className="inline-flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</span> : `${visibleRows.length} participant${visibleRows.length !== 1 ? "s" : ""}${
           rows.length !== visibleRows.length ? ` (filtered from ${rows.length})` : ""}`}
       </p>
 
@@ -571,7 +593,7 @@ export default function ParticipantDetails() {
         <LoadingSpinner size="sm" label="Loading participants..." />
       ) : error ? (
         <div className="py-16 text-center text-sm opacity-60">{error}</div>
-      ) : visibleEntries.length === 0 ? (
+      ) : visibleRows.length === 0 ? (
         <div className="py-16 text-center text-sm opacity-40">No participants found.</div>
       ) : (
         <>
@@ -580,39 +602,40 @@ export default function ParticipantDetails() {
                 <table className="trs-table">
                   <thead>
                     <tr>
-                      <th>Reg No.</th><th>Event</th><th>Program</th>
-                      <th>Participants</th><th>Status</th><th>Payment</th>
+                      <th>Reg No.</th><th>Event</th><th>Program</th><th>Game Type</th>
+                      <th>Payment Type</th><th>Group ID</th><th>Club / Team / School</th>
+                      <th>Participant</th><th>Registration<br />Status</th><th>Payment<br />Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleEntries.map(entry => (
-                      <tr key={entry.key}>
+                    {visibleRows.map(row => (
+                      <tr key={`${row.group.id}-${row.participant.id}`}>
                         <td>
                           <button
                             type="button"
-                            onClick={() => openRegistration(entry.registrationId)}
+                            onClick={() => openRegistration(row.registrationId)}
                             className="font-mono text-xs font-semibold hover:underline"
                             style={{ color: "var(--color-primary)" }}
                           >
-                            {entry.registrationId}
+                            {row.registrationId}
                           </button>
                         </td>
-                        <td className="text-sm">{entry.eventName}</td>
-                        <td className="text-sm">{entry.programName}</td>
+                        <td className="text-sm">{row.eventName}</td>
+                        <td className="text-sm">{row.programName}</td>
+                        <td className="text-sm">{gameTypeLabel(row.programType)}</td>
+                        <td className="text-sm">{PAYMENT_TYPE_LABEL[row.feeStructure]}</td>
+                        <td className="font-mono text-xs">{row.group.id}</td>
+                        <td className="text-sm">{row.group.clubDisplay || row.participant.clubSchoolCompany || "-"}</td>
                         <td>
-                          <div className="space-y-1">
-                            {entry.participants.map(row => (
-                              <button key={row.participant.id} type="button"
-                                onClick={() => setDetailRow(row)}
-                                className="flex items-center gap-2 text-left text-xs hover:opacity-70">
-                                <span className="font-semibold">{row.participant.fullName}</span>
-                                {row.participant.sbaId && <span className="font-mono opacity-40">{row.participant.sbaId}</span>}
-                              </button>
-                            ))}
-                          </div>
+                          <button type="button"
+                            onClick={() => setDetailRow(row)}
+                            className="flex items-center gap-2 text-left text-xs hover:opacity-70">
+                            <span className="font-semibold">{row.participant.fullName}</span>
+                            {row.participant.sbaId && <span className="font-mono opacity-40">{row.participant.sbaId}</span>}
+                          </button>
                         </td>
-                        <td><StatusBadge status={entry.group.groupStatus} /></td>
-                        <td><PaymentBadge status={getEntryPaymentStatus(entry)} /></td>
+                        <td><StatusBadge status={getRowRegistrationStatus(row)} /></td>
+                        <td><PaymentBadge status={getRowPaymentStatus(row)} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -620,37 +643,39 @@ export default function ParticipantDetails() {
               </div>
 
               <div className="md:hidden space-y-3">
-                {visibleEntries.map(entry => (
-                  <div key={entry.key} className="p-4"
+                {visibleRows.map(row => (
+                  <div key={`${row.group.id}-${row.participant.id}`} className="p-4"
                     style={{ border: "1px solid var(--color-table-border)" }}>
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div>
-                        <p className="text-xs opacity-50">{entry.programName} - {entry.eventName}</p>
+                        <p className="text-xs opacity-50">{row.programName} - {row.eventName}</p>
                         <button
                           type="button"
-                          onClick={() => openRegistration(entry.registrationId)}
+                          onClick={() => openRegistration(row.registrationId)}
                           className="text-xs font-mono mt-0.5 hover:underline"
                           style={{ color: "var(--color-primary)" }}
                         >
-                          Reg {entry.registrationId}
+                          Reg {row.registrationId}
                         </button>
                       </div>
                       <div className="flex flex-col items-end gap-1">
-                        <StatusBadge status={entry.group.groupStatus} />
-                        <PaymentBadge status={getEntryPaymentStatus(entry)} />
+                        <StatusBadge status={getRowRegistrationStatus(row)} />
+                        <PaymentBadge status={getRowPaymentStatus(row)} />
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      {entry.participants.map(row => (
-                        <button key={row.participant.id} type="button"
-                          onClick={() => setDetailRow(row)}
-                          className="w-full flex items-center justify-between gap-3 text-left text-xs p-2"
-                          style={{ backgroundColor: "var(--color-row-hover)" }}>
-                          <span className="font-semibold">{row.participant.fullName}</span>
-                          <span className="font-mono opacity-40">{row.participant.sbaId || "No SBA ID"}</span>
-                        </button>
-                      ))}
+                    <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+                      <span className="opacity-50">Game</span><span>{gameTypeLabel(row.programType)}</span>
+                      <span className="opacity-50">Payment Type</span><span>{PAYMENT_TYPE_LABEL[row.feeStructure]}</span>
+                      <span className="opacity-50">Group</span><span className="font-mono">{row.group.id}</span>
+                      <span className="opacity-50">Club / Team / School</span><span>{row.group.clubDisplay || row.participant.clubSchoolCompany || "-"}</span>
                     </div>
+                    <button type="button"
+                      onClick={() => setDetailRow(row)}
+                      className="w-full flex items-center justify-between gap-3 text-left text-xs p-2"
+                      style={{ backgroundColor: "var(--color-row-hover)" }}>
+                      <span className="font-semibold">{row.participant.fullName}</span>
+                      <span className="font-mono opacity-40">{row.participant.sbaId || "No SBA ID"}</span>
+                    </button>
                   </div>
                 ))}
               </div>
@@ -662,7 +687,8 @@ export default function ParticipantDetails() {
           row={detailRow}
           programFields={getProgramFields(detailRow.group)}
           eventType={getEventType(detailRow.group)}
-          teamMode={getProgramTeamMode(detailRow.group)}
+          teamMode={isTeamProgram(detailRow.programType)}
+          readOnly={detailRow.fixtureExists}
           onClose={() => setDetailRow(null)}
           onSaved={handleSaved}
         />

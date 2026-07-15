@@ -42,7 +42,7 @@ export function exportParticipantsCsv(
   isBadminton:  boolean,
 ) {
   const headers = [
-    "No.", "Club / School / Org", "Player(s)",
+    "No.", "Club / Team / School", "Player(s)", "Participant Club(s)",
     ...(isBadminton ? ["SBA ID"] : []),
     "Seed",
   ];
@@ -51,6 +51,7 @@ export function exportParticipantsCsv(
     String(i + 1),
     p.club,
     p.participants.join(" / "),
+    p.teamMode ? p.club : (p.participantClubs ?? []).join(" / "),
     ...(isBadminton ? [p.sbaId ?? ""] : []),
     p.seed != null ? String(p.seed) : "",
   ]);
@@ -164,7 +165,12 @@ export function exportFixtureRoundCsv(
   ];
 
   const teamName = (team: MatchEntry["team1"]) =>
-    getEntryDisplay({ teamMode: team.teamMode, label: team.label, participants: team.participants }).main || team.label;
+    getEntryDisplay({
+      teamMode: team.teamMode,
+      label: team.label,
+      participants: team.participants,
+      participantClubs: team.participantClubs,
+    }, "compact").main || team.label;
   const score = (match: MatchEntry) => match.walkover
     ? "W/O"
     : match.games
