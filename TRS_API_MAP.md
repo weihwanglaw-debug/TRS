@@ -69,7 +69,7 @@ EF maps this feature to SQL table `BadmintonClub`.
 | POST | `/api/registrations/{id}/cancel` | `superadmin,eventadmin` | Cancel whole registration scope without forcing refund; fixture-blocked. |
 | POST | `/api/registrations/{id}/groups/{groupId}/cancel` | `superadmin,eventadmin` | Cancel one entry/group; fixture-blocked. |
 | POST | `/api/registrations/{id}/participants/{participantId}/cancel` | `superadmin,eventadmin` | Cancel one per-player participant when it has a player-level payment item; fixture-blocked. |
-| GET | `/api/registrations/export` | `superadmin,eventadmin` | Export matching registrations without pagination. |
+| GET | `/api/registrations/export` | `superadmin,eventadmin` | Export matching registrations without pagination; supports `eventId`, `programId`, `regStatus`, `payStatus`, and `search` filters. |
 | GET | `/api/registrations/stats` | `superadmin,eventadmin` | Registration/payment dashboard stats. |
 | GET | `/api/registrations/{id}/receipt` | Public | Generate/download PDF receipt. |
 | GET | `/api/registrations/{id}/details-pdf` | Public | Generate/download registration details PDF. |

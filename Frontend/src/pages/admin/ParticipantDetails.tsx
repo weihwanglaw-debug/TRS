@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Loader2, Save, Search } from "lucide-react";
+import { Download, Loader2, Save, Search } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -26,6 +26,7 @@ import ParticipantFieldsForm, {
   validateParticipant, buildDobString, parseDobString,
 } from "@/components/registration/ParticipantFieldsForm";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import { exportWorkbookSheet } from "@/lib/exportRegistrationPaymentsWorkbook";
 
 // Types
 
@@ -374,6 +375,7 @@ export default function ParticipantDetails() {
   const [filterStatus,  setFilterStatus]  = useState("");
   const [rows,    setRows]    = useState<ParticipantRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [error,   setError]   = useState("");
   const [events,  setEvents]  = useState<TournamentEvent[]>([]);
   const [feedback, setFeedback] = useState<{
@@ -503,6 +505,64 @@ export default function ParticipantDetails() {
     });
   }, [rows, filterSearch, filterStatus]);
 
+  const handleExportExcel = async () => {
+    setExportingExcel(true);
+    try {
+      await exportWorkbookSheet({
+        filename: "Participant Entries",
+        headers: [
+          "No.",
+          "Reg No.",
+          "Event",
+          "Program",
+          "Game Type",
+          "Payment Type",
+          "Group ID",
+          "Club / Team / School",
+          "Participant",
+          "SBA ID",
+          "Registration Status",
+          "Payment Status",
+        ],
+        rows: visibleRows.map((row, index) => [
+          { value: index + 1, align: "right" as const },
+          row.registrationId,
+          row.eventName,
+          row.programName,
+          gameTypeLabel(row.programType),
+          PAYMENT_TYPE_LABEL[row.feeStructure],
+          row.group.id,
+          row.group.clubDisplay || row.participant.clubSchoolCompany || "-",
+          row.participant.fullName,
+          row.participant.sbaId || "",
+          REG_STATUS_LABEL[getRowRegistrationStatus(row) as RegStatus] ?? getRowRegistrationStatus(row),
+          ITEM_STATUS_LABEL[getRowPaymentStatus(row) as ItemStatus]
+            ?? PAYMENT_STATUS_LABEL[getRowPaymentStatus(row) as PaymentStatus]
+            ?? getRowPaymentStatus(row)
+            ?? "-",
+        ]),
+        columns: [
+          { width: 6 },
+          { width: 10 },
+          { width: 28 },
+          { width: 24 },
+          { width: 20 },
+          { width: 18 },
+          { width: 10 },
+          { width: 30 },
+          { width: 28 },
+          { width: 14 },
+          { width: 20 },
+          { width: 18 },
+        ],
+      });
+    } catch {
+      showLoadError("Participants could not be exported. Please check your connection and try again.");
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
   const handleSaved = useCallback((updated: Registration) => {
     const updatedByParticipantId = new Map<string, { participant: RegistrationParticipant; group: ParticipantGroup }>();
     updated.groups.forEach(group => {
@@ -580,6 +640,16 @@ export default function ParticipantDetails() {
               <option value="X">Cancelled</option>
             </select>
           </FG>
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            disabled={loading || exportingExcel || visibleRows.length === 0}
+            className="btn-outline h-[42px] px-4 text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Export participant entries matching the current filters to Excel"
+          >
+            {exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export Excel
+          </button>
         </div>
       </div>
 

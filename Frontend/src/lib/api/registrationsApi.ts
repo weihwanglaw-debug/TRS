@@ -646,14 +646,16 @@ export async function apiConfirmRegistration(
  * Admin: raw data for CSV export.
  */
 export async function apiExportRegistrations(
-  eventId?: string,
-  programId?: string,
+  filters?: RegistrationFilters,
 ): Promise<ApiResult<Registration[]>> {
   await delay();
 
   const p = new URLSearchParams();
-  if (eventId && eventId !== "all") p.set("eventId", eventId);
-  if (programId) p.set("programId", programId);
+  if (filters?.eventId && filters.eventId !== "all") p.set("eventId", filters.eventId);
+  if (filters?.programId) p.set("programId", filters.programId);
+  if (filters?.regStatus) p.set("regStatus", filters.regStatus);
+  if (filters?.payStatus) p.set("payStatus", filters.payStatus);
+  if (filters?.search) p.set("search", filters.search);
   const res = await apiFetch(`${API_BASE}/api/registrations/export?${p}`, { headers: adminHeaders() });
   if (!res.ok) return err("EXPORT_FAILED", (await parseError(res)).message);
   return ok(await res.json());

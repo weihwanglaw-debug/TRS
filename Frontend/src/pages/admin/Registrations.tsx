@@ -31,9 +31,11 @@ import {
   apiUpdatePayment,
   apiGetRefunds, apiGetPaymentAudit, apiCancelRegistration, apiCancelRegistrationGroup,
   apiCancelRegistrationParticipant, apiConfirmRegistration, apiInitiateRefunds,
-  apiSendCancellationNotification, assetUrl,
+  apiSendCancellationNotification, apiExportRegistrations, assetUrl,
 } from "@/lib/api";
 import type { CancellationRefundMode } from "@/lib/api/registrationsApi";
+import { formatRegistrationProgramsSummary } from "@/lib/exportCsv";
+import { exportRegistrationPaymentsWorkbook } from "@/lib/exportRegistrationPaymentsWorkbook";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Pagination } from "@/components/ui/TableControls";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
@@ -126,25 +128,6 @@ function FG({ label, children }: { label: string; children: React.ReactNode }) {
 function getPayment(reg: Registration | null | undefined): Payment | null {
   if (!reg) return null;
   return ((reg as Registration & { payment?: Payment | null }).payment) ?? null;
-}
-
-function programEntrySummary(groups: ParticipantGroup[]) {
-  const byProgram = new Map<string, { programName: string; count: number }>();
-
-  for (const group of groups) {
-    const key = group.programId || group.programName;
-    const current = byProgram.get(key);
-    if (current) current.count += 1;
-    else byProgram.set(key, { programName: group.programName, count: 1 });
-  }
-
-  const programs = Array.from(byProgram.values());
-  return {
-    programCount: programs.length,
-    text: programs
-      .map(p => `${p.programName} x ${p.count} ${p.count === 1 ? "entry" : "entries"}`)
-      .join(", "),
-  };
 }
 
 function formatDate(value?: string): string {
@@ -421,7 +404,7 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
 
   {/* Payment summary */}
             <div
-              className="grid gap-4 text-sm"
+              className="grid gap-x-4 gap-y-6 text-sm"
               style={{
                 gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
                 padding: "16px",
@@ -434,7 +417,7 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
               <MetaField label="Payer Contact" value={reg.contactPhone || "-"} />
               <MetaField label="Payment Method" value={payment?.method ? (PAYMENT_METHOD_LABEL[payment.method] ?? payment.method) : "-"} />
               <div>
-                <p className="text-xs opacity-50 mb-1">Payment Status</p>
+                <p className="text-sm font-semibold opacity-70 mb-1.5">Payment Status</p>
                 {payment ? <PayBadge status={payment.paymentStatus} /> : <span className="opacity-40 text-xs">No payment</span>}
               </div>
             </div>
@@ -767,8 +750,8 @@ function MetaField({
 }: { label: string; value: string; mono?: boolean; bold?: boolean }) {
   return (
     <div>
-      <p className="text-xs opacity-50 mb-0.5">{label}</p>
-      <p className={`text-sm ${mono ? "font-mono" : ""} ${bold ? "font-bold" : ""}`}>{value}</p>
+      <p className="text-sm font-semibold opacity-70 mb-1.5">{label}</p>
+      <p className={`text-sm leading-relaxed ${mono ? "font-mono" : ""} ${bold ? "font-bold" : ""}`}>{value}</p>
     </div>
   );
 }
@@ -809,6 +792,7 @@ export default function AdminRegistrations() {
   const [regTotalPgs, setRegTotalPgs] = useState(1);
   const [refundsByReg, setRefundsByReg] = useState<Record<string, Refund[]>>({});
   const [loadingRegs, setLoadingRegs] = useState(true);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [apiError,    setApiError]    = useState("");
   const [feedback, setFeedback] = useState<{
     open: boolean;
@@ -847,6 +831,9 @@ export default function AdminRegistrations() {
 
   const programsForEvent = useMemo(() =>
     events.find(e => e.id === filterEvent)?.programs ?? [], [events, filterEvent]);
+  const programsById = useMemo(() =>
+    Object.fromEntries(events.flatMap(event => event.programs.map(program => [program.id, program]))),
+  [events]);
 
   const sorted = useMemo(() => [...regs].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)), [regs]);
   const paged  = sorted;
@@ -1024,6 +1011,32 @@ export default function AdminRegistrations() {
     const payment = getPayment(reg);
     if (!payment) return [];
     return payment.items;
+  };
+
+  const handleExportExcel = async () => {
+    setExportingExcel(true);
+    try {
+      const result = await apiExportRegistrations({
+        eventId: filterEvent || undefined,
+        programId: filterProgram || undefined,
+        regStatus: filterReg || undefined,
+        payStatus: filterPay || undefined,
+        search: filterSearch || undefined,
+      });
+      if (result.error) {
+        setApiError(result.error.message);
+        return;
+      }
+
+      const eventName = events.find(e => e.id === filterEvent)?.name ?? "All Events";
+      const programName = programsForEvent.find(p => p.id === filterProgram)?.name ?? "";
+      const exportLabel = programName ? `${eventName} - ${programName}` : eventName;
+      await exportRegistrationPaymentsWorkbook(exportLabel, result.data ?? [], programsById);
+    } catch {
+      setApiError("Registrations could not be exported. Please check your connection and try again.");
+    } finally {
+      setExportingExcel(false);
+    }
   };
 
   const getRefundCancelItemEntryLabel = (reg: Registration, item: PaymentItem): string | null => {
@@ -1354,6 +1367,16 @@ export default function AdminRegistrations() {
                 ))}
               </select>
             </FG>
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              disabled={exportingExcel || loadingRegs}
+              className="btn-outline h-[42px] px-4 text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Export registrations matching the current filters to Excel"
+            >
+              {exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Export Excel
+            </button>
           </div>
         </div>
 
@@ -1383,7 +1406,8 @@ export default function AdminRegistrations() {
               )}
               {paged.map(reg => {
                 const payment      = getPayment(reg);
-                const programInfo  = programEntrySummary(reg.groups);
+                const programLines = formatRegistrationProgramsSummary(reg, programsById);
+                const programCount = programLines.length;
                 const regRefunds   = refundsByReg[reg.id] ?? [];
                 const refunded     = calcRefunded(regRefunds, payment?.items ?? []);
 
@@ -1402,11 +1426,11 @@ export default function AdminRegistrations() {
                       <td>
                         <div className="flex items-center gap-1.5">
                           <Users className="h-3.5 w-3.5 opacity-30" />
-                          <span className="text-sm">{programInfo.programCount} program{programInfo.programCount !== 1 ? "s" : ""}</span>
+                          <span className="text-sm">{programCount} program{programCount !== 1 ? "s" : ""}</span>
                         </div>
-                        <p className="text-xs opacity-50 mt-0.5">
-                          {programInfo.text}
-                        </p>
+                        <div className="text-xs opacity-50 mt-0.5 space-y-0.5">
+                          {programLines.map(line => <p key={line}>{line}</p>)}
+                        </div>
                       </td>
                       <td><RegBadge status={reg.regStatus} /></td>
                       <td>{payment ? <PayBadge status={payment.paymentStatus} /> : <span className="opacity-40">No payment</span>}</td>
@@ -1424,10 +1448,12 @@ export default function AdminRegistrations() {
                       <td>
                         <div className="relative">
                           <button
+                            type="button"
                             onClick={(e) =>
                               setOpenAction(openAction?.reg.id === reg.id ? null : { reg, anchorEl: e.currentTarget })
                             }
-                            className="p-2 hover:opacity-70" style={{ color: "var(--color-primary)" }}>
+                            className="action-trigger"
+                            aria-label={`Open actions for registration ${reg.id}`}>
                             <MoreVertical className="h-4 w-4" />
                           </button>
                         </div>
@@ -1450,7 +1476,8 @@ export default function AdminRegistrations() {
             )}
             {paged.map(reg => {
               const payment      = getPayment(reg);
-              const programInfo  = programEntrySummary(reg.groups);
+              const programLines = formatRegistrationProgramsSummary(reg, programsById);
+              const programCount = programLines.length;
               const regRefunds   = refundsByReg[reg.id] ?? [];
               const refunded     = calcRefunded(regRefunds, payment?.items ?? []);
 
@@ -1463,11 +1490,12 @@ export default function AdminRegistrations() {
                       <p className="text-xs opacity-50 truncate">{reg.contactEmail}</p>
                     </div>
                     <button
+                      type="button"
                       onClick={(e) =>
                         setOpenAction(openAction?.reg.id === reg.id ? null : { reg, anchorEl: e.currentTarget })
                       }
-                      className="p-2 -mr-2 hover:opacity-70"
-                      style={{ color: "var(--color-primary)" }}
+                      className="action-trigger -mr-2"
+                      aria-label={`Open actions for registration ${reg.id}`}
                     >
                       <MoreVertical className="h-4 w-4" />
                     </button>
@@ -1476,8 +1504,10 @@ export default function AdminRegistrations() {
                   <div className="mt-2 flex items-start gap-1.5">
                     <Users className="h-3.5 w-3.5 opacity-30 mt-0.5 flex-shrink-0" />
                     <div className="min-w-0">
-                      <p className="text-sm">{programInfo.programCount} program{programInfo.programCount !== 1 ? "s" : ""}</p>
-                      <p className="text-xs opacity-50">{programInfo.text}</p>
+                      <p className="text-sm">{programCount} program{programCount !== 1 ? "s" : ""}</p>
+                      <div className="text-xs opacity-50 space-y-0.5">
+                        {programLines.map(line => <p key={line}>{line}</p>)}
+                      </div>
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center gap-2">

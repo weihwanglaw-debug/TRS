@@ -36,15 +36,10 @@ public class EmailService
             return;
         }
 
-        var host = _config["Email:Smtp:Host"];
-        var port = _config.GetValue<int?>("Email:Smtp:Port") ?? 587;
-        var username = _config["Email:Smtp:Username"];
-        var password = _config["Email:Smtp:Password"];
         var appName = await GetAppNameAsync(db, ct);
-        var fromAddress = _config["Email:FromAddress"] ?? username;
-        var fromName = _config["Email:FromName"] ?? appName;
+        var email = GetEmailSettings(appName);
 
-        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
+        if (!email.IsConfigured)
         {
             _logger.LogWarning(
                 "Skipping payment confirmation email for registration {RegistrationId}: SMTP is not configured",
@@ -57,7 +52,7 @@ public class EmailService
 
         using var message = new MailMessage
         {
-            From = new MailAddress(fromAddress, fromName),
+            From = new MailAddress(email.FromAddress!, email.FromName),
             Subject = $"{appName} registration confirmed ({receiptNo})",
             Body =
                 $"Hello {reg.ContactName},\n\n" +
@@ -77,16 +72,7 @@ public class EmailService
                 "application/pdf"));
         }
 
-        using var client = new SmtpClient(host, port)
-        {
-            EnableSsl = _config.GetValue("Email:Smtp:EnableSsl", true),
-            DeliveryMethod = SmtpDeliveryMethod.Network,
-        };
-
-        if (!string.IsNullOrWhiteSpace(username))
-        {
-            client.Credentials = new NetworkCredential(username, password);
-        }
+        using var client = CreateSmtpClient(email);
 
         await client.SendMailAsync(message, ct);
         _logger.LogInformation("Payment confirmation email sent for registration {RegistrationId} to {Email}", registrationId, reg.ContactEmail);
@@ -115,15 +101,10 @@ public class EmailService
             return;
         }
 
-        var host = _config["Email:Smtp:Host"];
-        var port = _config.GetValue<int?>("Email:Smtp:Port") ?? 587;
-        var username = _config["Email:Smtp:Username"];
-        var password = _config["Email:Smtp:Password"];
         var appName = await GetAppNameAsync(db, ct);
-        var fromAddress = _config["Email:FromAddress"] ?? username;
-        var fromName = _config["Email:FromName"] ?? appName;
+        var email = GetEmailSettings(appName);
 
-        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
+        if (!email.IsConfigured)
         {
             _logger.LogWarning(
                 "Skipping payment reconciliation alert for webhook log {WebhookLogId}: SMTP is not configured",
@@ -137,7 +118,7 @@ public class EmailService
 
         using var message = new MailMessage
         {
-            From = new MailAddress(fromAddress, fromName),
+            From = new MailAddress(email.FromAddress!, email.FromName),
             Subject = $"{appName} payment reconciliation required ({log.GatewaySessionId})",
             Body =
                 "A payment needs organiser review in the system.\n\n" +
@@ -159,16 +140,7 @@ public class EmailService
             message.To.Add(recipient);
         }
 
-        using var client = new SmtpClient(host, port)
-        {
-            EnableSsl = _config.GetValue("Email:Smtp:EnableSsl", true),
-            DeliveryMethod = SmtpDeliveryMethod.Network,
-        };
-
-        if (!string.IsNullOrWhiteSpace(username))
-        {
-            client.Credentials = new NetworkCredential(username, password);
-        }
+        using var client = CreateSmtpClient(email);
 
         await client.SendMailAsync(message, ct);
         _logger.LogInformation(
@@ -203,15 +175,10 @@ public class EmailService
             return;
         }
 
-        var host = _config["Email:Smtp:Host"];
-        var port = _config.GetValue<int?>("Email:Smtp:Port") ?? 587;
-        var username = _config["Email:Smtp:Username"];
-        var password = _config["Email:Smtp:Password"];
         var appName = await GetAppNameAsync(db, ct);
-        var fromAddress = _config["Email:FromAddress"] ?? username;
-        var fromName = _config["Email:FromName"] ?? appName;
+        var email = GetEmailSettings(appName);
 
-        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
+        if (!email.IsConfigured)
         {
             _logger.LogWarning(
                 "Skipping cancellation email for registration {RegistrationId}: SMTP is not configured",
@@ -230,7 +197,7 @@ public class EmailService
 
         using var message = new MailMessage
         {
-            From = new MailAddress(fromAddress, fromName),
+            From = new MailAddress(email.FromAddress!, email.FromName),
             Subject = includesRefund
                 ? $"{appName} {scopeLabel} cancelled with refund ({receiptNo})"
                 : $"{appName} {scopeLabel} cancelled ({receiptNo})",
@@ -261,16 +228,7 @@ public class EmailService
                 "application/pdf"));
         }
 
-        using var client = new SmtpClient(host, port)
-        {
-            EnableSsl = _config.GetValue("Email:Smtp:EnableSsl", true),
-            DeliveryMethod = SmtpDeliveryMethod.Network,
-        };
-
-        if (!string.IsNullOrWhiteSpace(username))
-        {
-            client.Credentials = new NetworkCredential(username, password);
-        }
+        using var client = CreateSmtpClient(email);
 
         await client.SendMailAsync(message, ct);
         _logger.LogInformation(
@@ -301,15 +259,10 @@ public class EmailService
             return;
         }
 
-        var host = _config["Email:Smtp:Host"];
-        var port = _config.GetValue<int?>("Email:Smtp:Port") ?? 587;
-        var username = _config["Email:Smtp:Username"];
-        var password = _config["Email:Smtp:Password"];
         var appName = await GetAppNameAsync(db, ct);
-        var fromAddress = _config["Email:FromAddress"] ?? username;
-        var fromName = _config["Email:FromName"] ?? appName;
+        var email = GetEmailSettings(appName);
 
-        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
+        if (!email.IsConfigured)
         {
             _logger.LogWarning(
                 "Skipping refund email for registration {RegistrationId}: SMTP is not configured",
@@ -322,7 +275,7 @@ public class EmailService
 
         using var message = new MailMessage
         {
-            From = new MailAddress(fromAddress, fromName),
+            From = new MailAddress(email.FromAddress!, email.FromName),
             Subject = $"{appName} refund processed ({receiptNo})",
             Body =
                 $"Hello {reg.ContactName},\n\n" +
@@ -334,16 +287,7 @@ public class EmailService
         message.To.Add(reg.ContactEmail);
         message.Attachments.Add(new Attachment(new MemoryStream(updatedReceiptPdf), $"Receipt-{receiptNo}.pdf", "application/pdf"));
 
-        using var client = new SmtpClient(host, port)
-        {
-            EnableSsl = _config.GetValue("Email:Smtp:EnableSsl", true),
-            DeliveryMethod = SmtpDeliveryMethod.Network,
-        };
-
-        if (!string.IsNullOrWhiteSpace(username))
-        {
-            client.Credentials = new NetworkCredential(username, password);
-        }
+        using var client = CreateSmtpClient(email);
 
         await client.SendMailAsync(message, ct);
         _logger.LogInformation("Refund email sent for registration {RegistrationId} to {Email}", registrationId, reg.ContactEmail);
@@ -366,19 +310,14 @@ public class EmailService
         if (string.IsNullOrWhiteSpace(recipient) || !IsValidEmailAddress(recipient))
             throw new InvalidOperationException("Contact email is not configured.");
 
-        var host = _config["Email:Smtp:Host"];
-        var port = _config.GetValue<int?>("Email:Smtp:Port") ?? 587;
-        var username = _config["Email:Smtp:Username"];
-        var password = _config["Email:Smtp:Password"];
-        var fromAddress = _config["Email:FromAddress"] ?? username;
-        var fromName = _config["Email:FromName"] ?? appName;
+        var email = GetEmailSettings(appName);
 
-        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(fromAddress))
+        if (!email.IsConfigured)
             throw new InvalidOperationException("SMTP is not configured.");
 
         using var message = new MailMessage
         {
-            From = new MailAddress(fromAddress, fromName),
+            From = new MailAddress(email.FromAddress!, email.FromName),
             Subject = $"[{appName}] {topic.Trim()}",
             Body =
                 "A message was submitted from the landing page.\n\n" +
@@ -393,14 +332,7 @@ public class EmailService
         if (IsValidEmailAddress(contact.Trim()))
             message.ReplyToList.Add(new MailAddress(contact.Trim(), name.Trim()));
 
-        using var client = new SmtpClient(host, port)
-        {
-            EnableSsl = _config.GetValue("Email:Smtp:EnableSsl", true),
-            DeliveryMethod = SmtpDeliveryMethod.Network,
-        };
-
-        if (!string.IsNullOrWhiteSpace(username))
-            client.Credentials = new NetworkCredential(username, password);
+        using var client = CreateSmtpClient(email);
 
         await client.SendMailAsync(message, ct);
         _logger.LogInformation("Landing message sent to configured contact email {Email}", recipient);
@@ -428,5 +360,55 @@ public class EmailService
             .FirstOrDefaultAsync(ct);
 
         return string.IsNullOrWhiteSpace(appName) ? "System" : appName.Trim();
+    }
+
+    private EmailSettings GetEmailSettings(string appName)
+    {
+        var username = _config["Email:Smtp:Username"]?.Trim();
+        var fromAddress = _config["Email:FromAddress"]?.Trim();
+
+        if (string.IsNullOrWhiteSpace(fromAddress))
+            fromAddress = username;
+
+        return new EmailSettings(
+            Host: _config["Email:Smtp:Host"]?.Trim(),
+            Port: _config.GetValue<int?>("Email:Smtp:Port") ?? 587,
+            Username: username,
+            Password: _config["Email:Smtp:Password"],
+            EnableSsl: _config.GetValue("Email:Smtp:EnableSsl", true),
+            FromAddress: fromAddress,
+            FromName: string.IsNullOrWhiteSpace(_config["Email:FromName"])
+                ? appName
+                : _config["Email:FromName"]!.Trim());
+    }
+
+    private static SmtpClient CreateSmtpClient(EmailSettings email)
+    {
+        var client = new SmtpClient(email.Host!, email.Port)
+        {
+            EnableSsl = email.EnableSsl,
+            DeliveryMethod = SmtpDeliveryMethod.Network,
+        };
+
+        if (!string.IsNullOrWhiteSpace(email.Username))
+        {
+            client.Credentials = new NetworkCredential(email.Username, email.Password);
+        }
+
+        return client;
+    }
+
+    private sealed record EmailSettings(
+        string? Host,
+        int Port,
+        string? Username,
+        string? Password,
+        bool EnableSsl,
+        string? FromAddress,
+        string FromName)
+    {
+        public bool IsConfigured =>
+            !string.IsNullOrWhiteSpace(Host) &&
+            !string.IsNullOrWhiteSpace(FromAddress);
     }
 }

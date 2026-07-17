@@ -285,9 +285,10 @@ public class EventsController : ControllerBase
         }
 
         var activeGroupCount = await CountActiveParticipantGroups(pid);
+        var activeSlotCount = await CountActiveProgramSlots(prog);
         if (activeGroupCount > 0)
         {
-            var validationMessage = ValidateProgramUpdateWithRegistrations(prog, req, activeGroupCount);
+            var validationMessage = ValidateProgramUpdateWithRegistrations(prog, req, activeSlotCount);
             if (validationMessage != null)
             {
                 return Conflict(new
@@ -391,15 +392,59 @@ public class EventsController : ControllerBase
     private async Task<Dictionary<int, int>> GetParticipantCounts(List<int> programIds)
     {
         if (!programIds.Any()) return new();
-        return await _db.ParticipantGroups
-            .Where(g => programIds.Contains(g.ProgramId) && g.GroupStatus != StatusCodesEx.Registration.Cancelled)
+
+        var programs = await _db.Programs
+            .Where(p => programIds.Contains(p.ProgramId))
+            .Select(p => new { p.ProgramId, p.FeeStructure })
+            .ToListAsync();
+
+        var activeGroups = _db.ParticipantGroups
+            .Where(g =>
+                programIds.Contains(g.ProgramId) &&
+                g.GroupStatus != StatusCodesEx.Registration.Cancelled &&
+                g.Registration.RegStatus != StatusCodesEx.Registration.Cancelled);
+
+        var groupCounts = await activeGroups
             .GroupBy(g => g.ProgramId)
             .Select(g => new { g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Key, x => x.Count);
+
+        var participantCounts = await activeGroups
+            .SelectMany(g => g.Participants
+                .Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
+                .Select(p => new { g.ProgramId }))
+            .GroupBy(x => x.ProgramId)
+            .Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Key, x => x.Count);
+
+        return programs.ToDictionary(
+            p => p.ProgramId,
+            p => IsPerPlayer(p.FeeStructure)
+                ? participantCounts.GetValueOrDefault(p.ProgramId)
+                : groupCounts.GetValueOrDefault(p.ProgramId));
     }
 
     private Task<int> CountActiveParticipantGroups(int programId) =>
-        _db.ParticipantGroups.CountAsync(g => g.ProgramId == programId && g.GroupStatus != StatusCodesEx.Registration.Cancelled);
+        _db.ParticipantGroups.CountAsync(g =>
+            g.ProgramId == programId &&
+            g.GroupStatus != StatusCodesEx.Registration.Cancelled &&
+            g.Registration.RegStatus != StatusCodesEx.Registration.Cancelled);
+
+    private Task<int> CountActiveProgramSlots(TrsProgram program)
+    {
+        var activeGroups = _db.ParticipantGroups
+            .Where(g =>
+                g.ProgramId == program.ProgramId &&
+                g.GroupStatus != StatusCodesEx.Registration.Cancelled &&
+                g.Registration.RegStatus != StatusCodesEx.Registration.Cancelled);
+
+        if (!IsPerPlayer(program.FeeStructure))
+            return activeGroups.CountAsync();
+
+        return activeGroups
+            .SelectMany(g => g.Participants)
+            .CountAsync(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled);
+    }
 
     private static Event ApplyEventFields(Event ev, UpsertEventRequest r)
     {
@@ -480,7 +525,7 @@ public class EventsController : ControllerBase
     private static string? ValidateProgramUpdateWithRegistrations(
         TrsProgram current,
         UpsertProgramRequest requested,
-        int activeGroupCount)
+        int activeSlotCount)
     {
         if (!string.Equals(current.Type, requested.Type, StringComparison.Ordinal))
             return RegisteredProgramChangeBlockedMessage("program format/type");
@@ -495,10 +540,10 @@ public class EventsController : ControllerBase
             return RegisteredProgramChangeBlockedMessage("payment or fee settings");
         if (current.MinPlayers != requested.MinPlayers || current.MaxPlayers != requested.MaxPlayers)
             return RegisteredProgramChangeBlockedMessage("players-per-entry limits");
-        if (requested.MinParticipants > activeGroupCount)
-            return $"This program already has {activeGroupCount} non-cancelled registered participant group(s). Minimum entries cannot be raised above the current registration count.";
-        if (requested.MaxParticipants < activeGroupCount)
-            return $"This program already has {activeGroupCount} non-cancelled registered participant group(s). Capacity cannot be reduced below the current registration count.";
+        if (requested.MinParticipants > activeSlotCount)
+            return $"This program already has {activeSlotCount} active filled slot(s). Minimum entries cannot be raised above the current filled count.";
+        if (requested.MaxParticipants < activeSlotCount)
+            return $"This program already has {activeSlotCount} active filled slot(s). Capacity cannot be reduced below the current filled count.";
         if (!ProgramFieldsMatch(current.Fields, requested.Fields) || !CustomFieldsMatch(current.CustomFields, requested.Fields.CustomFields))
             return RegisteredProgramChangeBlockedMessage("participant field settings");
 
@@ -507,6 +552,9 @@ public class EventsController : ControllerBase
 
     private static string RegisteredProgramChangeBlockedMessage(string fieldGroup) =>
         $"This program already has registered participants. Changing {fieldGroup} could conflict with existing registrations.";
+
+    private static bool IsPerPlayer(string? feeStructure) =>
+        string.Equals(feeStructure, "per_player", StringComparison.OrdinalIgnoreCase);
 
     private static string? NormalizeNullable(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

@@ -122,10 +122,12 @@ export default function AdminEvents() {
                   <td>
                     <div className="relative">
                       <button
+                        type="button"
                         onClick={(e) =>
                           setOpenAction(openAction?.id === event.id ? null : { id: event.id, anchorEl: e.currentTarget })
                         }
-                        className="p-2 hover:opacity-70 transition-opacity" style={{ color: "var(--color-primary)" }}>
+                        className="action-trigger"
+                        aria-label={`Open actions for ${event.name}`}>
                         <MoreVertical className="h-4 w-4" />
                       </button>
                     </div>
@@ -155,10 +157,12 @@ export default function AdminEvents() {
                   <StatusBadge status={status} />
                   <div className="relative">
                     <button
+                      type="button"
                       onClick={(e) =>
                         setOpenAction(openAction?.id === event.id ? null : { id: event.id, anchorEl: e.currentTarget })
                       }
-                      className="p-1.5 opacity-50 hover:opacity-100"
+                      className="action-trigger"
+                      aria-label={`Open actions for ${event.name}`}
                     >
                       <MoreVertical className="h-4 w-4" />
                     </button>

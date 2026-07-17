@@ -162,7 +162,7 @@ The older hosted Checkout session-first path remains as a legacy fallback throug
 
 Free registrations are created directly through `POST /api/registrations`.
 
-Registration availability is backend-computed from `Events.RegistrationStatus`, Singapore date, event activity, and active program count. API responses expose `registrationStatus` and `computedRegistrationStatus`; frontend date-only status logic is fallback only. Program capacity is enforced per program entry/group; event-level `MaxParticipants` is deprecated and not part of registration validation. Built-in participant fields have separate enabled and required flags in `ProgramFields`.
+Registration availability is backend-computed from `Events.RegistrationStatus`, Singapore date, event activity, and active program count. API responses expose `registrationStatus` and `computedRegistrationStatus`; frontend date-only status logic is fallback only. Program capacity is enforced by program fee structure: `per_entry` counts active entries/groups, while `per_player` counts active non-cancelled participants/headcount. Event-level `MaxParticipants` is deprecated and not part of registration validation. Built-in participant fields have separate enabled and required flags in `ProgramFields`.
 
 `RegistrationWorkflowService` uses explicit event gate modes:
 
@@ -195,6 +195,14 @@ Backend configuration comes from `appsettings*.json` and environment variables:
 - `Cors:AllowedOrigins`
 - `RateLimiting:WindowMinutes`, `RateLimiting:PermitLimit`
 - `Email:*`
+
+Email uses SMTP through `EmailService`. The default checked-in SMTP endpoint is Microsoft 365 SMTP client submission:
+
+- `Email:Smtp:Host`: `smtp.office365.com`
+- `Email:Smtp:Port`: `587`
+- `Email:Smtp:EnableSsl`: `true`
+
+Do not commit mailbox credentials. Set `Email:Smtp:Username`, `Email:Smtp:Password`, and optionally `Email:FromAddress` through user secrets, environment variables, or deployment secret configuration. If `Email:FromAddress` is blank, the SMTP username is used as the sender address. Microsoft 365 must allow SMTP AUTH for the designated mailbox.
 
 Frontend configuration:
 

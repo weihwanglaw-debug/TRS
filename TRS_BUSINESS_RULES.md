@@ -103,8 +103,9 @@ Duplicates:
 
 Capacity:
 
-- Capacity counts non-cancelled `ParticipantGroup` rows per program.
-- `Program.MaxParticipants` is treated as max entries/groups, not max individual players.
+- Capacity excludes cancelled registrations, cancelled participant groups, and cancelled participants.
+- For `FeeStructure='per_entry'`, `Program.MaxParticipants` is treated as max active entries/groups.
+- For `FeeStructure='per_player'`, `Program.MaxParticipants` is treated as max active individual participants/headcount.
 - Event-level `MaxParticipants` is deprecated and is not enforced by `RegistrationWorkflowService`; program-level capacity is authoritative.
 
 Pricing:

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, Edit2, Users, Save, X, Image, Trash2,
   MoreVertical, ExternalLink, Lock, Unlock, FileText, GripVertical,
-  Loader2,
+  Loader2, Download,
 } from "lucide-react";
 import type { TournamentEvent, Program, EventDocument } from "@/types/config";
 import { getEventStatus } from "@/lib/eventUtils";
@@ -22,6 +22,7 @@ import {
   apiAddEventDocument, apiUpdateEventDocument, apiDeleteEventDocument,
   apiUploadFile, assetUrl,
 } from "@/lib/api";
+import { exportProgramImportTemplate } from "@/lib/exportProgramImportTemplate";
 
 //  Quill rich-text editor
 // Install: npm install react-quilljs quill && npm install -D @types/quill
@@ -781,10 +782,11 @@ export default function EventEdit() {
                     <td>
                       <div className="relative">
                         <button
+                          type="button"
                           onClick={e => { if (!editing) return; setOpenAction(openAction?.prog.id === prog.id ? null : { prog, anchorEl: e.currentTarget }); }}
                           disabled={!editing}
-                          className="p-2 hover:opacity-70 disabled:opacity-30 disabled:cursor-not-allowed"
-                          style={{ color: "var(--color-primary)" }}>
+                          className="action-trigger"
+                          aria-label={`Open actions for ${prog.name}`}>
                           <MoreVertical className="h-4 w-4" />
                         </button>
                       </div>
@@ -803,10 +805,11 @@ export default function EventEdit() {
                     <p className="text-xs opacity-50 mt-0.5">{prog.type} - {prog.gender} - Age {prog.minAge}-{prog.maxAge}</p>
                   </div>
                   <button
+                    type="button"
                     onClick={e => { if (!editing) return; setOpenAction(openAction?.prog.id === prog.id ? null : { prog, anchorEl: e.currentTarget }); }}
                     disabled={!editing}
-                    className="p-2 -mr-2 hover:opacity-70 disabled:opacity-30 disabled:cursor-not-allowed"
-                    style={{ color: "var(--color-primary)" }}
+                    className="action-trigger -mr-2"
+                    aria-label={`Open actions for ${prog.name}`}
                   >
                     <MoreVertical className="h-4 w-4" />
                   </button>
@@ -848,6 +851,19 @@ export default function EventEdit() {
           <button onClick={() => { setEditingProgram(openAction.prog); setProgramModalOpen(true); setOpenAction(null); }}>
             <Edit2 className="h-4 w-4" /> Edit Program
           </button>
+          {!isNew && event && (
+            <button onClick={async () => {
+              const prog = openAction.prog;
+              setOpenAction(null);
+              try {
+                await exportProgramImportTemplate(event, prog);
+              } catch {
+                showError("Import template could not be downloaded", "Please try again. If the issue persists, refresh the page and retry.");
+              }
+            }}>
+              <Download className="h-4 w-4" /> Download Import Template
+            </button>
+          )}
           {!isNew && (
             <button onClick={async () => {
               const prog = openAction.prog;

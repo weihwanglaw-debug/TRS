@@ -9,9 +9,10 @@
  * no changes needed here when switching to a real backend.
  */
 
-import type { MatchEntry, SeedEntry } from "@/types/config";
+import type { MatchEntry, Program, SeedEntry } from "@/types/config";
 import { getEntryDisplay } from "@/lib/entryDisplay";
 import type { Registration } from "@/types/registration";
+import { PAYMENT_STATUS_LABEL, REG_STATUS_LABEL, totalFee } from "@/types/registration";
 
 function download(filename: string, content: string) {
   const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
@@ -69,6 +70,7 @@ export function exportRegistrationsCsv(
   eventName:    string,
   programName:  string,
   registrations: Registration[],
+  programId?:    string,
 ) {
   const headers = [
     "Reg ID",
@@ -100,6 +102,7 @@ export function exportRegistrationsCsv(
 
   for (const reg of registrations) {
     for (const group of reg.groups) {
+      if (programId && group.programId !== programId) continue;
       for (const p of group.participants) {
         rows.push([
           reg.id,
@@ -121,9 +124,9 @@ export function exportRegistrationsCsv(
           p.guardianContact ?? "",
           p.remark ?? "",
           group.seed != null ? String(group.seed) : "",
-          reg.payment.paymentStatus,
-          reg.payment.receiptNo ?? "",
-          reg.payment.method ?? "",
+          reg.payment?.paymentStatus ?? "",
+          reg.payment?.receiptNo ?? "",
+          reg.payment?.method ?? "",
           group.fee.toFixed(2),
         ]);
       }
@@ -135,6 +138,85 @@ export function exportRegistrationsCsv(
     safeFilename(`${label} - Registrations.csv`),
     csv([headers, ...rows]),
   );
+}
+
+export function exportRegistrationPaymentsCsv(
+  label: string,
+  registrations: Registration[],
+  programsById: Record<string, Pick<Program, "feeStructure"> | undefined> = {},
+) {
+  const headers = [
+    "Reg ID",
+    "Payer Name",
+    "Payer Contact",
+    "Payer Email",
+    "Event Name",
+    "Programs",
+    "Reg Status",
+    "Payment Status",
+    "Total",
+    "Submitted",
+  ];
+
+  const rows = registrations.map(reg => {
+    const programs = formatRegistrationProgramsSummary(reg, programsById).join(" | ");
+
+    return [
+      reg.id,
+      reg.contactName,
+      reg.contactPhone,
+      reg.contactEmail,
+      reg.eventName,
+      programs,
+      REG_STATUS_LABEL[reg.regStatus] ?? reg.regStatus,
+      reg.payment ? (PAYMENT_STATUS_LABEL[reg.payment.paymentStatus] ?? reg.payment.paymentStatus) : "No payment",
+      totalFee(reg).toFixed(2),
+      reg.submittedAt.slice(0, 10),
+    ];
+  });
+
+  download(
+    safeFilename(`${label} - Registrations Payments.csv`),
+    csv([headers, ...rows]),
+  );
+}
+
+export function formatRegistrationProgramsSummary(
+  reg: Registration,
+  programsById: Record<string, Pick<Program, "feeStructure"> | undefined> = {},
+): string[] {
+  const byProgram = new Map<string, {
+    programId: string;
+    programName: string;
+    entries: number;
+    participants: number;
+  }>();
+
+  for (const group of reg.groups) {
+    const key = group.programId || group.programName;
+    const current = byProgram.get(key);
+    if (current) {
+      current.entries += 1;
+      current.participants += group.participants.length;
+    } else {
+      byProgram.set(key, {
+        programId: group.programId,
+        programName: group.programName,
+        entries: 1,
+        participants: group.participants.length,
+      });
+    }
+  }
+
+  return Array.from(byProgram.values()).map(program => {
+    const feeStructure = programsById[program.programId]?.feeStructure;
+    const count = feeStructure === "per_player" ? program.participants : program.entries;
+    const unit = feeStructure === "per_player"
+      ? "per head"
+      : count === 1 ? "entry" : "entries";
+
+    return `${program.programName} x ${count} ${unit}`;
+  });
 }
 
 export function exportFixtureRoundCsv(

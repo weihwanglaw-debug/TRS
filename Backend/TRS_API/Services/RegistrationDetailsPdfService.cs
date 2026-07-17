@@ -164,10 +164,10 @@ public class RegistrationDetailsPdfService
 
                         void Meta(string label, string value)
                         {
-                            table.Cell().PaddingRight(8).Column(c =>
+                            table.Cell().PaddingRight(10).PaddingBottom(8).Column(c =>
                             {
-                                c.Item().Text(label).FontSize(7).Bold().FontColor(Colors.Grey.Medium);
-                                c.Item().PaddingTop(2).Text(value).FontSize(9);
+                                c.Item().Text(label).FontSize(8.5f).Bold().FontColor(Colors.Grey.Medium);
+                                c.Item().PaddingTop(3).Text(value).FontSize(10);
                             });
                         }
 

@@ -1744,6 +1744,34 @@
   white-space: nowrap;
 }
 
+.trs-table td:has(.action-trigger) {
+  width: 4rem;
+  text-align: center;
+}
+
+.action-trigger {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+.action-trigger:hover:not(:disabled) {
+  background-color: var(--color-row-hover);
+  opacity: 0.85;
+}
+.action-trigger:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.action-trigger svg {
+  pointer-events: none;
+}
+
 /* Action dropdown for tables */
 .action-dropdown {
   position: absolute;

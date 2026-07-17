@@ -1222,14 +1222,25 @@ export default function EventDetail() {
 
                         <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-7">
                           {formError && (
-                            <div className="flex items-center gap-2 p-4 mb-5 text-sm" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--color-primary)" }}>
+                            <div
+                              className="flex items-center gap-2 p-4 mb-5 text-sm font-semibold"
+                              style={{
+                                backgroundColor: "#fee2e2",
+                                border: "1px solid #fecaca",
+                                color: "#b91c1c",
+                              }}>
                               <AlertCircle className="h-4 w-4 flex-shrink-0" /> {formError}
                             </div>
                           )}
                           {participants.map((p, idx) => (
                             <div key={p.id} className="p-5 sm:p-6 mb-5" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
-                              <div className="flex items-center justify-between mb-5">
-                                <h4 className="font-semibold text-sm">Player {idx + 1}</h4>
+                              <div
+                                className="flex items-center justify-between mb-5 pb-3"
+                                style={{ borderBottom: "1px solid var(--color-table-border)" }}
+                              >
+                                <h4 className="text-lg font-bold" style={{ color: "var(--color-heading)" }}>
+                                  Player {idx + 1}
+                                </h4>
                                 {participants.length > selectedProgram.minPlayers && (
                                   <button onClick={() => removeParticipant(idx)} className="text-xs flex items-center gap-1 opacity-60 hover:opacity-100">
                                     <Trash2 className="h-3 w-3" /> Remove
@@ -1376,8 +1387,10 @@ export default function EventDetail() {
                           className="event-detail-panel p-5 mb-5"
                           style={{ border: "1px solid var(--color-table-border)" }}
                         >
-                          <p className="text-xs font-semibold mb-4 opacity-60">CONTACT PERSON</p>
-                          <p className="text-xs opacity-50 mb-4">The registration receipt will be emailed to this address.</p>
+                          <p className="text-base font-bold mb-1" style={{ color: "var(--color-heading)" }}>
+                            Contact Person
+                          </p>
+                          <p className="text-xs opacity-60 mb-4">The registration receipt will be emailed to this address.</p>
                           <div className="grid sm:grid-cols-3 gap-4">
                             <div>
                               <label className="block text-xs font-medium mb-1">
@@ -1426,7 +1439,9 @@ export default function EventDetail() {
   {/* Payment method selector - only shown when payment is required */}
                         {cartRequiresPayment && !isAdminPaymentBypass && (
                           <div className="event-detail-panel mb-5 p-5" style={{ border: "1px solid var(--color-table-border)" }}>
-                            <p className="text-xs font-semibold mb-3 opacity-60">Payment Method</p>
+                            <p className="text-base font-bold mb-3" style={{ color: "var(--color-heading)" }}>
+                              Payment Method
+                            </p>
                             <div className="flex gap-3">
                               {([
                                 { value: "card",   label: "Credit / Debit Card", sub: "Visa, Mastercard, Amex" },

@@ -505,7 +505,12 @@ public class RegistrationsController : ControllerBase
 
     // -- GET /api/registrations/export  -- admin -----------------------------
     [HttpGet("export"), Authorize(Roles = "superadmin,eventadmin")]
-    public async Task<IActionResult> Export([FromQuery] int? eventId, [FromQuery] int? programId)
+    public async Task<IActionResult> Export(
+        [FromQuery] int? eventId,
+        [FromQuery] int? programId,
+        [FromQuery] string? regStatus,
+        [FromQuery] string? payStatus,
+        [FromQuery] string? search)
     {
         var q = _db.EventRegistrations
             .Include(r => r.Event)
@@ -514,6 +519,16 @@ public class RegistrationsController : ControllerBase
             .AsQueryable();
         if (eventId.HasValue) q = q.Where(r => r.EventId == eventId);
         if (programId.HasValue) q = q.Where(r => r.ParticipantGroups.Any(g => g.ProgramId == programId));
+        if (!string.IsNullOrEmpty(regStatus)) q = q.Where(r => r.RegStatus == regStatus);
+        if (!string.IsNullOrEmpty(payStatus))
+            q = q.Where(r => r.Payments.Any(p => p.PaymentStatus == payStatus));
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            q = q.Where(r =>
+                r.ContactName.Contains(term) ||
+                r.RegistrationId.ToString().Contains(term));
+        }
         var items = await q.OrderByDescending(r => r.SubmittedAt).ToListAsync();
         return Ok(items.Select(MapReg));
     }

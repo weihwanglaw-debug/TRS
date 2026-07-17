@@ -166,10 +166,12 @@ export default function UserManagement() {
                   <td>
                     <div className="relative">
                       <button
+                        type="button"
                         onClick={(e) =>
                           setOpenAction(openAction?.user.id === u.id ? null : { user: u, anchorEl: e.currentTarget })
                         }
-                        className="p-2 hover:opacity-70 transition-opacity" style={{ color: "var(--color-primary)" }}>
+                        className="action-trigger"
+                        aria-label={`Open actions for ${u.name}`}>
                         <MoreVertical className="h-4 w-4" />
                       </button>
                     </div>
@@ -197,10 +199,12 @@ export default function UserManagement() {
                   <span className="inline-flex px-2 py-0.5 text-xs font-semibold" style={{ backgroundColor: rb.bg, color: rb.text }}>{roleLabel(u.role)}</span>
                   <div className="relative">
                     <button
+                      type="button"
                       onClick={(e) =>
                         setOpenAction(openAction?.user.id === u.id ? null : { user: u, anchorEl: e.currentTarget })
                       }
-                      className="p-1.5 opacity-50"
+                      className="action-trigger"
+                      aria-label={`Open actions for ${u.name}`}
                     >
                       <MoreVertical className="h-4 w-4" />
                     </button>

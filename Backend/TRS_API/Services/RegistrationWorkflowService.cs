@@ -67,11 +67,7 @@ public class RegistrationWorkflowService
         if (programIds.Any(id => !programs.ContainsKey(id)))
             return RegistrationWorkflowResult<PricingQuote>.Fail("PROGRAM_NOT_FOUND", "One or more selected programs could not be found.");
 
-        var activeCounts = await _db.ParticipantGroups
-            .Where(g => programIds.Contains(g.ProgramId) && g.GroupStatus != StatusCodesEx.Registration.Cancelled)
-            .GroupBy(g => g.ProgramId)
-            .Select(g => new { g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+        var activeCounts = await GetActiveProgramSlotCountsAsync(programs.Values, ct);
 
         var fixtureProgramIds = await _db.Fixtures
             .Where(f => programIds.Contains(f.ProgramId))
@@ -81,7 +77,10 @@ public class RegistrationWorkflowService
         var fixturePrograms = fixtureProgramIds.ToHashSet();
 
         var existingParticipants = await _db.ParticipantGroups
-            .Where(g => programIds.Contains(g.ProgramId) && g.GroupStatus != StatusCodesEx.Registration.Cancelled)
+            .Where(g =>
+                programIds.Contains(g.ProgramId) &&
+                g.GroupStatus != StatusCodesEx.Registration.Cancelled &&
+                g.Registration.RegStatus != StatusCodesEx.Registration.Cancelled)
             .SelectMany(g => g.Participants
                 .Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
                 .Select(p => new ExistingParticipantIdentity
@@ -94,7 +93,8 @@ public class RegistrationWorkflowService
 
         var requestedPerProgram = req.Groups
             .GroupBy(g => g.ProgramId)
-            .ToDictionary(g => g.Key, g => g.Count());
+            .ToDictionary(g => g.Key, g => g.Sum(group =>
+                IsPerPlayer(programs[g.Key].FeeStructure) ? group.Participants.Count : 1));
 
         var quoteGroups = new List<PricingQuoteGroup>();
         var submittedParticipantIdentities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -245,10 +245,10 @@ public class RegistrationWorkflowService
                 if (fixtureExists)
                     return await RollbackAndFail(tx, "PROGRAM_FIXTURE_EXISTS", $"'{program.Name}' already has a fixture generated and is no longer accepting registrations.");
 
-                var activeGroupCount = await _db.ParticipantGroups
-                    .CountAsync(g => g.ProgramId == groupDto.ProgramId && g.GroupStatus != StatusCodesEx.Registration.Cancelled, ct);
+                var incomingSlotCount = IsPerPlayer(program.FeeStructure) ? groupDto.Participants.Count : 1;
+                var activeSlotCount = await CountActiveProgramSlotsAsync(program, ct);
 
-                if (activeGroupCount >= program.MaxParticipants)
+                if (activeSlotCount + incomingSlotCount > program.MaxParticipants)
                     return await RollbackAndFail(tx, "PROGRAM_FULL", $"'{program.Name}' is full. No slots remaining.");
 
                 NormalizeGroupClubValues(groupDto, program);
@@ -447,7 +447,8 @@ public class RegistrationWorkflowService
         var existingParticipants = await _db.ParticipantGroups
             .Where(g =>
                 g.ProgramId == program.ProgramId &&
-                g.GroupStatus != StatusCodesEx.Registration.Cancelled)
+                g.GroupStatus != StatusCodesEx.Registration.Cancelled &&
+                g.Registration.RegStatus != StatusCodesEx.Registration.Cancelled)
             .SelectMany(g => g.Participants
                 .Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
                 .Select(p => new
@@ -490,6 +491,7 @@ public class RegistrationWorkflowService
             .Where(g =>
                 g.ProgramId == programId &&
                 g.GroupStatus != StatusCodesEx.Registration.Cancelled &&
+                g.Registration.RegStatus != StatusCodesEx.Registration.Cancelled &&
                 (!excludingGroupId.HasValue || g.GroupId != excludingGroupId.Value))
             .Select(g => g.ClubDisplay)
             .ToListAsync(ct);
@@ -703,6 +705,59 @@ public class RegistrationWorkflowService
             return 0m;
         return decimal.Round(group.Fee / group.Participants.Count, 2);
     }
+
+    private async Task<Dictionary<int, int>> GetActiveProgramSlotCountsAsync(
+        IEnumerable<TrsProgram> programs,
+        CancellationToken ct)
+    {
+        var programList = programs.ToList();
+        if (programList.Count == 0) return new();
+
+        var programIds = programList.Select(p => p.ProgramId).ToList();
+        var activeGroups = _db.ParticipantGroups
+            .Where(g =>
+                programIds.Contains(g.ProgramId) &&
+                g.GroupStatus != StatusCodesEx.Registration.Cancelled &&
+                g.Registration.RegStatus != StatusCodesEx.Registration.Cancelled);
+
+        var groupCounts = await activeGroups
+            .GroupBy(g => g.ProgramId)
+            .Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+
+        var participantCounts = await activeGroups
+            .SelectMany(g => g.Participants
+                .Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
+                .Select(p => new { g.ProgramId }))
+            .GroupBy(x => x.ProgramId)
+            .Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+
+        return programList.ToDictionary(
+            p => p.ProgramId,
+            p => IsPerPlayer(p.FeeStructure)
+                ? participantCounts.GetValueOrDefault(p.ProgramId)
+                : groupCounts.GetValueOrDefault(p.ProgramId));
+    }
+
+    private Task<int> CountActiveProgramSlotsAsync(TrsProgram program, CancellationToken ct)
+    {
+        var activeGroups = _db.ParticipantGroups
+            .Where(g =>
+                g.ProgramId == program.ProgramId &&
+                g.GroupStatus != StatusCodesEx.Registration.Cancelled &&
+                g.Registration.RegStatus != StatusCodesEx.Registration.Cancelled);
+
+        if (!IsPerPlayer(program.FeeStructure))
+            return activeGroups.CountAsync(ct);
+
+        return activeGroups
+            .SelectMany(g => g.Participants)
+            .CountAsync(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled, ct);
+    }
+
+    private static bool IsPerPlayer(string? feeStructure) =>
+        string.Equals(feeStructure, "per_player", StringComparison.OrdinalIgnoreCase);
 
     private async Task QueueReceiptEmailAsync(int registrationId, int paymentId)
     {

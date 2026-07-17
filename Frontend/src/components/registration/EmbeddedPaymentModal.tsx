@@ -29,6 +29,7 @@ type EmbeddedPaymentModalProps = {
 type EmbeddedPaymentBodyProps = EmbeddedPaymentModalProps & {
   onCloseLockChange: (locked: boolean) => void;
   onPhaseChange: (phase: PaymentModalPhase) => void;
+  onConfirmedRegistrationChange: (registrationId: string | null) => void;
 };
 
 const stripePromiseCache = new Map<string, ReturnType<typeof loadStripe>>();
@@ -54,6 +55,7 @@ function secondsLeft(expiresAt: string) {
 const PAYMENT_OPEN_PATIENCE_MS = 20000;
 const STRIPE_LOAD_TIMEOUT_MS = 10000;
 const PAYMENT_STATUS_POLL_FAILURE_LIMIT = 5;
+const SUCCESS_REDIRECT_DELAY_MS = 1200;
 
 function readThemeColor(name: string) {
   if (typeof window === "undefined") return "currentColor";
@@ -68,6 +70,7 @@ export default function EmbeddedPaymentModal(props: EmbeddedPaymentModalProps) {
   const { open, attempt } = props;
   const [closeLocked, setCloseLocked] = useState(false);
   const [currentPhase, setCurrentPhase] = useState<PaymentModalPhase>("ready");
+  const [confirmedRegistrationId, setConfirmedRegistrationId] = useState<string | null>(null);
   const stripePromise = useMemo(
     () => attempt ? getStripePromise(attempt.publishableKey) : null,
     [attempt?.publishableKey],
@@ -94,6 +97,10 @@ export default function EmbeddedPaymentModal(props: EmbeddedPaymentModalProps) {
       onOpenChange={(next) => {
         if (next) return;
         if (closeLocked) return;
+        if (currentPhase === "success" && confirmedRegistrationId) {
+          props.onConfirmed(confirmedRegistrationId);
+          return;
+        }
         props.onClose(currentPhase);
       }}
     >
@@ -116,6 +123,7 @@ export default function EmbeddedPaymentModal(props: EmbeddedPaymentModalProps) {
               {...props}
               onCloseLockChange={setCloseLocked}
               onPhaseChange={setCurrentPhase}
+              onConfirmedRegistrationChange={setConfirmedRegistrationId}
             />
           </Elements>
         ) : (
@@ -134,6 +142,7 @@ function EmbeddedPaymentBody({
   onConfirmed,
   onCloseLockChange,
   onPhaseChange,
+  onConfirmedRegistrationChange,
 }: EmbeddedPaymentBodyProps) {
   const stripe = useStripe();
   const elements = useElements();
@@ -146,6 +155,7 @@ function EmbeddedPaymentBody({
   const settledRef = useRef(false);
   const mountedRef = useRef(true);
   const pollFailureCountRef = useRef(0);
+  const successHandledRef = useRef(false);
 
   const submitted = phase === "submitting" || phase === "waiting" || phase === "success" || phase === "review";
   const controlsDisabled = phase === "submitting" || phase === "waiting" || phase === "success" || phase === "review";
@@ -174,9 +184,11 @@ function EmbeddedPaymentBody({
 
   useEffect(() => {
     settledRef.current = false;
+    successHandledRef.current = false;
+    onConfirmedRegistrationChange(null);
     pollFailureCountRef.current = 0;
     setStripeLoadTimedOut(false);
-  }, [attempt?.paymentAttemptId]);
+  }, [attempt?.paymentAttemptId, onConfirmedRegistrationChange]);
 
   useEffect(() => {
     if (isTerminalPhase(phase)) settledRef.current = true;
@@ -186,6 +198,13 @@ function EmbeddedPaymentBody({
     onPhaseChange(phase);
     onCloseLockChange((phase === "submitting" || phase === "waiting") && !patienceReached);
   }, [onCloseLockChange, onPhaseChange, patienceReached, phase]);
+
+  useEffect(() => {
+    if (phase === "success" && confirmedRegistrationId) {
+      onCloseLockChange(false);
+      onPhaseChange("success");
+    }
+  }, [confirmedRegistrationId, onCloseLockChange, onPhaseChange, phase]);
 
   useEffect(() => {
     if (!attempt || submitted) return;
@@ -246,7 +265,9 @@ function EmbeddedPaymentBody({
       pollFailureCountRef.current = 0;
 
       if (status.data.status === "S" && status.data.registrationId) {
-        setConfirmedRegistrationId(String(status.data.registrationId));
+        const registrationId = String(status.data.registrationId);
+        setConfirmedRegistrationId(registrationId);
+        onConfirmedRegistrationChange(registrationId);
         setTerminalPhase("success", "Your registration has been confirmed.");
         window.clearInterval(pollTimer);
         return;
@@ -274,6 +295,18 @@ function EmbeddedPaymentBody({
       window.clearInterval(pollTimer);
     };
   }, [attempt?.paymentAttemptId, phase]);
+
+  const completeSuccess = () => {
+    if (!confirmedRegistrationId || successHandledRef.current) return;
+    successHandledRef.current = true;
+    onConfirmed(confirmedRegistrationId);
+  };
+
+  useEffect(() => {
+    if (phase !== "success" || !confirmedRegistrationId) return;
+    const timer = window.setTimeout(completeSuccess, SUCCESS_REDIRECT_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [confirmedRegistrationId, phase]);
 
   if (!attempt) return null;
 
@@ -324,9 +357,7 @@ function EmbeddedPaymentBody({
     }
   };
 
-  const closeAfterSuccess = () => {
-    if (confirmedRegistrationId) onConfirmed(confirmedRegistrationId);
-  };
+  const closeAfterSuccess = completeSuccess;
 
   const statusPanel = (() => {
     if (phase === "success") {
@@ -336,6 +367,7 @@ function EmbeddedPaymentBody({
           <div>
             <p className="font-semibold">Payment successful.</p>
             <p className="text-sm opacity-80">{message}</p>
+            <p className="text-xs mt-2 opacity-70">Opening confirmation page...</p>
           </div>
         </div>
       );
