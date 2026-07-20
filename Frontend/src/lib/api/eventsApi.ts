@@ -20,6 +20,47 @@ import { ok, err, delay, API_BASE, publicHeaders, adminHeaders, parseError, apiF
 import type { ApiResult } from "./_base";
 import type { TournamentEvent, Program, EventDocument } from "@/types/config";
 
+export interface ProgramImportIssue {
+  row: number | null;
+  field: string | null;
+  message: string;
+}
+
+export interface ProgramImportPreviewEntry {
+  entryNo: number;
+  participantCount: number;
+  participantNames: string[];
+}
+
+export interface ProgramImportPreviewResponse {
+  importToken: string;
+  eventId: number;
+  programId: number;
+  eventName: string;
+  programName: string;
+  entries: ProgramImportPreviewEntry[];
+  totalParticipants: number;
+  valid: boolean;
+  errors: ProgramImportIssue[];
+  warnings: ProgramImportIssue[];
+}
+
+export interface ProgramImportConfirmRequest {
+  importToken: string;
+  paymentStatus: "S" | "W" | "PC";
+  method?: string;
+  paymentReference?: string;
+  adminNote: string;
+}
+
+export interface ProgramImportConfirmResponse {
+  registrationId: string;
+  registrationNo: string;
+  receiptNumber: string;
+  paymentStatus: string;
+  participantCount: number;
+}
+
 function remapProgram<T extends { fields?: { customFields?: any[] } }>(p: T): T {
   if (!p.fields?.customFields) return p;
   return {
@@ -180,6 +221,46 @@ export async function apiDeleteProgram(
   });
   if (!res.ok) return err("DELETE_FAILED", (await parseError(res)).message);
   return ok(null);
+}
+
+export async function apiPreviewProgramImport(
+  eventId: string,
+  programId: string,
+  file: File,
+): Promise<ApiResult<ProgramImportPreviewResponse>> {
+  await delay();
+  const headers = adminHeaders();
+  delete headers["Content-Type"];
+  const form = new FormData();
+  form.append("file", file);
+  const res = await apiFetch(`${API_BASE}/api/events/${eventId}/programs/${programId}/import/preview`, {
+    method: "POST",
+    headers,
+    body: form,
+  });
+  if (!res.ok) {
+    const parsed = await parseError(res, "Failed to scan import template.");
+    return err(parsed.code, parsed.message);
+  }
+  return ok(await res.json());
+}
+
+export async function apiConfirmProgramImport(
+  eventId: string,
+  programId: string,
+  payload: ProgramImportConfirmRequest,
+): Promise<ApiResult<ProgramImportConfirmResponse>> {
+  await delay();
+  const res = await apiFetch(`${API_BASE}/api/events/${eventId}/programs/${programId}/import/confirm`, {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const parsed = await parseError(res, "Failed to save imported registration.");
+    return err(parsed.code, parsed.message);
+  }
+  return ok(await res.json());
 }
 
 //  Document sub-resource

@@ -27,6 +27,7 @@ builder.Services.AddControllers(options =>
     options.JsonSerializerOptions.DictionaryKeyPolicy  = System.Text.Json.JsonNamingPolicy.CamelCase;
 });
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddMemoryCache();
 builder.Services.AddSwaggerGen(c =>
 {
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -88,6 +89,7 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<AdminAuditService>();
 builder.Services.AddScoped<FixtureGenerationService>();
 builder.Services.AddScoped<RegistrationWorkflowService>();
+builder.Services.AddScoped<ProgramImportService>();
 builder.Services.AddScoped<PaymentFinalizationService>();
 builder.Services.AddScoped<PaymentAttemptService>();
 builder.Services.AddSingleton<IBackgroundJobQueue, BackgroundJobQueue>();

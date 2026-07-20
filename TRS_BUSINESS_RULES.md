@@ -275,6 +275,20 @@ Manual confirmation:
 - In the admin confirmation modal, payment method and payment reference are collected only when the selected payment status is `S` (Paid), not for `W` (Waived) or `PC` (Pending Collection).
 - Manual confirmation does not resurrect payment items or participant/group scopes that are already cancelled or refunded.
 
+Admin program import:
+
+- Program import is available only to authenticated admins with `superadmin` or `eventadmin`.
+- Import templates are scoped to one event and one program. The backend verifies the template event/program identifiers during preview.
+- Event sport type controls badminton template behavior. When `Event.SportType='Badminton'`, the downloaded template gives `Club / Team / School` a badminton club dropdown from the master table while still allowing free text. Other sport types use free text.
+- One uploaded workbook creates one `EventRegistration`; all imported entries share the same registration number.
+- `Entry No` groups workbook participant rows into participant groups under that single registration.
+- Preview validates the full workbook and returns all validation errors together. The import is not saved until preview is valid and the admin confirms.
+- After a valid preview, the admin selects one payment status for the whole import: `S` paid, `W` waived, or `PC` pending collection.
+- Payment method and payment reference apply only when the selected status is `S`.
+- Admin note is required before confirming the import.
+- Imported registrations use admin-assisted registration gates and normal `RegistrationWorkflowService` validation/persistence, including capacity, participant count, age, gender, duplicate, required field, custom field, and fixture restrictions.
+- Imported registrations suppress confirmation emails by default; the admin UI shows immediate success/failure only.
+
 ## Badminton Club Rules
 
 - Badminton club lookup uses `GET /api/clubs`.

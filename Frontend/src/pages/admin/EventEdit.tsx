@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, Edit2, Users, Save, X, Image, Trash2,
   MoreVertical, ExternalLink, Lock, Unlock, FileText, GripVertical,
-  Loader2, Download,
+  Loader2, Download, Upload,
 } from "lucide-react";
 import type { TournamentEvent, Program, EventDocument } from "@/types/config";
 import { getEventStatus } from "@/lib/eventUtils";
@@ -15,12 +15,15 @@ import { PageLoader } from "@/components/ui/LoadingSpinner";
 import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ActionFeedbackDialog, type ActionFeedbackVariant } from "@/components/ui/ActionFeedbackDialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   apiGetEvent, apiCreateEvent, apiUpdateEvent, apiDeleteEvent,
   apiUpdateEventRegistrationStatus,
   apiAddProgram, apiUpdateProgram, apiDeleteProgram, apiUpdateProgramStatus,
   apiAddEventDocument, apiUpdateEventDocument, apiDeleteEventDocument,
   apiUploadFile, assetUrl,
+  apiPreviewProgramImport, apiConfirmProgramImport,
+  type ProgramImportPreviewResponse,
 } from "@/lib/api";
 import { exportProgramImportTemplate } from "@/lib/exportProgramImportTemplate";
 
@@ -176,8 +179,18 @@ export default function EventEdit() {
   const [seedingProgramId, setSeedingProgramId] = useState("");
   const [openAction,       setOpenAction]       = useState<{ prog: Program; anchorEl: HTMLElement } | null>(null);
   const [deleteConfirmOpen,setDeleteConfirmOpen]= useState(false);
+  const [importProgram,    setImportProgram]    = useState<Program | null>(null);
+  const [importFile,       setImportFile]       = useState<File | null>(null);
+  const [importPreview,    setImportPreview]    = useState<ProgramImportPreviewResponse | null>(null);
+  const [importBusy,       setImportBusy]       = useState(false);
+  const [importStatus,     setImportStatus]     = useState<"S" | "W" | "PC">("PC");
+  const [importMethod,     setImportMethod]     = useState("Cash");
+  const [importReference,  setImportReference]  = useState("");
+  const [importNote,       setImportNote]       = useState("");
+  const [importError,      setImportError]      = useState("");
 
   const isBadminton   = form.isSports && form.sportType === "Badminton";
+  const showImportPaymentDetails = importStatus === "S";
 
   //  Load existing event
   useEffect(() => {
@@ -386,6 +399,72 @@ export default function EventEdit() {
     setSaving(false);
     if (r.error) { showError("Event could not be deleted", r.error.message); return; }
     navigate("/admin/events");
+  };
+
+  const resetImportDialog = () => {
+    setImportProgram(null);
+    setImportFile(null);
+    setImportPreview(null);
+    setImportBusy(false);
+    setImportStatus("PC");
+    setImportMethod("Cash");
+    setImportReference("");
+    setImportNote("");
+    setImportError("");
+  };
+
+  const handleImportPreview = async () => {
+    if (!eventId || !importProgram || !importFile) return;
+    setImportBusy(true);
+    setImportError("");
+    setImportPreview(null);
+    try {
+      const r = await apiPreviewProgramImport(eventId, importProgram.id, importFile);
+      if (r.error) {
+        setImportError(r.error.message);
+        return;
+      }
+      setImportPreview(r.data!);
+    } catch {
+      setImportError("The import template could not be scanned. Please check the file and try again.");
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  const handleImportConfirm = async () => {
+    if (!eventId || !importProgram || !importPreview || !importNote.trim()) return;
+    setImportBusy(true);
+    setImportError("");
+    try {
+      const r = await apiConfirmProgramImport(eventId, importProgram.id, {
+        importToken: importPreview.importToken,
+        paymentStatus: importStatus,
+        method: showImportPaymentDetails ? importMethod : undefined,
+        paymentReference: showImportPaymentDetails ? importReference || undefined : undefined,
+        adminNote: importNote,
+      });
+      if (r.error) {
+        setImportError(r.error.message);
+        return;
+      }
+      const refreshed = await apiGetEvent(eventId, { admin: true });
+      if (refreshed.data) {
+        setEvent(refreshed.data);
+        setPrograms(refreshed.data.programs);
+      }
+      resetImportDialog();
+      setFeedback({
+        open: true,
+        variant: "success",
+        title: "Import saved",
+        description: `${r.data!.participantCount} participant(s) saved under registration ${r.data!.registrationNo}.`,
+      });
+    } catch {
+      setImportError("The imported registration could not be saved. Please try again.");
+    } finally {
+      setImportBusy(false);
+    }
   };
 
   const status = event ? getEventStatus(event) : undefined;
@@ -864,6 +943,17 @@ export default function EventEdit() {
               <Download className="h-4 w-4" /> Download Import Template
             </button>
           )}
+          {!isNew && event && (
+            <button onClick={() => {
+              setImportProgram(openAction.prog);
+              setImportFile(null);
+              setImportPreview(null);
+              setImportError("");
+              setOpenAction(null);
+            }}>
+              <Upload className="h-4 w-4" /> Import From Template
+            </button>
+          )}
           {!isNew && (
             <button onClick={async () => {
               const prog = openAction.prog;
@@ -896,6 +986,180 @@ export default function EventEdit() {
           )}
         </ActionDropdownPortal>
       )}
+
+      <Dialog open={!!importProgram} onOpenChange={open => { if (!open && !importBusy) resetImportDialog(); }}>
+        <DialogContent
+          className="w-[min(96vw,760px)] max-w-3xl max-h-[92vh] overflow-y-auto p-0"
+          style={{ backgroundColor: "var(--color-page-bg)", border: "1px solid var(--color-table-border)" }}>
+          <DialogHeader className="p-8 pb-0">
+            <DialogTitle className="font-bold text-xl">Import Participants</DialogTitle>
+          </DialogHeader>
+
+          <div className="p-8 pt-4 space-y-5">
+            <div className="grid sm:grid-cols-2 gap-3 text-sm">
+              <div className="p-3" style={{ border: "1px solid var(--color-table-border)" }}>
+                <p className="text-xs font-semibold opacity-50">Event</p>
+                <p className="font-semibold">{event?.name}</p>
+              </div>
+              <div className="p-3" style={{ border: "1px solid var(--color-table-border)" }}>
+                <p className="text-xs font-semibold opacity-50">Program</p>
+                <p className="font-semibold">{importProgram?.name}</p>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold mb-2 opacity-70">Import Template *</label>
+              <input
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="field-input"
+                disabled={importBusy}
+                onChange={e => {
+                  setImportFile(e.target.files?.[0] ?? null);
+                  setImportPreview(null);
+                  setImportError("");
+                }}
+              />
+            </div>
+
+            {!importPreview && (
+              <div className="p-3 text-sm" style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
+                Upload the completed Excel template. The system will scan all rows first and show every validation issue together before anything is saved.
+              </div>
+            )}
+
+            {importError && (
+              <div className="p-3 text-sm" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
+                {importError}
+              </div>
+            )}
+
+            {importPreview && (
+              <div className="space-y-4">
+                <div className="grid sm:grid-cols-3 gap-3 text-sm">
+                  <div className="p-3" style={{ border: "1px solid var(--color-table-border)" }}>
+                    <p className="text-xs font-semibold opacity-50">Entries</p>
+                    <p className="text-lg font-bold">{importPreview.entries.length}</p>
+                  </div>
+                  <div className="p-3" style={{ border: "1px solid var(--color-table-border)" }}>
+                    <p className="text-xs font-semibold opacity-50">Participants</p>
+                    <p className="text-lg font-bold">{importPreview.totalParticipants}</p>
+                  </div>
+                  <div className="p-3" style={{ border: "1px solid var(--color-table-border)" }}>
+                    <p className="text-xs font-semibold opacity-50">Result</p>
+                    <p className="text-lg font-bold" style={{ color: importPreview.valid ? "var(--badge-paid-text)" : "var(--badge-closed-text)" }}>
+                      {importPreview.valid ? "Ready" : "Needs Fix"}
+                    </p>
+                  </div>
+                </div>
+
+                {importPreview.entries.length > 0 && (
+                  <div className="max-h-40 overflow-y-auto" style={{ border: "1px solid var(--color-table-border)" }}>
+                    <table className="trs-table">
+                      <thead>
+                        <tr><th>Entry No.</th><th>Players</th><th>Names</th></tr>
+                      </thead>
+                      <tbody>
+                        {importPreview.entries.map(entry => (
+                          <tr key={entry.entryNo}>
+                            <td className="text-sm">{entry.entryNo}</td>
+                            <td className="text-sm">{entry.participantCount}</td>
+                            <td className="text-sm">{entry.participantNames.join(", ") || "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {importPreview.errors.length > 0 && (
+                  <IssueList title="Validation Errors" issues={importPreview.errors} tone="error" />
+                )}
+                {importPreview.warnings.length > 0 && (
+                  <IssueList title="Warnings" issues={importPreview.warnings} tone="warning" />
+                )}
+
+                {importPreview.valid && (
+                  <div className="space-y-4 pt-2">
+                    <div>
+                      <label className="block text-xs font-semibold mb-2 opacity-70">Payment Status *</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {([
+                          { value: "S",  label: "Paid",               sub: "Collected now" },
+                          { value: "W",  label: "Waived",             sub: "Fee waived" },
+                          { value: "PC", label: "Pending Collection", sub: "Will pay later" },
+                        ] as const).map(opt => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setImportStatus(opt.value)}
+                            className="p-3 text-left text-xs transition-all"
+                            style={{
+                              border: `2px solid ${importStatus === opt.value ? "var(--color-primary)" : "var(--color-table-border)"}`,
+                              backgroundColor: importStatus === opt.value ? "var(--color-row-hover)" : "transparent",
+                            }}>
+                            <p className="font-semibold">{opt.label}</p>
+                            <p className="opacity-50 mt-0.5">{opt.sub}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {showImportPaymentDetails && (
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <FF label="Payment Method">
+                          <select className="field-input" value={importMethod} onChange={e => setImportMethod(e.target.value)}>
+                            <option value="Cash">Cash</option>
+                            <option value="BankTransfer">Bank Transfer</option>
+                            <option value="PayNow">PayNow</option>
+                            <option value="Others">Others</option>
+                          </select>
+                        </FF>
+                        <FF label="Payment Reference (optional)">
+                          <input className="field-input" value={importReference}
+                            onChange={e => setImportReference(e.target.value)}
+                            placeholder="e.g. PayNow ref, receipt number" />
+                        </FF>
+                      </div>
+                    )}
+
+                    <FF label="Admin Remark *">
+                      <textarea className="field-input" rows={2} value={importNote}
+                        onChange={e => setImportNote(e.target.value)}
+                        placeholder="e.g. Bulk import approved by admin" />
+                    </FF>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="p-8 pt-0 flex flex-wrap gap-3 justify-end">
+            <button type="button" disabled={importBusy} onClick={resetImportDialog}
+              className="btn-outline px-5 py-2.5 text-sm font-medium disabled:opacity-40">
+              Cancel
+            </button>
+            {!importPreview && (
+              <button type="button" disabled={!importFile || importBusy} onClick={handleImportPreview}
+                className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
+                {importBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Scanning...</> : "Scan Template"}
+              </button>
+            )}
+            {importPreview && !importPreview.valid && (
+              <button type="button" disabled={importBusy} onClick={handleImportPreview}
+                className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
+                {importBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Scanning...</> : "Rescan"}
+              </button>
+            )}
+            {importPreview?.valid && (
+              <button type="button" disabled={!importNote.trim() || importBusy} onClick={handleImportConfirm}
+                className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
+                {importBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</> : "Save Import"}
+              </button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <ProgramModal
         open={programModalOpen}
@@ -974,6 +1238,36 @@ function FF({ label, error, children }: { label: string; error?: string; childre
       <label className="block text-xs font-semibold mb-2 opacity-70">{label}</label>
       {children}
       {error && <p className="text-xs mt-1" style={{ color: "var(--badge-open-text)" }}>{error}</p>}
+    </div>
+  );
+}
+
+function IssueList({
+  title,
+  issues,
+  tone,
+}: {
+  title: string;
+  issues: Array<{ row: number | null; field: string | null; message: string }>;
+  tone: "error" | "warning";
+}) {
+  const isError = tone === "error";
+  return (
+    <div className="p-3 text-sm"
+      style={{
+        backgroundColor: isError ? "var(--badge-closed-bg)" : "var(--badge-soon-bg)",
+        color: isError ? "var(--badge-closed-text)" : "var(--badge-soon-text)",
+      }}>
+      <p className="font-semibold mb-2">{title}</p>
+      <ul className="space-y-1">
+        {issues.map((issue, idx) => (
+          <li key={`${issue.row ?? "file"}-${issue.field ?? "general"}-${idx}`}>
+            {issue.row ? `Row ${issue.row}: ` : ""}
+            {issue.field ? `${issue.field} - ` : ""}
+            {issue.message}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

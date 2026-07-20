@@ -208,11 +208,12 @@ public class RegistrationWorkflowService
                 .Where(p => p.EventId == req.EventId && programIds.Contains(p.ProgramId))
                 .ToDictionaryAsync(p => p.ProgramId, ct);
 
+            var createsConfirmedRegistration = IsAdminConfirmedPaymentStatus(options.PaymentStatus);
             var reg = new EventRegistration
             {
                 EventId = pricing.Value!.EventId,
                 EventName = pricing.Value.EventName,
-                RegStatus = options.PaymentStatus == StatusCodesEx.Payment.Success ? StatusCodesEx.Registration.Confirmed : StatusCodesEx.Registration.Pending,
+                RegStatus = createsConfirmedRegistration ? StatusCodesEx.Registration.Confirmed : StatusCodesEx.Registration.Pending,
                 ContactName = req.ContactName,
                 ContactEmail = req.ContactEmail,
                 ContactPhone = req.ContactPhone,
@@ -220,8 +221,8 @@ public class RegistrationWorkflowService
                 CreatedAt = DateTime.UtcNow,
                 TotalAmount = options.PaymentAmountOverride ?? pricing.Value.TotalAmount,
                 Currency = pricing.Value.Currency,
-                RegistrationStatus = options.PaymentStatus == StatusCodesEx.Payment.Success ? StatusCodesEx.Registration.Confirmed : StatusCodesEx.Registration.Pending,
-                ConfirmedAt = options.PaymentStatus == StatusCodesEx.Payment.Success ? DateTime.UtcNow : null,
+                RegistrationStatus = createsConfirmedRegistration ? StatusCodesEx.Registration.Confirmed : StatusCodesEx.Registration.Pending,
+                ConfirmedAt = createsConfirmedRegistration ? DateTime.UtcNow : null,
             };
             _db.EventRegistrations.Add(reg);
             await _db.SaveChangesAsync(ct);
@@ -276,9 +277,9 @@ public class RegistrationWorkflowService
                     ProgramId = groupDto.ProgramId,
                     ProgramName = program.Name,
                     Fee = persistedGroupFee,
-                    GroupStatus = options.PaymentStatus == StatusCodesEx.Payment.Success ? StatusCodesEx.Registration.Confirmed : StatusCodesEx.Registration.Pending,
+                    GroupStatus = createsConfirmedRegistration ? StatusCodesEx.Registration.Confirmed : StatusCodesEx.Registration.Pending,
                     CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = options.PaymentStatus == StatusCodesEx.Payment.Success ? DateTime.UtcNow : null,
+                    UpdatedAt = createsConfirmedRegistration ? DateTime.UtcNow : null,
                 };
                 _db.ParticipantGroups.Add(group);
                 await _db.SaveChangesAsync(ct);
@@ -371,7 +372,7 @@ public class RegistrationWorkflowService
                 createdGroups.Add(group);
             }
 
-            var isConfirmed = options.PaymentStatus == StatusCodesEx.Payment.Success;
+            var isConfirmed = IsAdminConfirmedPaymentStatus(options.PaymentStatus);
             var receiptProgramId = pendingItems
                 .Select(i => (int?)i.ProgramId)
                 .Where(pid => pid.HasValue)
@@ -391,11 +392,12 @@ public class RegistrationWorkflowService
                 Amount = options.PaymentAmountOverride ?? pricing.Value.TotalAmount,
                 Currency = pricing.Value.Currency,
                 PaymentStatus = options.PaymentStatus,
+                AdminNote = options.AdminNote,
                 GatewaySessionId = options.GatewaySessionId,
                 GatewayPaymentId = options.GatewayPaymentId,
-                ReceiptNumber = receiptNo,
+                ReceiptNumber = options.ReceiptNumber ?? receiptNo,
                 CreatedAt = DateTime.UtcNow,
-                PaidAt = isConfirmed ? DateTime.UtcNow : null,
+                PaidAt = options.PaymentStatus == StatusCodesEx.Payment.Success ? DateTime.UtcNow : null,
             };
             _db.Payments.Add(payment);
             await _db.SaveChangesAsync(ct);
@@ -412,7 +414,7 @@ public class RegistrationWorkflowService
                     Description = item.Description,
                     PlayerName = item.PlayerName,
                     Amount = item.Amount,
-                    ItemStatus = isConfirmed ? StatusCodesEx.PaymentItem.Success : StatusCodesEx.PaymentItem.Pending,
+                    ItemStatus = options.PaymentStatus == StatusCodesEx.Payment.Success ? StatusCodesEx.PaymentItem.Success : StatusCodesEx.PaymentItem.Pending,
                     CreatedAt = DateTime.UtcNow,
                     ParticipantId = item.ParticipantId,
                 });
@@ -421,7 +423,7 @@ public class RegistrationWorkflowService
             await _db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
-            if (isConfirmed)
+            if (options.PaymentStatus == StatusCodesEx.Payment.Success && !options.SuppressReceiptEmail)
                 await QueueReceiptEmailAsync(reg.RegistrationId, payment.PaymentId);
 
             return RegistrationWorkflowResult<RegistrationCreateOutcome>.Ok(new RegistrationCreateOutcome
@@ -759,6 +761,11 @@ public class RegistrationWorkflowService
     private static bool IsPerPlayer(string? feeStructure) =>
         string.Equals(feeStructure, "per_player", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsAdminConfirmedPaymentStatus(string? paymentStatus) =>
+        paymentStatus == StatusCodesEx.Payment.Success ||
+        paymentStatus == StatusCodesEx.Payment.Waived ||
+        paymentStatus == StatusCodesEx.Payment.PendingCollection;
+
     private async Task QueueReceiptEmailAsync(int registrationId, int paymentId)
     {
         await _jobQueue.EnqueueAsync(async ct =>
@@ -825,6 +832,9 @@ public sealed class RegistrationPersistOptions
     public string PaymentMethod { get; init; } = "CreditCard";
     public string PaymentStatus { get; init; } = StatusCodesEx.Payment.Pending;
     public decimal? PaymentAmountOverride { get; init; }
+    public string? AdminNote { get; init; }
+    public string? ReceiptNumber { get; init; }
+    public bool SuppressReceiptEmail { get; init; }
     public string? GatewaySessionId { get; init; }
     public string? GatewayPaymentId { get; init; }
 }

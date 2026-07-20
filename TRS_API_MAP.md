@@ -37,6 +37,15 @@ This document maps the current backend API from controller attributes. JSON resp
 | PATCH | `/api/events/{eid}/programs/{pid}/status` | `superadmin,eventadmin` | Set program status to short code `O` or `CL` and write admin audit log. |
 | DELETE | `/api/events/{eid}/programs/{pid}` | `superadmin,eventadmin` | Soft delete program and write admin audit log; blocked when active participant groups exist. |
 
+## Program Import: `/api/events/{eventId}/programs/{programId}/import`
+
+All endpoints require `superadmin,eventadmin`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/events/{eventId}/programs/{programId}/import/preview` | Upload a program import `.xlsx`, validate all rows as one admin-assisted registration, and return an import token plus aggregate errors/warnings. |
+| POST | `/api/events/{eventId}/programs/{programId}/import/confirm` | Confirm a previously previewed import with one payment status/method/note for the whole registration; creates the registration without sending confirmation email. |
+
 ## Badminton Clubs: `/api/clubs`
 
 | Method | Path | Auth | Purpose |

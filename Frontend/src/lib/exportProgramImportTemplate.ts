@@ -2,6 +2,7 @@ import type { Feature, SheetData } from "write-excel-file/browser";
 import type { Program, TournamentEvent, CustomField } from "@/types/config";
 import { NATIONALITY_OPTIONS } from "@/lib/countries";
 import { TSHIRT_SIZES } from "@/components/registration/ParticipantFieldsForm";
+import { apiGetBadmintonClubs } from "@/lib/api";
 
 const TEMPLATE_ROW_COUNT = 200;
 const ENTRY_SHEET = "Participant Entries";
@@ -10,6 +11,7 @@ const OPTIONS_SHEET = "Dropdown Options";
 const HEADER_ROW_NUMBER = 5;
 const FIRST_DATA_ROW_NUMBER = HEADER_ROW_NUMBER + 1;
 const LAST_DATA_ROW_NUMBER = FIRST_DATA_ROW_NUMBER + TEMPLATE_ROW_COUNT - 1;
+const CLUB_NO_CLUB_VALUE = "* No Club";
 
 type TemplateColumnType = "text" | "number" | "date" | "select";
 
@@ -18,6 +20,7 @@ interface TemplateColumn {
   required?: boolean;
   type: TemplateColumnType;
   options?: string[];
+  allowFreeText?: boolean;
   width: number;
   note?: string;
 }
@@ -27,6 +30,7 @@ interface ValidationRule {
   type: TemplateColumnType;
   options?: string[];
   definedName?: string;
+  allowFreeText?: boolean;
 }
 
 interface OptionRange {
@@ -87,8 +91,14 @@ function genderOptions(program: Program) {
   return ["Male", "Female"];
 }
 
-function buildColumns(program: Program): TemplateColumn[] {
+function isBadmintonTemplate(event: TournamentEvent, program: Program) {
+  void program;
+  return event.sportType?.trim().toLowerCase() === "badminton";
+}
+
+function buildColumns(event: TournamentEvent, program: Program, badmintonClubOptions: string[]): TemplateColumn[] {
   const fields = program.fields;
+  const useBadmintonClubDropdown = isBadmintonTemplate(event, program);
   const columns: TemplateColumn[] = [
     { label: "Entry No", required: true, type: "number", width: 12, note: "Use the same Entry No for players in the same doubles/team entry." },
     { label: "Full Name", required: true, type: "text", width: 28 },
@@ -106,8 +116,11 @@ function buildColumns(program: Program): TemplateColumn[] {
     {
       label: "Club / Team / School",
       required: true,
-      type: "text",
+      type: useBadmintonClubDropdown ? "select" : "text",
+      options: useBadmintonClubDropdown ? badmintonClubOptions : undefined,
+      allowFreeText: useBadmintonClubDropdown,
       width: 30,
+      note: useBadmintonClubDropdown ? "Choose from master club list or type a custom club/school/team name." : undefined,
     },
   ];
 
@@ -152,7 +165,8 @@ function validationXml(rules: ValidationRule[]) {
 
     if (rule.type === "select" && rule.options?.length) {
       const formula = rule.definedName ?? `"${rule.options.join(",")}"`;
-      return `<dataValidation type="list" allowBlank="1" showDropDown="0" showErrorMessage="1" sqref="${sqref}"><formula1>${xmlEscape(formula)}</formula1></dataValidation>`;
+      const showErrorMessage = rule.allowFreeText ? "0" : "1";
+      return `<dataValidation type="list" allowBlank="1" showDropDown="0" showErrorMessage="${showErrorMessage}" sqref="${sqref}"><formula1>${xmlEscape(formula)}</formula1></dataValidation>`;
     }
 
     return [];
@@ -262,6 +276,7 @@ function buildInfoSheet(event: TournamentEvent, program: Program, columns: Templ
     ["Entry No", "This groups players into one entry/team. For singles, each participant can use a different Entry No. For doubles/team, use the same Entry No for all players in that entry."],
     ["Dates", "Use yyyy-mm-dd format."],
     ["Dropdowns", `Dropdown values are stored in "${OPTIONS_SHEET}".`],
+    ...(isBadmintonTemplate(event, program) ? [["Badminton Club", "Club / Team / School is sourced from the badminton club master table, but custom text is allowed for clubs not in the list."]] : []),
     ["Document Upload", optionalDocumentNote],
     ["Future Import Check", "Import should verify Event ID and Program ID from this sheet before accepting rows."],
     [],
@@ -287,7 +302,19 @@ function buildOptionsSheet(columns: TemplateColumn[]): SheetData {
 
 export async function exportProgramImportTemplate(event: TournamentEvent, program: Program) {
   const writeExcelFile = (await import("write-excel-file/browser")).default;
-  const columns = buildColumns(program);
+  let badmintonClubOptions: string[] = [];
+  if (isBadmintonTemplate(event, program)) {
+    const clubResult = await apiGetBadmintonClubs();
+    if (clubResult.error) {
+      throw new Error(clubResult.error.message);
+    }
+    badmintonClubOptions = [
+      CLUB_NO_CLUB_VALUE,
+      ...(clubResult.data ?? []).map(club => club.name).filter(Boolean),
+    ];
+  }
+
+  const columns = buildColumns(event, program, badmintonClubOptions);
   const optionColumns = columns.filter(column => column.type === "select" && column.options?.length);
   const optionRanges: OptionRange[] = optionColumns.map((column, columnIndex) => ({
     label: column.label,

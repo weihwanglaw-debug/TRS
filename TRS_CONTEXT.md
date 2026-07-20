@@ -33,6 +33,7 @@ The repository is a monorepo:
 3. Manages events, programs, documents, registrations, payments, refunds, fixtures, SBA rankings, badminton club master data, system config, users, and password changes according to role.
 4. When registering players from the public event detail page while logged in, paid carts use admin payment bypass: payer contact is taken from the admin profile, cart payment/consent fields are hidden, and the confirmation modal captures the selected payment outcome.
 5. Admin-assisted registration can be used for `U` upcoming, `PA` paused, or `CL` closed events, but not `D` draft events, closed/full programs, or programs with fixtures.
+6. From the event editor, admins can download a program-specific Excel participant import template, upload the completed template, review all validation issues together, then save the import with one shared payment outcome for the whole registration.
 
 ## Frontend Routes
 
@@ -69,7 +70,7 @@ API modules live in `Frontend/src/lib/api/`.
 
 - `_base.ts`: `apiFetch`, `API_BASE`, `publicHeaders`, `adminHeaders`, `assetUrl`, `ApiResult`, artificial `delay`.
 - `authApi.ts`: login, logout, current user, password change.
-- `eventsApi.ts`: events, programs, documents.
+- `eventsApi.ts`: events, programs, documents, and program participant import preview/confirm.
 - `registrationsApi.ts`: registration CRUD/admin operations, payment updates, refunds, stats, export.
 - `clubsApi.ts`: badminton club lookup and admin club CRUD.
 - `uploadsApi.ts`: multipart uploads.
@@ -87,6 +88,7 @@ API modules live in `Frontend/src/lib/api/`.
 - `AuthController`: admin login, logout, current user, password change.
 - `ConfigController`: public config read, superadmin config update.
 - `EventsController`: event CRUD, documents, programs, registration-safe event/program mutation checks, and admin audit logging.
+- `ProgramImportController`: admin-only Excel participant import preview/confirm for one event/program.
 - `BadmintonClubsController`: public club lookup and admin club maintenance with admin audit logging.
 - `RegistrationsController`: public registration creation/lookup/receipt and admin registration/payment/refund operations.
 - `PaymentController`: embedded Stripe payment attempts, legacy hosted checkout/session confirmation, payment info/verify endpoints.
@@ -101,6 +103,7 @@ API modules live in `Frontend/src/lib/api/`.
 
 - `AuthService`: BCrypt password verification/hash and JWT generation.
 - `RegistrationWorkflowService`: registration validation, pricing, persistence, receipt/email queueing.
+- `ProgramImportService`: parses program import `.xlsx` templates, validates rows as one admin-assisted registration, caches preview payloads, and confirms the import without sending emails.
 - `PaymentAttemptService`: embedded Stripe PaymentIntent creation, status tracking, webhook finalization, and reconciliation marking.
 - `PaymentFinalizationService`: legacy idempotent session-first Stripe finalization.
 - `FixtureGenerationService`: authoritative bracket/heats generation, fixture mutation, score validation, advancement, and final placement rules.
@@ -161,6 +164,8 @@ Primary paid flow is embedded PaymentIntent:
 The older hosted Checkout session-first path remains as a legacy fallback through `PendingCheckouts`, `PaymentFinalizationService`, and `/api/Payment/confirm-session`.
 
 Free registrations are created directly through `POST /api/registrations`.
+
+Admin program imports create one `EventRegistration` for the uploaded file, so all imported rows share one registration number. `Entry No` in the workbook groups participant rows into participant groups under that registration. After a valid preview, the admin chooses `S` paid, `W` waived, or `PC` pending collection for the whole import. Imported registrations suppress confirmation email by default and return immediate success/failure in the admin UI.
 
 Registration availability is backend-computed from `Events.RegistrationStatus`, Singapore date, event activity, and active program count. API responses expose `registrationStatus` and `computedRegistrationStatus`; frontend date-only status logic is fallback only. Program capacity is enforced by program fee structure: `per_entry` counts active entries/groups, while `per_player` counts active non-cancelled participants/headcount. Event-level `MaxParticipants` is deprecated and not part of registration validation. Built-in participant fields have separate enabled and required flags in `ProgramFields`.
 
