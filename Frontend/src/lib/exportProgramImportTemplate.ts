@@ -12,6 +12,8 @@ const HEADER_ROW_NUMBER = 5;
 const FIRST_DATA_ROW_NUMBER = HEADER_ROW_NUMBER + 1;
 const LAST_DATA_ROW_NUMBER = FIRST_DATA_ROW_NUMBER + TEMPLATE_ROW_COUNT - 1;
 const CLUB_NO_CLUB_VALUE = "* No Club";
+const ROW_TYPE_COLUMN = "Row Type";
+const SAMPLE_ROW_TYPE = "SAMPLE";
 
 type TemplateColumnType = "text" | "number" | "date" | "select";
 
@@ -100,6 +102,7 @@ function buildColumns(event: TournamentEvent, program: Program, badmintonClubOpt
   const fields = program.fields;
   const useBadmintonClubDropdown = isBadmintonTemplate(event, program);
   const columns: TemplateColumn[] = [
+    { label: ROW_TYPE_COLUMN, type: "select", options: [SAMPLE_ROW_TYPE, "DATA"], width: 14, note: "Use SAMPLE for sample rows. Leave blank or use DATA for rows to import." },
     { label: "Entry No", required: true, type: "number", width: 12, note: "Use the same Entry No for players in the same doubles/team entry." },
     { label: "Full Name", required: true, type: "text", width: 28 },
     { label: "Date of Birth", required: true, type: "date", width: 16, note: "Use yyyy-mm-dd." },
@@ -227,10 +230,17 @@ function headerCell(value: string) {
 function buildEntrySheet(event: TournamentEvent, program: Program, columns: TemplateColumn[]): SheetData {
   const headerRow = columns.map(column => headerCell(requiredLabel(column)));
   const exampleRow = columns.map(column => {
+    if (column.label === ROW_TYPE_COLUMN) return SAMPLE_ROW_TYPE;
     if (column.label === "Entry No") return { value: 1, type: Number, align: "right" as const };
+    if (column.label === "Full Name") return "Sample Player";
+    if (column.label === "Gender") return genderOptions(program)[0] ?? "Male";
+    if (column.label === "Email") return "sample@example.com";
+    if (column.label === "Contact Number") return "0123456789";
+    if (column.label === "Nationality") return "MY - Malaysia";
+    if (column.label === "Club / Team / School") return isBadmintonTemplate(event, program) ? CLUB_NO_CLUB_VALUE : "Sample Club";
     if (column.label === "Player No") return { value: 1, type: Number, align: "right" as const };
     if (column.label === "Date of Birth" || column.type === "date") {
-      return { value: undefined, type: Date, format: "yyyy-mm-dd" };
+      return { value: new Date(2000, 0, 1), type: Date, format: "yyyy-mm-dd" };
     }
     return "";
   });
@@ -273,6 +283,7 @@ function buildInfoSheet(event: TournamentEvent, program: Program, columns: Templ
     [],
     [{ value: "Import Notes", fontWeight: "bold", fontSize: 14 }],
     ["Rows", `Fill participants from row ${FIRST_DATA_ROW_NUMBER} onward on "${ENTRY_SHEET}".`],
+    ["Sample Rows", `Rows marked ${SAMPLE_ROW_TYPE} in "${ROW_TYPE_COLUMN}" are ignored during import. Delete them or overwrite Row Type with DATA/blank before entering real participants.`],
     ["Entry No", "This groups players into one entry/team. For singles, each participant can use a different Entry No. For doubles/team, use the same Entry No for all players in that entry."],
     ["Dates", "Use yyyy-mm-dd format."],
     ["Dropdowns", `Dropdown values are stored in "${OPTIONS_SHEET}".`],

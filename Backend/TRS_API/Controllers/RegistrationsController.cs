@@ -36,6 +36,7 @@ public class RegistrationsController : ControllerBase
     private readonly EmailService _email;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly RegistrationWorkflowService _registrationWorkflow;
+    private readonly AdminPaymentOutcomeService _adminPaymentOutcome;
     public RegistrationsController(
         TRSDbContext db,
         ILogger<RegistrationsController> log,
@@ -44,9 +45,10 @@ public class RegistrationsController : ControllerBase
         EmailService email,
         IBackgroundJobQueue jobQueue,
         IServiceScopeFactory serviceScopeFactory,
-        RegistrationWorkflowService registrationWorkflow)
-        => (_db, _log, _receipt, _registrationDetailsPdf, _email, _jobQueue, _serviceScopeFactory, _registrationWorkflow) =
-            (db, log, receipt, registrationDetailsPdf, email, jobQueue, serviceScopeFactory, registrationWorkflow);
+        RegistrationWorkflowService registrationWorkflow,
+        AdminPaymentOutcomeService adminPaymentOutcome)
+        => (_db, _log, _receipt, _registrationDetailsPdf, _email, _jobQueue, _serviceScopeFactory, _registrationWorkflow, _adminPaymentOutcome) =
+            (db, log, receipt, registrationDetailsPdf, email, jobQueue, serviceScopeFactory, registrationWorkflow, adminPaymentOutcome);
 
     // -- GET /api/registrations  -- admin, paged + filtered -----------------
     [HttpGet, Authorize(Roles = "superadmin,eventadmin")]
@@ -797,27 +799,12 @@ public class RegistrationsController : ControllerBase
     [HttpPost("{id:int}/confirm"), Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> ConfirmRegistration(int id, [FromBody] ConfirmRegistrationRequest req)
     {
-        var allowedStatuses = new[] { StatusCodesEx.Payment.Success, StatusCodesEx.Payment.Waived, StatusCodesEx.Payment.PendingCollection };
-        var status = req.PaymentStatus;
-        if (!allowedStatuses.Contains(status))
-            return BadRequest(new { code = "INVALID_STATUS", message = "PaymentStatus must be S (Paid), W (Waived), or PC (Pending Collection)." });
-
-        var allowedMethods = new[] { "Cash", "BankTransfer", "PayNow", "Others" };
-        var method = string.IsNullOrWhiteSpace(req.Method) ? null : req.Method.Trim();
-        var paymentReference = string.IsNullOrWhiteSpace(req.PaymentReference) ? null : req.PaymentReference.Trim();
-
-        if (status == StatusCodesEx.Payment.Success)
-        {
-            if (method == null)
-                return BadRequest(new { code = "INVALID_METHOD", message = "Payment method is required when payment status is Paid." });
-            if (!allowedMethods.Contains(method))
-                return BadRequest(new { code = "INVALID_METHOD", message = "Payment method must be Cash, BankTransfer, PayNow, or Others." });
-        }
-        else
-        {
-            method = null;
-            paymentReference = null;
-        }
+        var outcome = _adminPaymentOutcome.Normalize(req.PaymentStatus, req.Method, req.PaymentReference);
+        if (!outcome.Success)
+            return BadRequest(new { code = outcome.Code, message = outcome.Message });
+        var status = outcome.Value!.PaymentStatus;
+        var method = outcome.Value.Method;
+        var paymentReference = outcome.Value.PaymentReference;
 
         var reg = await LoadReg(id);
         if (reg == null) return NotFound(new { code = "NOT_FOUND", message = "Registration not found." });
@@ -1077,7 +1064,7 @@ public class RegistrationsController : ControllerBase
                 }
             }
 
-            if (item.ItemStatus != StatusCodesEx.PaymentItem.Refunded)
+            if (item.ItemStatus == StatusCodesEx.PaymentItem.Pending)
             {
                 var oldStatus = item.ItemStatus;
                 item.ItemStatus = StatusCodesEx.PaymentItem.Cancelled;
@@ -1092,6 +1079,21 @@ public class RegistrationsController : ControllerBase
                     Reason = req.Reason,
                     PerformedBy = User.Identity?.Name ?? "admin",
                     Notes = $"Scope={scope}",
+                    CreatedAt = DateTime.UtcNow,
+                });
+            }
+            else if (item.ItemStatus == StatusCodesEx.PaymentItem.Success)
+            {
+                _db.PaymentAuditLogs.Add(new PaymentAuditLog
+                {
+                    EntityType = "PaymentItem",
+                    EntityId = item.PaymentItemId,
+                    Action = "CancelledWithoutRefund",
+                    OldStatus = item.ItemStatus,
+                    NewStatus = item.ItemStatus,
+                    Reason = req.Reason,
+                    PerformedBy = User.Identity?.Name ?? "admin",
+                    Notes = $"Scope={scope}; Payment retained as paid because no refund was issued.",
                     CreatedAt = DateTime.UtcNow,
                 });
             }

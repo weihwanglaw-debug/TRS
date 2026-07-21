@@ -149,6 +149,7 @@ export default function EventEdit() {
     name: "", description: "", venue: "", venueAddress: "",
     eventStartDate: "", eventEndDate: "", openDate: "", closeDate: "",
     maxParticipants: 100, sponsorInfo: "", bannerUrl: "",
+    consentStatement: "",
     additionalInfo: "",          // replaces prospectusUrl
     isSports: true, sportType: "Badminton",
     fixtureMode: "internal" as "internal" | "external" | "not_required",
@@ -221,6 +222,7 @@ export default function EventEdit() {
         maxParticipants:  ev.maxParticipants || 100,
         sponsorInfo:      ev.sponsorInfo || "",
         bannerUrl:        ev.bannerUrl || "",
+        consentStatement: ev.consentStatement || "",
         additionalInfo:   ev.additionalInfo || "",
         isSports:         ev.isSports ?? true,
         sportType:        ev.sportType === "Badminton" ? "Badminton" : "Non Badminton",
@@ -358,7 +360,11 @@ export default function EventEdit() {
     if (!validate()) return;
     setSaving(true);
     try {
-      const payload = { ...form, galleryUrls: gallery, programs };
+      const payload: Omit<TournamentEvent, "id" | "programs" | "documents"> = {
+        ...form,
+        galleryUrls: gallery,
+        consentStatement: form.consentStatement ?? "",
+      };
       if (isNew) {
         const r = await apiCreateEvent(payload);
         if (r.error) { showError("Event could not be created", r.error.message); return; }
@@ -458,7 +464,7 @@ export default function EventEdit() {
         open: true,
         variant: "success",
         title: "Import saved",
-        description: `${r.data!.participantCount} participant(s) saved under registration ${r.data!.registrationNo}.`,
+        description: `${r.data!.participantCount} participant(s) saved under registration ${r.data!.registrationId}.`,
       });
     } catch {
       setImportError("The imported registration could not be saved. Please try again.");
@@ -1043,7 +1049,7 @@ export default function EventEdit() {
                   </div>
                   <div className="p-3" style={{ border: "1px solid var(--color-table-border)" }}>
                     <p className="text-xs font-semibold opacity-50">Participants</p>
-                    <p className="text-lg font-bold">{importPreview.totalParticipants}</p>
+                    <p className="text-lg font-bold">{importPreview.participantCount}</p>
                   </div>
                   <div className="p-3" style={{ border: "1px solid var(--color-table-border)" }}>
                     <p className="text-xs font-semibold opacity-50">Result</p>
@@ -1064,7 +1070,7 @@ export default function EventEdit() {
                           <tr key={entry.entryNo}>
                             <td className="text-sm">{entry.entryNo}</td>
                             <td className="text-sm">{entry.participantCount}</td>
-                            <td className="text-sm">{entry.participantNames.join(", ") || "-"}</td>
+                            <td className="text-sm">{entry.names || "-"}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1135,20 +1141,22 @@ export default function EventEdit() {
           </div>
 
           <div className="p-8 pt-0 flex flex-wrap gap-3 justify-end">
-            <button type="button" disabled={importBusy} onClick={resetImportDialog}
-              className="btn-outline px-5 py-2.5 text-sm font-medium disabled:opacity-40">
-              Cancel
-            </button>
-            {!importPreview && (
+            {!importError && !(importPreview && !importPreview.valid) && (
+              <button type="button" disabled={importBusy} onClick={resetImportDialog}
+                className="btn-outline px-5 py-2.5 text-sm font-medium disabled:opacity-40">
+                Cancel
+              </button>
+            )}
+            {!importPreview && !importError && (
               <button type="button" disabled={!importFile || importBusy} onClick={handleImportPreview}
                 className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
                 {importBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Scanning...</> : "Scan Template"}
               </button>
             )}
-            {importPreview && !importPreview.valid && (
-              <button type="button" disabled={importBusy} onClick={handleImportPreview}
+            {((importPreview && !importPreview.valid) || importError) && (
+              <button type="button" disabled={importBusy} onClick={resetImportDialog}
                 className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
-                {importBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Scanning...</> : "Rescan"}
+                OK
               </button>
             )}
             {importPreview?.valid && (

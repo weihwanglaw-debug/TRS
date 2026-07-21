@@ -17,15 +17,23 @@ public sealed class ProgramImportService
     private const int MaxRows = 1000;
     private const string EntrySheetName = "Participant Entries";
     private const string InfoSheetName = "Template Info";
+    private const string RowTypeHeader = "Row Type";
+    private const string SampleRowType = "SAMPLE";
 
     private readonly TRSDbContext _db;
     private readonly RegistrationWorkflowService _registrationWorkflow;
+    private readonly AdminPaymentOutcomeService _adminPaymentOutcome;
     private readonly IMemoryCache _cache;
 
-    public ProgramImportService(TRSDbContext db, RegistrationWorkflowService registrationWorkflow, IMemoryCache cache)
+    public ProgramImportService(
+        TRSDbContext db,
+        RegistrationWorkflowService registrationWorkflow,
+        AdminPaymentOutcomeService adminPaymentOutcome,
+        IMemoryCache cache)
     {
         _db = db;
         _registrationWorkflow = registrationWorkflow;
+        _adminPaymentOutcome = adminPaymentOutcome;
         _cache = cache;
     }
 
@@ -78,12 +86,14 @@ public sealed class ProgramImportService
         response.RowCount = rows.Count;
 
         var request = BuildRequest(ev, program, rows, GetAdminContact(user), response.Errors, response.Warnings);
+        var existingParticipantKeys = await GetExistingParticipantKeysAsync(program.ProgramId, ct);
+        ValidateImportedRows(program, rows, existingParticipantKeys, response.Errors);
         response.EntryCount = request.Groups.Count;
         response.ParticipantCount = request.Groups.Sum(g => g.Participants.Count);
         response.Entries = request.Groups
             .Select(g => new ProgramImportPreviewEntry
             {
-                EntryNo = g.ProgramName == program.Name ? rows.FirstOrDefault(r => r.ParticipantsGroupKey == g)?.EntryNo ?? "" : "",
+                EntryNo = rows.FirstOrDefault(r => r.ParticipantsGroupKey == g)?.EntryNo ?? "",
                 ParticipantCount = g.Participants.Count,
                 Names = string.Join(" / ", g.Participants.Select(p => p.FullName)),
                 Fee = g.Fee,
@@ -132,25 +142,9 @@ public sealed class ProgramImportService
         if (pending.Request.EventId != eventId || pending.Request.Groups.Any(g => g.ProgramId != programId))
             return RegistrationWorkflowResult<ProgramImportConfirmResponse>.Fail("IMPORT_MISMATCH", "Import token does not match this event/program.");
 
-        var allowedStatuses = new[] { StatusCodesEx.Payment.Success, StatusCodesEx.Payment.Waived, StatusCodesEx.Payment.PendingCollection };
-        if (!allowedStatuses.Contains(req.PaymentStatus))
-            return RegistrationWorkflowResult<ProgramImportConfirmResponse>.Fail("INVALID_STATUS", "PaymentStatus must be S, W, or PC.");
-
-        var allowedMethods = new[] { "Cash", "BankTransfer", "PayNow", "Others" };
-        var method = string.IsNullOrWhiteSpace(req.Method) ? null : req.Method.Trim();
-        var paymentReference = string.IsNullOrWhiteSpace(req.PaymentReference) ? null : req.PaymentReference.Trim();
-        if (req.PaymentStatus == StatusCodesEx.Payment.Success)
-        {
-            if (method == null)
-                return RegistrationWorkflowResult<ProgramImportConfirmResponse>.Fail("INVALID_METHOD", "Payment method is required when payment status is Paid.");
-            if (!allowedMethods.Contains(method))
-                return RegistrationWorkflowResult<ProgramImportConfirmResponse>.Fail("INVALID_METHOD", "Payment method must be Cash, BankTransfer, PayNow, or Others.");
-        }
-        else
-        {
-            method = null;
-            paymentReference = null;
-        }
+        var outcome = _adminPaymentOutcome.Normalize(req.PaymentStatus, req.Method, req.PaymentReference);
+        if (!outcome.Success)
+            return RegistrationWorkflowResult<ProgramImportConfirmResponse>.Fail(outcome.Code!, outcome.Message);
 
         var create = await _registrationWorkflow.CreateAsync(
             pending.Request,
@@ -159,10 +153,10 @@ public sealed class ProgramImportService
                 RegistrationGateMode = EventRegistrationGateMode.AdminAssisted,
                 ValidatePricingAgainstCurrentPrograms = true,
                 PaymentGateway = "Manual",
-                PaymentMethod = method ?? "Manual",
-                PaymentStatus = req.PaymentStatus,
+                PaymentMethod = outcome.Value!.Method,
+                PaymentStatus = outcome.Value.PaymentStatus,
                 AdminNote = req.AdminNote.Trim(),
-                ReceiptNumber = paymentReference,
+                ReceiptNumber = outcome.Value.PaymentReference,
                 SuppressReceiptEmail = true,
             },
             ct);
@@ -200,7 +194,7 @@ public sealed class ProgramImportService
             Payment = new CreatePaymentDto
             {
                 Gateway = "Manual",
-                Method = "Manual",
+                Method = "Others",
                 Currency = "SGD",
             },
         };
@@ -208,8 +202,7 @@ public sealed class ProgramImportService
         if (!rows.Any())
             errors.Add(Issue(null, null, null, "NO_ROWS", "No participant rows found in the import sheet."));
 
-        var customMap = program.CustomFields
-            .ToDictionary(cf => cf.Label.Trim(), cf => cf.CustomFieldId.ToString(), StringComparer.OrdinalIgnoreCase);
+        var customMap = BuildCustomFieldMap(program, errors);
 
         foreach (var groupRows in rows.GroupBy(r => r.EntryNo.Trim(), StringComparer.OrdinalIgnoreCase))
         {
@@ -319,6 +312,138 @@ public sealed class ProgramImportService
             ?.Split(':', 2)[1].Trim();
     }
 
+    private async Task<HashSet<string>> GetExistingParticipantKeysAsync(int programId, CancellationToken ct)
+    {
+        var existing = await _db.ParticipantGroups
+            .AsNoTracking()
+            .Where(g =>
+                g.ProgramId == programId &&
+                g.GroupStatus != StatusCodesEx.Registration.Cancelled &&
+                g.Registration.RegStatus != StatusCodesEx.Registration.Cancelled)
+            .SelectMany(g => g.Participants
+                .Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
+                .Select(p => new
+                {
+                    p.FullName,
+                    p.DateOfBirth,
+                }))
+            .ToListAsync(ct);
+
+        return existing
+            .Where(p => !string.IsNullOrWhiteSpace(p.FullName) && p.DateOfBirth.HasValue)
+            .Select(p => ParticipantKey(p.FullName, p.DateOfBirth!.Value))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void ValidateImportedRows(
+        TrsProgram program,
+        List<ImportedRow> rows,
+        HashSet<string> existingParticipantKeys,
+        List<ProgramImportIssue> errors)
+    {
+        var submittedParticipantKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var requiredCustomFields = program.CustomFields
+            .Where(cf => cf.IsRequired)
+            .GroupBy(cf => cf.Label.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Where(g => !string.IsNullOrWhiteSpace(g.Key) && g.Count() == 1)
+            .Select(g => g.First())
+            .ToList();
+
+        foreach (var groupRows in rows.GroupBy(r => r.EntryNo.Trim(), StringComparer.OrdinalIgnoreCase))
+        {
+            var entryNo = groupRows.Key;
+            if (string.IsNullOrWhiteSpace(entryNo))
+                continue;
+
+            var rowList = groupRows.OrderBy(r => r.RowNumber).ToList();
+            if (rowList.Count < program.MinPlayers || rowList.Count > program.MaxPlayers)
+            {
+                errors.Add(Issue(
+                    rowList.First().RowNumber,
+                    entryNo,
+                    "Entry No",
+                    "INVALID_PARTICIPANT_COUNT",
+                    $"'{program.Name}' requires between {program.MinPlayers} and {program.MaxPlayers} participants per entry."));
+            }
+
+            foreach (var row in rowList)
+            {
+                ValidateProgramFieldRequirements(program, row, errors);
+                ValidateCustomFieldRequirements(requiredCustomFields, row, errors);
+
+                if (TryParseImportDate(row.Dob, out var dob))
+                {
+                    var age = CalculateAge(dob.Value);
+                    if (age < program.MinAge || age > program.MaxAge)
+                    {
+                        errors.Add(Issue(row.RowNumber, entryNo, "Date of Birth", "INVALID_AGE", $"'{row.FullName}' does not meet the age requirement for '{program.Name}'."));
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(row.FullName))
+                    {
+                        var key = ParticipantKey(row.FullName, dob.Value);
+                        if (!submittedParticipantKeys.Add(key))
+                            errors.Add(Issue(row.RowNumber, entryNo, "Full Name", "DUPLICATE_REGISTRATION", $"Duplicate participant '{row.FullName}' appears in this import."));
+                        if (existingParticipantKeys.Contains(key))
+                            errors.Add(Issue(row.RowNumber, entryNo, "Full Name", "DUPLICATE_REGISTRATION", $"'{row.FullName}' is already registered for '{program.Name}'."));
+                    }
+                }
+
+                if (string.Equals(program.Gender, "Male", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(row.Gender)
+                    && !string.Equals(row.Gender, "Male", StringComparison.OrdinalIgnoreCase))
+                {
+                    errors.Add(Issue(row.RowNumber, entryNo, "Gender", "INVALID_GENDER", $"'{program.Name}' is for male participants only."));
+                }
+
+                if (string.Equals(program.Gender, "Female", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(row.Gender)
+                    && !string.Equals(row.Gender, "Female", StringComparison.OrdinalIgnoreCase))
+                {
+                    errors.Add(Issue(row.RowNumber, entryNo, "Gender", "INVALID_GENDER", $"'{program.Name}' is for female participants only."));
+                }
+            }
+
+            if (string.Equals(program.Gender, "Mixed", StringComparison.OrdinalIgnoreCase))
+            {
+                var maleCount = rowList.Count(r => string.Equals(r.Gender, "Male", StringComparison.OrdinalIgnoreCase));
+                var femaleCount = rowList.Count(r => string.Equals(r.Gender, "Female", StringComparison.OrdinalIgnoreCase));
+                if (maleCount != 1 || femaleCount != 1)
+                    errors.Add(Issue(rowList.First().RowNumber, entryNo, "Gender", "INVALID_GENDER", $"'{program.Name}' requires exactly one male and one female participant."));
+            }
+        }
+    }
+
+    private static void ValidateProgramFieldRequirements(TrsProgram program, ImportedRow row, List<ProgramImportIssue> errors)
+    {
+        var fields = program.Fields;
+        if (fields == null) return;
+
+        if (fields.EnableTshirt && fields.RequireTshirt)
+            ValidateRequired(row, "T-Shirt Size", row.TshirtSize, errors);
+        if (fields.EnableGuardianInfo && fields.RequireGuardianInfo)
+        {
+            ValidateRequired(row, "Guardian Name", row.GuardianName, errors);
+            ValidateRequired(row, "Guardian Contact Number", row.GuardianContact, errors);
+        }
+        if (fields.EnableSbaId && fields.RequireSbaId)
+            ValidateRequired(row, "SBA ID", row.SbaId, errors);
+        if (fields.EnableRemark && fields.RequireRemark)
+            ValidateRequired(row, "Remark", row.Remark, errors);
+    }
+
+    private static void ValidateCustomFieldRequirements(
+        List<ProgramCustomField> requiredCustomFields,
+        ImportedRow row,
+        List<ProgramImportIssue> errors)
+    {
+        foreach (var customField in requiredCustomFields)
+        {
+            row.CustomValues.TryGetValue(customField.Label, out var value);
+            ValidateRequired(row, customField.Label, value, errors);
+        }
+    }
+
     private static List<ImportedRow> ReadRows(ImportedWorkbook workbook, List<ProgramImportIssue> errors)
     {
         var sheet = workbook.CellTables.GetValueOrDefault(EntrySheetName);
@@ -331,6 +456,14 @@ public sealed class ProgramImportService
         var headers = sheet
             .Where(c => c.Row == HeaderRow)
             .ToDictionary(c => c.Column, c => CleanHeader(c.Value));
+
+        foreach (var duplicate in headers.Values
+            .Where(h => !string.IsNullOrWhiteSpace(h))
+            .GroupBy(h => h, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1))
+        {
+            errors.Add(Issue(HeaderRow, null, duplicate.Key, "DUPLICATE_COLUMN", $"Column '{duplicate.Key}' appears more than once. Rename duplicate columns before importing."));
+        }
 
         if (!headers.Values.Contains("Entry No", StringComparer.OrdinalIgnoreCase))
             errors.Add(Issue(HeaderRow, null, "Entry No", "MISSING_COLUMN", "Entry No column is required."));
@@ -345,19 +478,33 @@ public sealed class ProgramImportService
             if (values.Count == 0)
                 continue;
 
-            var byHeader = headers
-                .Where(h => values.ContainsKey(h.Key))
-                .ToDictionary(h => h.Value, h => values[h.Key].Trim(), StringComparer.OrdinalIgnoreCase);
+            var byHeader = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (columnIndex, header) in headers)
+            {
+                if (string.IsNullOrWhiteSpace(header) || !values.TryGetValue(columnIndex, out var value))
+                    continue;
+
+                if (!byHeader.ContainsKey(header))
+                    byHeader[header] = value.Trim();
+            }
 
             if (byHeader.Values.All(string.IsNullOrWhiteSpace))
                 continue;
+
+            if (string.Equals(Value(byHeader, RowTypeHeader), SampleRowType, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var dobValue = Value(byHeader, "Date of Birth");
+            var normalizedDob = NormalizeDate(dobValue, out var validDate);
+            if (!validDate)
+                errors.Add(Issue(rowNumber, Value(byHeader, "Entry No"), "Date of Birth", "INVALID_DATE_FORMAT", "Date of Birth must use yyyy-mm-dd or a valid Excel date."));
 
             var row = new ImportedRow
             {
                 RowNumber = rowNumber,
                 EntryNo = Value(byHeader, "Entry No"),
                 FullName = Value(byHeader, "Full Name"),
-                Dob = NormalizeDate(Value(byHeader, "Date of Birth")),
+                Dob = normalizedDob,
                 Gender = Value(byHeader, "Gender"),
                 Email = Value(byHeader, "Email"),
                 ContactNumber = Value(byHeader, "Contact Number"),
@@ -387,7 +534,7 @@ public sealed class ProgramImportService
 
     private static bool IsKnownHeader(string header) => new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        "Entry No", "Full Name", "Date of Birth", "Gender", "Email", "Contact Number", "Nationality",
+        RowTypeHeader, "Entry No", "Full Name", "Date of Birth", "Gender", "Email", "Contact Number", "Nationality",
         "Club / Team / School", "T-Shirt Size", "SBA ID", "Guardian Name", "Guardian Contact Number", "Remark"
     }.Contains(header);
 
@@ -403,9 +550,10 @@ public sealed class ProgramImportService
         return dash > 0 ? clean[..dash].Trim() : clean;
     }
 
-    private static string NormalizeDate(string value)
+    private static string NormalizeDate(string value, out bool valid)
     {
         var clean = value.Trim();
+        valid = true;
         if (string.IsNullOrWhiteSpace(clean)) return "";
 
         if (DateTime.TryParse(clean, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var dt))
@@ -419,11 +567,61 @@ public sealed class ProgramImportService
             }
             catch
             {
+                valid = false;
                 return clean;
             }
         }
 
+        valid = false;
         return clean;
+    }
+
+    private static bool TryParseImportDate(string? value, out DateTime? dob)
+    {
+        dob = null;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        if (!DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
+            return false;
+
+        dob = parsed.Date;
+        return true;
+    }
+
+    private static int CalculateAge(DateTime dob)
+    {
+        var today = DateTime.UtcNow.Date;
+        var age = today.Year - dob.Year;
+        if (dob.Date > today.AddYears(-age)) age--;
+        return age;
+    }
+
+    private static string ParticipantKey(string? fullName, DateTime dob) =>
+        $"{fullName?.Trim()}|{dob:yyyy-MM-dd}";
+
+    private static string ParticipantKey(string? fullName, DateOnly dob) =>
+        $"{fullName?.Trim()}|{dob:yyyy-MM-dd}";
+
+    private static Dictionary<string, string> BuildCustomFieldMap(TrsProgram program, List<ProgramImportIssue> errors)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var customField in program.CustomFields)
+        {
+            var label = customField.Label.Trim();
+            if (string.IsNullOrWhiteSpace(label))
+                continue;
+
+            if (map.ContainsKey(label))
+            {
+                errors.Add(Issue(null, null, label, "DUPLICATE_CUSTOM_FIELD", $"Program custom field label '{label}' is duplicated. Rename the custom fields before importing."));
+                continue;
+            }
+
+            map[label] = customField.CustomFieldId.ToString();
+        }
+
+        return map;
     }
 
     private static AdminContact GetAdminContact(ClaimsPrincipal user)

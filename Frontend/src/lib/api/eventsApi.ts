@@ -27,9 +27,10 @@ export interface ProgramImportIssue {
 }
 
 export interface ProgramImportPreviewEntry {
-  entryNo: number;
+  entryNo: string;
   participantCount: number;
-  participantNames: string[];
+  names: string;
+  fee: number;
 }
 
 export interface ProgramImportPreviewResponse {
@@ -39,7 +40,10 @@ export interface ProgramImportPreviewResponse {
   eventName: string;
   programName: string;
   entries: ProgramImportPreviewEntry[];
-  totalParticipants: number;
+  rowCount: number;
+  entryCount: number;
+  participantCount: number;
+  totalAmount: number;
   valid: boolean;
   errors: ProgramImportIssue[];
   warnings: ProgramImportIssue[];
@@ -54,9 +58,9 @@ export interface ProgramImportConfirmRequest {
 }
 
 export interface ProgramImportConfirmResponse {
-  registrationId: string;
-  registrationNo: string;
-  receiptNumber: string;
+  registrationId: number;
+  paymentId: number;
+  entryCount: number;
   paymentStatus: string;
   participantCount: number;
 }

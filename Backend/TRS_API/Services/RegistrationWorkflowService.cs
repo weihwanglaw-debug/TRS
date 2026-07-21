@@ -829,7 +829,7 @@ public sealed class RegistrationPersistOptions
     public EventRegistrationGateMode RegistrationGateMode { get; init; } = EventRegistrationGateMode.StrictPublic;
     public bool ValidatePricingAgainstCurrentPrograms { get; init; } = true;
     public string PaymentGateway { get; init; } = "Stripe";
-    public string PaymentMethod { get; init; } = "CreditCard";
+    public string? PaymentMethod { get; init; } = "CreditCard";
     public string PaymentStatus { get; init; } = StatusCodesEx.Payment.Pending;
     public decimal? PaymentAmountOverride { get; init; }
     public string? AdminNote { get; init; }

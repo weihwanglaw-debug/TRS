@@ -218,6 +218,8 @@ Cancellation:
 - Reason is required.
 - Cancellation can target the whole registration, one entry/group, or one per-player singles participant when that participant has its own payment item.
 - Cancellation without refund cancels the selected scope and frees affected slots.
+- Cancellation without refund does not change already-paid payment items to cancelled; the item remains `S` paid because money was collected and not returned.
+- Pending/unpaid payment items can be marked `X` cancelled when their registration scope is cancelled without refund.
 - Cancellation with refund processes each selected item independently. Successful item refunds immediately cancel that item's participant or group scope; failed item refunds leave that item active.
 - Cancelling an already-refunded active item is allowed through cancel-without-refund, because the money has already been returned and the remaining action is slot release.
 - Any action that involves cancellation is blocked when an affected program has a fixture. The fixture must be removed before cancellation.
@@ -273,16 +275,19 @@ Manual confirmation:
 - Admin registration mode is available from the event detail page for `U`, `PA`, or `CL` events, but it cannot bypass `D` draft events, closed programs, full programs, or programs with fixtures.
 - During admin bypass, cart-level payer/contact, public payment method, and consent fields are hidden; payer contact is recorded from the logged-in admin profile.
 - In the admin confirmation modal, payment method and payment reference are collected only when the selected payment status is `S` (Paid), not for `W` (Waived) or `PC` (Pending Collection).
+- Admin registration confirmation from the frontend event page and admin program import confirmation share the same backend payment outcome normalization: `S` requires a valid method, while `W` and `PC` force payment method/reference to `NULL`.
 - Manual confirmation does not resurrect payment items or participant/group scopes that are already cancelled or refunded.
 
 Admin program import:
 
 - Program import is available only to authenticated admins with `superadmin` or `eventadmin`.
 - Import templates are scoped to one event and one program. The backend verifies the template event/program identifiers during preview.
+- Template rows marked `SAMPLE` in the `Row Type` column are ignored during import. Admins may delete sample rows or overwrite them as real data.
 - Event sport type controls badminton template behavior. When `Event.SportType='Badminton'`, the downloaded template gives `Club / Team / School` a badminton club dropdown from the master table while still allowing free text. Other sport types use free text.
 - One uploaded workbook creates one `EventRegistration`; all imported entries share the same registration number.
 - `Entry No` groups workbook participant rows into participant groups under that single registration.
-- Preview validates the full workbook and returns all validation errors together. The import is not saved until preview is valid and the admin confirms.
+- Preview validates the full workbook and returns all import-detectable validation errors together. The import is not saved until preview is valid and the admin confirms.
+- When preview fails, the admin UI shows the collected issues with one `OK` action and closes the import dialog; the admin must reopen import and upload the corrected workbook for a new scan.
 - After a valid preview, the admin selects one payment status for the whole import: `S` paid, `W` waived, or `PC` pending collection.
 - Payment method and payment reference apply only when the selected status is `S`.
 - Admin note is required before confirming the import.
