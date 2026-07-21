@@ -58,7 +58,10 @@ const FIELD_TYPES = [
   { value: "select", label: "Dropdown (Options)" },
 ];
 
+const CUSTOM_BADMINTON_PROGRAM = "__custom_badminton_program__";
+
 type CF = { label: string; type: string; mandatory: boolean; options: string };
+type BadmintonProgramMode = "ranking" | "custom";
 
 interface Props {
   open:          boolean;
@@ -108,6 +111,7 @@ export default function ProgramModal({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [sbaTypes,   setSbaTypes]   = useState<SbaRankingType[]>([]);
+  const [badmintonProgramMode, setBadmintonProgramMode] = useState<BadmintonProgramMode>("ranking");
   const [feedback, setFeedback] = useState<{
     open: boolean;
     variant: ActionFeedbackVariant;
@@ -133,6 +137,7 @@ export default function ProgramModal({
   useEffect(() => {
     if (!open) return;
     if (program) {
+      setBadmintonProgramMode(isBadminton && !program.sbaRankingType ? "custom" : "ranking");
   // Edit: restore saved values
       setForm({
         name:            program.name,
@@ -166,6 +171,7 @@ export default function ProgramModal({
         })),
       });
     } else {
+      setBadmintonProgramMode("ranking");
   // Create: reset to defaults for current sport context
       setForm({
         name: "", type: defaultType.value, sbaRankingType: "",
@@ -201,6 +207,35 @@ export default function ProgramModal({
   /** Called when user picks an SBA ranking type (badminton only).
   *  Derives program type, player count, gender, and age from SBA metadata. */
   const selectSbaType = (value: string) => {
+    if (!value) {
+      setBadmintonProgramMode("ranking");
+      setForm(p => ({
+        ...p,
+        sbaRankingType: "",
+        name: "",
+        enableSbaId: false,
+        requireSbaId: false,
+      }));
+      return;
+    }
+
+    if (value === CUSTOM_BADMINTON_PROGRAM) {
+      setBadmintonProgramMode("custom");
+      setForm(p => ({
+        ...p,
+        sbaRankingType: "",
+        name: "",
+        type: defaultType.value,
+        gender: "Open",
+        minPlayers: defaultType.minPlayers,
+        maxPlayers: defaultType.maxPlayers,
+        enableSbaId: false,
+        requireSbaId: false,
+      }));
+      return;
+    }
+
+    setBadmintonProgramMode("ranking");
     const selected = sbaTypes.find(t => t.value === value);
     const progType = sbaTypeToProgType(selected);
     setForm(p => ({
@@ -227,7 +262,7 @@ export default function ProgramModal({
   const handleSave = async () => {
     const errs: Record<string, string> = {};
     if (!form.name.trim())                           errs.name     = "Program name is required";
-    if (isBadminton && !form.sbaRankingType.trim())  errs.sbaType  = "SBA ranking type is required";
+    if (isBadminton && badmintonProgramMode === "ranking" && !form.sbaRankingType.trim())  errs.sbaType  = "SBA ranking type is required";
     if (!form.type)                                  errs.type     = "Program type is required";
     if (form.gender === "Mixed" && (form.minPlayers !== 2 || form.maxPlayers !== 2))
                                errs.players  = "Mixed gender requires exactly 2 players per entry (1 Male + 1 Female).";
@@ -244,7 +279,7 @@ export default function ProgramModal({
       id:             program?.id || "",
       name:           form.name,
       type:           form.type,                          // <- fixed: actual type value, not form.name
-      sbaRankingType: form.sbaRankingType || null,
+      sbaRankingType: badmintonProgramMode === "custom" ? null : form.sbaRankingType || null,
       gender:         form.gender,
       minAge:         form.minAge,
       maxAge:         form.maxAge,
@@ -285,6 +320,8 @@ export default function ProgramModal({
   };
 
   //  Render
+  const isCustomBadmintonProgram = isBadminton && badmintonProgramMode === "custom";
+  const playerTypeLocked = isFixedPlayerType(form.type, isBadminton && badmintonProgramMode === "ranking");
 
   return (
     <>
@@ -310,9 +347,14 @@ export default function ProgramModal({
               <div className="sm:col-span-2">
                 <Lbl>Program Name *</Lbl>
                 {isBadminton ? (
-                  <select className="field-input" value={form.sbaRankingType} onChange={e => selectSbaType(e.target.value)}>
+                  <select
+                    className="field-input"
+                    value={isCustomBadmintonProgram ? CUSTOM_BADMINTON_PROGRAM : form.sbaRankingType}
+                    onChange={e => selectSbaType(e.target.value)}
+                  >
                     <option value="">Select SBA ranking type</option>
                     {sbaTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    <option value={CUSTOM_BADMINTON_PROGRAM}>Custom program - no SBA auto-seeding</option>
                   </select>
                 ) : (
                   <input className="field-input" value={form.name} onChange={e => s("name", e.target.value)}
@@ -322,8 +364,17 @@ export default function ProgramModal({
                 {formErrors.sbaType && <Err>{formErrors.sbaType}</Err>}
               </div>
 
-  {/* Program Type - hidden for badminton (auto-derived from SBA type) */}
-              {!isBadminton && (
+              {isCustomBadmintonProgram && (
+                <div className="sm:col-span-2">
+                  <Lbl>Custom Program Name *</Lbl>
+                  <input className="field-input" value={form.name} onChange={e => s("name", e.target.value)}
+                    placeholder="e.g. Corporate Doubles" />
+                  <p className="text-xs opacity-50 mt-1">Custom Badminton programs allow manual seeding only because there is no matching SBA ranking type.</p>
+                </div>
+              )}
+
+  {/* Program Type - hidden for SBA-ranked badminton (auto-derived from SBA type) */}
+              {(!isBadminton || isCustomBadmintonProgram) && (
                 <div>
                   <Lbl>Program Type *</Lbl>
                   <select className="field-input" value={form.type}
@@ -391,20 +442,20 @@ export default function ProgramModal({
   {/* Fixed-size program types are auto-set and read-only. */}
                 <input type="number" className="field-input"
                   value={form.minPlayers}
-                  readOnly={isFixedPlayerType(form.type, isBadminton)}
-                  style={{ opacity: isFixedPlayerType(form.type, isBadminton) ? 0.6 : 1 }}
+                  readOnly={playerTypeLocked}
+                  style={{ opacity: playerTypeLocked ? 0.6 : 1 }}
                   onChange={e => s("minPlayers", +e.target.value)} />
               </div>
               <div>
                 <Lbl>Max Players / Entry</Lbl>
                 <input type="number" className="field-input"
                   value={form.maxPlayers}
-                  readOnly={isFixedPlayerType(form.type, isBadminton)}
-                  style={{ opacity: isFixedPlayerType(form.type, isBadminton) ? 0.6 : 1 }}
+                  readOnly={playerTypeLocked}
+                  style={{ opacity: playerTypeLocked ? 0.6 : 1 }}
                   onChange={e => s("maxPlayers", +e.target.value)} />
               </div>
             </div>
-            {isFixedPlayerType(form.type, isBadminton) && (
+            {playerTypeLocked && (
               <p className="text-xs opacity-40 mt-2">
                 Players per entry is fixed by program type ({form.type}).
               </p>

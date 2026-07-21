@@ -6,6 +6,10 @@ export interface LandingMessagePayload {
   contact: string;
   topic: string;
   message: string;
+  captchaA: number;
+  captchaB: number;
+  captchaAnswer: number;
+  website?: string;
 }
 
 export async function apiSendLandingMessage(

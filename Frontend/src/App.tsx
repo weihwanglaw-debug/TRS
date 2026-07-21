@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { LiveConfigProvider } from "@/contexts/LiveConfigContext";
 
 import Landing from "@/pages/Landing";
+import EventsArchive from "@/pages/EventsArchive";
 import EventDetail from "@/pages/EventDetail";
 import PaymentResult from "@/pages/PaymentResult";
 import Login from "@/pages/Login";
@@ -39,6 +40,7 @@ const App = () => (
             <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
               <Routes>
                 <Route path="/" element={<Landing />} />
+                <Route path="/events" element={<EventsArchive />} />
                 <Route path="/event/:id" element={<EventDetail />} />
                 <Route path="/payment/result" element={<PaymentResult />} />
                 <Route path="/login" element={<Login />} />

@@ -79,7 +79,6 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.SportType).HasMaxLength(100);
             e.Property(x => x.FixtureMode).HasMaxLength(15).IsUnicode(false).HasDefaultValue("internal");
             e.Property(x => x.RegistrationStatus).HasMaxLength(2).IsUnicode(false).HasDefaultValue("O");
-            e.Property(x => x.MaxParticipants).HasDefaultValue(100);
             e.Property(x => x.IsSports).HasDefaultValue(true);
             e.Property(x => x.IsActive).HasDefaultValue(true);
             e.Property(x => x.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");

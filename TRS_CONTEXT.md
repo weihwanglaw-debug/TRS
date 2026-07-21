@@ -21,7 +21,7 @@ The repository is a monorepo:
 2. Opens an event at `/event/:id`; public detail access uses the same active-event-with-active-program rule.
 3. Selects programs and fills participant forms.
 4. Uploads participant documents when enabled by program settings.
-5. Accepts consent.
+5. Accepts the global consent statement from Master Config (`consentText`).
 6. For free registrations, submits directly to `POST /api/registrations`.
 7. For paid registrations, creates an embedded Stripe payment attempt through `POST /api/Payment/embedded-attempt`.
 8. The embedded payment modal confirms the Stripe PaymentIntent, then `/payment/result` displays the finalized registration/receipt state after webhook completion.
@@ -103,7 +103,7 @@ API modules live in `Frontend/src/lib/api/`.
 
 - `AuthService`: BCrypt password verification/hash and JWT generation.
 - `RegistrationWorkflowService`: registration validation, pricing, persistence, receipt/email queueing.
-- `ProgramImportService`: parses program import `.xlsx` templates, validates rows as one admin-assisted registration, caches preview payloads, and confirms the import without sending emails.
+- `ProgramImportService`: parses program import `.xlsx` templates, validates rows as one admin-assisted registration, caches preview payloads, and confirms the import through the shared admin payment outcome flow.
 - `PaymentAttemptService`: embedded Stripe PaymentIntent creation, status tracking, webhook finalization, and reconciliation marking.
 - `PaymentFinalizationService`: legacy idempotent session-first Stripe finalization.
 - `FixtureGenerationService`: authoritative bracket/heats generation, fixture mutation, score validation, advancement, and final placement rules.
@@ -165,9 +165,15 @@ The older hosted Checkout session-first path remains as a legacy fallback throug
 
 Free registrations are created directly through `POST /api/registrations`.
 
-Admin program imports create one `EventRegistration` for the uploaded file, so all imported rows share one registration number. `Entry No` in the workbook groups participant rows into participant groups under that registration. After a valid preview, the admin chooses `S` paid, `W` waived, or `PC` pending collection for the whole import. Imported registrations suppress confirmation email by default and return immediate success/failure in the admin UI.
+Admin program imports create one `EventRegistration` for the uploaded file, so all imported rows share one registration number. `Entry No` in the workbook groups participant rows into participant groups under that registration. After a valid preview, the admin chooses `S` paid, `W` waived, or `PC` pending collection for the whole import. Paid imported registrations use the same admin confirmation email behavior as admin-assisted frontend registration.
 
-Registration availability is backend-computed from `Events.RegistrationStatus`, Singapore date, event activity, and active program count. API responses expose `registrationStatus` and `computedRegistrationStatus`; frontend date-only status logic is fallback only. Program capacity is enforced by program fee structure: `per_entry` counts active entries/groups, while `per_player` counts active non-cancelled participants/headcount. Event-level `MaxParticipants` is deprecated and not part of registration validation. Built-in participant fields have separate enabled and required flags in `ProgramFields`.
+Dashboard reports are read-only exports. The Event and Program Summary report exports one row per event/program with event dates/status, sport/fixture settings, program limits, fee settings, and registered/cancelled counts. The User Access report exports admin user name, email, role, and last login only. The Payment Summary report uses the registration export filters (search, event, program, registration status, payment status), fetches refund details for the returned registrations, and produces a single-sheet Excel workbook with one row per payment/program line item plus a registration total row under each registration. The Participant Details report exports participant rows by event/program with primary participant fields first, optional participant fields next, and custom participant fields last; upload/document fields are excluded.
+
+Badminton program imports validate supplied SBA IDs against the SBA ranking master table when SBA ID is enabled for the program. The scan reports row-level issues when an SBA ID is unknown or when the imported name/date of birth does not match the master record.
+
+Badminton program setup supports SBA-ranked programs and custom programs. SBA-ranked programs use `SbaRankingType` to derive program metadata and enable SBA-based fixture auto-seeding. Custom Badminton programs store no `SbaRankingType`, require manual program details, and allow manual seeding only.
+
+Registration availability is backend-computed from `Events.RegistrationStatus`, Singapore date, event activity, and active program count. API responses expose `registrationStatus` and `computedRegistrationStatus`; frontend date-only status logic is fallback only. The public `/events` listing uses the event API archive query to show active events with active programs, including closed and past events, while hiding deleted/inactive and paused events. Program capacity is enforced by program fee structure: `per_entry` counts active entries/groups, while `per_player` counts active non-cancelled participants/headcount. Event-level `MaxParticipants` has been removed; program-level capacity is authoritative. Built-in participant fields have separate enabled and required flags in `ProgramFields`.
 
 `RegistrationWorkflowService` uses explicit event gate modes:
 
@@ -209,6 +215,8 @@ Email uses SMTP through `EmailService`. The default checked-in SMTP endpoint is 
 
 Do not commit mailbox credentials. Set `Email:Smtp:Username`, `Email:Smtp:Password`, and optionally `Email:FromAddress` through user secrets, environment variables, or deployment secret configuration. If `Email:FromAddress` is blank, the SMTP username is used as the sender address. Microsoft 365 must allow SMTP AUTH for the designated mailbox.
 
+Landing page contact messages are sent through `/api/contact/message`. The public form uses the shared public rate limiter plus a lightweight math verification and honeypot field to reduce casual spam.
+
 Frontend configuration:
 
 - `VITE_API_BASE_URL`
@@ -222,7 +230,7 @@ Frontend configuration:
 - SQL scripts exist, but EF migration files are not present.
 - Stripe SDK services are instantiated directly in controllers.
 - Some legacy models/tables remain: `EventParticipant`, `BackgroundJob`.
-- Event-level `MaxParticipants` remains in the model but registration capacity is enforced through `Program.MaxParticipants`.
+- Event capacity is controlled only through `Program.MaxParticipants`.
 - Event-level `RegistrationStatus` is stored as a short code: `O` open, `PA` paused, or `CL` closed. `D` draft and `U` upcoming are computed statuses.
 - `RegistrationStatus` and `RegStatus` both exist on registrations.
 - Refund-only actions do not cancel slots. Any action that cancels a registration, entry, or participant is blocked when affected programs already have fixtures.

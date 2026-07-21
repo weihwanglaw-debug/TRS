@@ -51,6 +51,30 @@ public class RegistrationDetailsPdfService
             .Where(i => !i.ParticipantId.HasValue)
             .GroupBy(i => i.GroupId)
             .ToDictionary(g => g.Key, g => g.First()) ?? new Dictionary<int, PaymentItem>();
+        var participantIds = reg.ParticipantGroups
+            .SelectMany(g => g.Participants)
+            .Select(p => p.ParticipantId)
+            .ToHashSet();
+        var groupIds = reg.ParticipantGroups
+            .Select(g => g.GroupId)
+            .ToHashSet();
+        var paymentItemIds = payment?.Items.Select(i => i.PaymentItemId).ToHashSet() ?? new HashSet<int>();
+        var cancellationAudits = await db.PaymentAuditLogs
+            .AsNoTracking()
+            .Where(a =>
+                (a.EntityType == "Registration" && a.EntityId == reg.RegistrationId) ||
+                (a.EntityType == "ParticipantGroup" && groupIds.Contains(a.EntityId)) ||
+                (a.EntityType == "Participant" && participantIds.Contains(a.EntityId)) ||
+                (a.EntityType == "PaymentItem" && paymentItemIds.Contains(a.EntityId)))
+            .Where(a => a.Action.Contains("Cancel"))
+            .OrderByDescending(a => a.CreatedAt)
+            .ToListAsync();
+        var cancellationReasonByParticipantId = LatestReasonByEntity(cancellationAudits, "Participant");
+        var cancellationReasonByGroupId = LatestReasonByEntity(cancellationAudits, "ParticipantGroup");
+        var cancellationReasonByPaymentItemId = LatestReasonByEntity(cancellationAudits, "PaymentItem");
+        var registrationCancellationReason = cancellationAudits
+            .FirstOrDefault(a => a.EntityType == "Registration" && !string.IsNullOrWhiteSpace(a.Reason))
+            ?.Reason;
 
         DateTime ToSingaporeTime(DateTime value)
         {
@@ -118,6 +142,28 @@ public class RegistrationDetailsPdfService
             if (itemByGroupId.TryGetValue(group.GroupId, out var groupItem))
                 return StatusLabel(groupItem.ItemStatus);
             return payment == null ? "-" : StatusLabel(payment.PaymentStatus);
+        }
+
+        string? CancellationReason(Participant participant, ParticipantGroup group)
+        {
+            var item = itemByParticipantId.GetValueOrDefault(participant.ParticipantId)
+                ?? itemByGroupId.GetValueOrDefault(group.GroupId);
+            var isCancelledOrRefunded =
+                participant.ParticipantStatus == StatusCodesEx.Participant.Cancelled ||
+                group.GroupStatus == StatusCodesEx.Registration.Cancelled ||
+                item?.ItemStatus == StatusCodesEx.PaymentItem.Cancelled ||
+                item?.ItemStatus == StatusCodesEx.PaymentItem.Refunded;
+
+            if (!isCancelledOrRefunded)
+                return null;
+
+            if (cancellationReasonByParticipantId.TryGetValue(participant.ParticipantId, out var participantReason))
+                return participantReason;
+            if (item != null && cancellationReasonByPaymentItemId.TryGetValue(item.PaymentItemId, out var itemReason))
+                return itemReason;
+            if (cancellationReasonByGroupId.TryGetValue(group.GroupId, out var groupReason))
+                return groupReason;
+            return registrationCancellationReason;
         }
 
         return Document.Create(container =>
@@ -265,6 +311,17 @@ public class RegistrationDetailsPdfService
                                             Field("Remark", Display(participant.Remark));
                                         });
 
+                                        var cancellationReason = CancellationReason(participant, group);
+                                        if (!string.IsNullOrWhiteSpace(cancellationReason))
+                                        {
+                                            participantCol.Item().PaddingTop(3).Background(Colors.Red.Lighten5)
+                                                .Padding(6).Column(c =>
+                                                {
+                                                    c.Item().Text("Cancellation Reason").FontSize(7).Bold().FontColor(Colors.Red.Darken2);
+                                                    c.Item().PaddingTop(2).Text(cancellationReason).FontSize(8).FontColor(Colors.Red.Darken3);
+                                                });
+                                        }
+
                                         var customValues = participant.CustomFieldValues
                                             .OrderBy(v => v.CustomFieldId)
                                             .ToList();
@@ -312,6 +369,12 @@ public class RegistrationDetailsPdfService
             });
         }).GeneratePdf();
     }
+
+    private static Dictionary<int, string> LatestReasonByEntity(IEnumerable<PaymentAuditLog> audits, string entityType) =>
+        audits
+            .Where(a => a.EntityType == entityType && !string.IsNullOrWhiteSpace(a.Reason))
+            .GroupBy(a => a.EntityId)
+            .ToDictionary(g => g.Key, g => g.First().Reason!.Trim());
 
     private async Task<byte[]?> TryReadLogoAsync(string logoUrl)
     {

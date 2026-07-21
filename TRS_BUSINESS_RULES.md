@@ -10,9 +10,11 @@ Business rules below are extracted from current controller/service/frontend code
 - Event create/update sanitizes `AdditionalInfo` HTML with `HtmlSanitizer`.
 - Event gallery images are replaced on event update.
 - Event documents are managed through a separate documents sub-resource.
+- Consent text is global master config (`consentText`), not event-specific event data.
 - Event registration status is a combination of stored event state and computed date/program state.
 - Stored `Events.RegistrationStatus` accepts short codes only: `O` open, `PA` paused, or `CL` closed.
 - Computed registration status returned by the API can be `D` draft, `U` upcoming, `O` open, `PA` paused, or `CL` closed.
+- Public all-events listing shows active events with active programs, including closed and past events, but excludes deleted/inactive events and paused events.
 - `D` draft is computed when an event has no active programs; admins cannot manually change a draft event's registration status until at least one active program exists.
 - `U` upcoming and date-based `CL` closed are computed from Singapore date.
 - Public registration is allowed only when the computed event registration status is `O`.
@@ -106,7 +108,7 @@ Capacity:
 - Capacity excludes cancelled registrations, cancelled participant groups, and cancelled participants.
 - For `FeeStructure='per_entry'`, `Program.MaxParticipants` is treated as max active entries/groups.
 - For `FeeStructure='per_player'`, `Program.MaxParticipants` is treated as max active individual participants/headcount.
-- Event-level `MaxParticipants` is deprecated and is not enforced by `RegistrationWorkflowService`; program-level capacity is authoritative.
+- Event-level `MaxParticipants` has been removed; program-level capacity is authoritative.
 
 Pricing:
 
@@ -276,6 +278,7 @@ Manual confirmation:
 - During admin bypass, cart-level payer/contact, public payment method, and consent fields are hidden; payer contact is recorded from the logged-in admin profile.
 - In the admin confirmation modal, payment method and payment reference are collected only when the selected payment status is `S` (Paid), not for `W` (Waived) or `PC` (Pending Collection).
 - Admin registration confirmation from the frontend event page and admin program import confirmation share the same backend payment outcome normalization: `S` requires a valid method, while `W` and `PC` force payment method/reference to `NULL`.
+- Admin registrations created through the frontend event page and admin program imports both record payer contact from the logged-in admin profile. When the selected payment status is `S`, the shared registration workflow emails the receipt and registration details to that admin contact email.
 - Manual confirmation does not resurrect payment items or participant/group scopes that are already cancelled or refunded.
 
 Admin program import:
@@ -290,9 +293,13 @@ Admin program import:
 - When preview fails, the admin UI shows the collected issues with one `OK` action and closes the import dialog; the admin must reopen import and upload the corrected workbook for a new scan.
 - After a valid preview, the admin selects one payment status for the whole import: `S` paid, `W` waived, or `PC` pending collection.
 - Payment method and payment reference apply only when the selected status is `S`.
+- Import confirmation tokens are single-use; concurrent or repeated confirm attempts for the same preview are rejected.
+- Import payment references do not replace the generated receipt number. When provided, the reference is retained in the payment admin note.
 - Admin note is required before confirming the import.
 - Imported registrations use admin-assisted registration gates and normal `RegistrationWorkflowService` validation/persistence, including capacity, participant count, age, gender, duplicate, required field, custom field, and fixture restrictions.
-- Imported registrations suppress confirmation emails by default; the admin UI shows immediate success/failure only.
+- Paid imported registrations use the same confirmation email behavior as admin frontend registration: receipt and registration details are sent to the logged-in admin contact email.
+- For Badminton imports where the program has SBA ID enabled, any supplied SBA ID must exist in the SBA ranking master table and match the participant's full name and date of birth. Blank SBA ID is allowed only when the program field is optional.
+- Badminton programs can either use a configured SBA ranking type or be created as custom programs. Custom Badminton programs save `SbaRankingType=NULL` and support manual fixture seeding only; SBA auto-seeding is available only when the program has a ranking type.
 
 ## Badminton Club Rules
 
@@ -347,14 +354,31 @@ Admin program import:
 
 - Successful payment confirmation emails attach both the receipt PDF and registration-details PDF.
 - Registration details PDF is associated with the registration number and lists submitted registration item/participant details.
+- Registration details PDF displays the latest cancellation reason from `PaymentAuditLog` on each affected cancelled/refunded participant row.
 - Admin/payment-log screens can download both receipt and registration-details PDFs.
 - Refund-related emails send an updated receipt and registration-details PDF after database state is saved.
 - Cancellation-related emails send updated registration details after database state is saved, and include the updated receipt when refund is involved.
 - For privacy, registration-details PDFs are sent only to the registration contact email.
 
+## Report Rules
+
+- Dashboard report exports are read-only and must not mutate registration, payment, refund, or fixture state.
+- Event and Program Summary exports one row per event/program and includes event dates/status, sport/fixture settings, program limits, fee settings, and registered/cancelled counts.
+- Event and Program Summary registered/cancelled counts follow program capacity units: `per_entry` counts entries/groups, while `per_player` counts participants/headcount.
+- User Access exports admin user access details only: name, email, role, and last login. Passwords and action/control fields are never exported.
+- Payment Summary exports use the same filters as the registration export API: search, event, program, registration status, and payment status.
+- Payment Summary Excel output is one sheet, based on payment/program line items, and includes registration-level total rows under each registration.
+- Payment Summary refund amounts are calculated from successful refund rows; refund references and reasons are included for visibility.
+- Participant Details exports are read-only Excel reports filtered by search, event, program, registration number, and participant/group status.
+- Participant Details report columns are ordered as context/primary participant fields, optional participant fields, then custom participant fields. Document/upload fields are excluded.
+
 ## Upload Rules
 
 - Uploads accept image/jpeg, image/png, image/webp, and application/pdf.
+
+## Public Contact Form Rules
+
+- Landing page contact messages use the shared public rate limiter, a simple math verification question, and a hidden honeypot field before email is sent.
 - Image max size is 5 MB.
 - PDF max size is 10 MB.
 - Folder input is sanitized by stripping `..` and trimming slashes.

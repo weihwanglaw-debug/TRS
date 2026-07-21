@@ -24,6 +24,7 @@ interface Props {
   participants: SeedEntry[];
   sbaRankings:  SbaRanking[];
   isBadminton:  boolean;
+  canAutoSeedFromSba: boolean;
   onComplete:   (r: WizardResult) => void;
   onCancel:     () => void;
 }
@@ -59,10 +60,11 @@ function orderSeedsForReview(seeds: SeedEntry[]) {
 
 //  Screen 1: Configure
 
-function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCancel }: {
+function ScreenConfigure({ participants, sbaRankings, isBadminton, canAutoSeedFromSba, onNext, onCancel }: {
   participants: SeedEntry[];
   sbaRankings:  SbaRanking[];
   isBadminton:  boolean;
+  canAutoSeedFromSba: boolean;
   onNext:       (config: WizardConfig, seeds: SeedEntry[]) => void;
   onCancel:     () => void;
 }) {
@@ -264,11 +266,13 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, onNext, onCan
             </div>
             {showSeeds && (
               <div className="self-end flex flex-wrap gap-2">
-                <button onClick={autoSeed}
-                  className="btn-outline flex items-center gap-2 px-4 py-2.5 text-sm font-semibold">
-                  <Shuffle className="h-3.5 w-3.5" />
-                  {isBadminton ? "Auto-fill from SBA" : "Auto-fill by rank"}
-                </button>
+                {canAutoSeedFromSba && (
+                  <button onClick={autoSeed}
+                    className="btn-outline flex items-center gap-2 px-4 py-2.5 text-sm font-semibold">
+                    <Shuffle className="h-3.5 w-3.5" />
+                    Auto-fill from SBA
+                  </button>
+                )}
                 {seeds.some(s => s.seed !== null) && (
                   <button onClick={clearAllSeeds}
                     className="btn-outline flex items-center gap-2 px-4 py-2.5 text-sm font-semibold">
@@ -729,7 +733,7 @@ function ScreenPreview({ bracket, seeds, onSwap, onConfirm, onBack, saving }: {
 
 //  Wizard container
 
-export function FixtureWizard({ participants, sbaRankings, isBadminton, onComplete, onCancel }: Props) {
+export function FixtureWizard({ participants, sbaRankings, isBadminton, canAutoSeedFromSba, onComplete, onCancel }: Props) {
   const [screen,  setScreen]  = useState<1 | 2>(1);
   const [wConfig, setWConfig] = useState<WizardConfig | null>(null);
   const [wSeeds,  setWSeeds]  = useState<SeedEntry[]>([]);
@@ -762,6 +766,7 @@ export function FixtureWizard({ participants, sbaRankings, isBadminton, onComple
           participants={participants}
           sbaRankings={sbaRankings}
           isBadminton={isBadminton}
+          canAutoSeedFromSba={canAutoSeedFromSba}
           onNext={goPreview}
           onCancel={onCancel}
         />

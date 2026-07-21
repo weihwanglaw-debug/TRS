@@ -111,8 +111,8 @@ function fixtureFormatLabel(format?: string) {
 
 //  External seeding panel
 
-function ExternalPanel({ participants, sbaRankings, isBadminton, onSeedsSaved, onExport, toastSuccess, toastError }: {
-  participants: SeedEntry[]; sbaRankings: SbaRanking[]; isBadminton: boolean;
+function ExternalPanel({ participants, sbaRankings, isBadminton, canAutoSeedFromSba, onSeedsSaved, onExport, toastSuccess, toastError }: {
+  participants: SeedEntry[]; sbaRankings: SbaRanking[]; isBadminton: boolean; canAutoSeedFromSba: boolean;
   onSeedsSaved: () => Promise<void>;
   onExport: () => Promise<void>;
   toastSuccess: (message: string) => void;
@@ -225,9 +225,11 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, onSeedsSaved, o
         <div className="flex items-center justify-between flex-wrap gap-3">
           <span className="text-xs font-semibold">{seeds.filter(s => s.seed !== null).length}/{numSeeds} seeds assigned</span>
           <div className="flex flex-wrap gap-2">
-            <button onClick={autoSeed} className="btn-outline flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold">
-              <Shuffle className="h-3.5 w-3.5" /> Auto-fill
-            </button>
+            {canAutoSeedFromSba && (
+              <button onClick={autoSeed} className="btn-outline flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold">
+                <Shuffle className="h-3.5 w-3.5" /> Auto-fill from SBA
+              </button>
+            )}
             <button onClick={() => setSeeding(false)} className="btn-outline px-4 py-2.5 text-sm font-semibold">Change seed count</button>
             {seeds.some(s => s.seed !== null) && (
               <button onClick={clearAllSeeds} className="btn-outline flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold">
@@ -435,6 +437,7 @@ export default function AdminFixtures() {
 
   //  Derived
   const isBadminton  = selRow?.sportType?.toLowerCase() === "badminton";
+  const canAutoSeedFromSba = !!(isBadminton && selRow?.sbaRankingType);
   const locked       = bracketState ? isBracketLocked(bracketState) : false;
   const koMatches    = bracketState?.matches ?? [];
   const maxKoRound   = koMatches.length ? Math.max(...koMatches.map(m => m.round)) : 0;
@@ -957,6 +960,7 @@ export default function AdminFixtures() {
             <ExternalPanel
               participants={selRowParticipants} sbaRankings={sbaRankings}
               isBadminton={isBadminton}
+              canAutoSeedFromSba={canAutoSeedFromSba}
               onSeedsSaved={() => loadSelectedProgramParticipants(selRow)}
               onExport={handleExportTournamentSoftwareWorkbook}
               toastSuccess={feedbackApi.success}
@@ -987,6 +991,7 @@ export default function AdminFixtures() {
                     participants={selRowParticipants}
                     sbaRankings={sbaRankings}
                     isBadminton={isBadminton}
+                    canAutoSeedFromSba={canAutoSeedFromSba}
                     onComplete={handleWizardComplete}
                     onCancel={() => setShowWizard(false)}
                   />

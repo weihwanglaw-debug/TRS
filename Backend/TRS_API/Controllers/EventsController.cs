@@ -23,13 +23,14 @@ public class EventsController : ControllerBase
 
     // GET /api/events
     [HttpGet]
-    public async Task<IActionResult> GetAll([FromQuery] bool includeInactive = false)
+    public async Task<IActionResult> GetAll([FromQuery] bool includeInactive = false, [FromQuery] bool publicArchive = false)
     {
         if (includeInactive && !User.IsInRole("superadmin") && !User.IsInRole("eventadmin"))
             includeInactive = false;
 
         var q = LoadEvents();
         if (!includeInactive) q = q.Where(e => e.IsActive && e.Programs.Any(p => p.IsActive));
+        if (publicArchive) q = q.Where(e => e.RegistrationStatus != StatusCodesEx.EventRegistration.Paused);
         var events = await q.OrderByDescending(e => e.EventStartDate).ToListAsync();
         var counts = await GetParticipantCounts(events.SelectMany(e => e.Programs.Select(p => p.ProgramId)).ToList());
         return Ok(events.Select(e => MapEvent(e, counts)));
@@ -461,9 +462,7 @@ public class EventsController : ControllerBase
         ev.EventEndDate     = r.EventEndDate != null ? DateOnly.Parse(r.EventEndDate) : null;
         ev.OpenDate         = DateOnly.Parse(r.OpenDate);
         ev.CloseDate        = DateOnly.Parse(r.CloseDate);
-        ev.MaxParticipants  = r.MaxParticipants;
         ev.SponsorInfo      = r.SponsorInfo;
-        ev.ConsentStatement = r.ConsentStatement;
         ev.IsSports         = r.IsSports;
         ev.SportType        = r.SportType;
         ev.FixtureMode      = r.FixtureMode;
@@ -680,9 +679,7 @@ public class EventsController : ControllerBase
         eventEndDate    = ev.EventEndDate?.ToString("yyyy-MM-dd") ?? "",
         openDate        = ev.OpenDate.ToString("yyyy-MM-dd"),
         closeDate       = ev.CloseDate.ToString("yyyy-MM-dd"),
-        ev.MaxParticipants,
         sponsorInfo     = ev.SponsorInfo ?? "",
-        consentStatement = ev.ConsentStatement ?? "",
         ev.IsSports,
         sportType       = ev.SportType ?? "",
         ev.FixtureMode,
@@ -708,9 +705,7 @@ public class EventsController : ControllerBase
         EventEndDate = ev.EventEndDate?.ToString("yyyy-MM-dd"),
         OpenDate = ev.OpenDate.ToString("yyyy-MM-dd"),
         CloseDate = ev.CloseDate.ToString("yyyy-MM-dd"),
-        ev.MaxParticipants,
         ev.SponsorInfo,
-        ev.ConsentStatement,
         ev.IsSports,
         ev.SportType,
         ev.FixtureMode,

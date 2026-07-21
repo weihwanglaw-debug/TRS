@@ -148,12 +148,12 @@ export default function EventEdit() {
   const [form, setForm] = useState({
     name: "", description: "", venue: "", venueAddress: "",
     eventStartDate: "", eventEndDate: "", openDate: "", closeDate: "",
-    maxParticipants: 100, sponsorInfo: "", bannerUrl: "",
-    consentStatement: "",
+    sponsorInfo: "", bannerUrl: "",
     additionalInfo: "",          // replaces prospectusUrl
     isSports: true, sportType: "Badminton",
     fixtureMode: "internal" as "internal" | "external" | "not_required",
   });
+
   const [registrationStatusDraft, setRegistrationStatusDraft] = useState<"O" | "PA" | "CL">("O");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) =>
@@ -219,10 +219,8 @@ export default function EventEdit() {
         eventEndDate:     ev.eventEndDate || "",
         openDate:         ev.openDate,
         closeDate:        ev.closeDate,
-        maxParticipants:  ev.maxParticipants || 100,
         sponsorInfo:      ev.sponsorInfo || "",
         bannerUrl:        ev.bannerUrl || "",
-        consentStatement: ev.consentStatement || "",
         additionalInfo:   ev.additionalInfo || "",
         isSports:         ev.isSports ?? true,
         sportType:        ev.sportType === "Badminton" ? "Badminton" : "Non Badminton",
@@ -363,7 +361,6 @@ export default function EventEdit() {
       const payload: Omit<TournamentEvent, "id" | "programs" | "documents"> = {
         ...form,
         galleryUrls: gallery,
-        consentStatement: form.consentStatement ?? "",
       };
       if (isNew) {
         const r = await apiCreateEvent(payload);
@@ -567,14 +564,11 @@ export default function EventEdit() {
           <FF label="Registration Close Date" error={errors.closeDate}>
             <input type="date" className="field-input" value={form.closeDate} onChange={e => set("closeDate", e.target.value)} disabled={!editing} />
           </FF>
-          <FF label="Max Participants">
-            <input type="number" className="field-input" value={form.maxParticipants} onChange={e => set("maxParticipants", +e.target.value)} disabled={!editing} />
-          </FF>
           <FF label="Sponsor Information">
             <input className="field-input" value={form.sponsorInfo} onChange={e => set("sponsorInfo", e.target.value)} disabled={!editing} />
           </FF>
           {!isNew && event && status && (
-            <div className="md:col-span-2">
+            <div>
               <FF label="Registration Status">
                 <div className="flex flex-wrap items-center gap-3">
                   <StatusBadge status={status} />
@@ -978,8 +972,8 @@ export default function EventEdit() {
               }
             }}>
               {openAction.prog.status === "CL"
-                ? <><Unlock className="h-4 w-4" /> Reopen Program</>
-                : <><Lock   className="h-4 w-4" /> Close Program</>}
+                ? <><Unlock className="h-4 w-4" /> Program Status</>
+                : <><Lock   className="h-4 w-4" /> Program Status</>}
             </button>
           )}
           {!isNew && (

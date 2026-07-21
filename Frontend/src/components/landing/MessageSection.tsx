@@ -8,12 +8,22 @@ const DEFAULT_MESSAGE_TITLE = "Questions before joining?";
 const DEFAULT_MESSAGE_BODY =
   "Players, parents, coaches, and club representatives can leave a message for the tournament team.\nUse this space for event questions, program clarification, venue help, or registration support.";
 
+function newCaptcha() {
+  return {
+    a: Math.floor(Math.random() * 9) + 2,
+    b: Math.floor(Math.random() * 9) + 2,
+  };
+}
+
 export default function MessageSection() {
   const { cfg } = useLiveConfig();
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
   const [topic, setTopic] = useState("");
   const [message, setMessage] = useState("");
+  const [captcha, setCaptcha] = useState(newCaptcha);
+  const [captchaAnswer, setCaptchaAnswer] = useState("");
+  const [website, setWebsite] = useState("");
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -25,6 +35,9 @@ export default function MessageSection() {
     setContact("");
     setTopic("");
     setMessage("");
+    setCaptcha(newCaptcha());
+    setCaptchaAnswer("");
+    setWebsite("");
     setStatus(null);
   };
 
@@ -37,6 +50,14 @@ export default function MessageSection() {
       return;
     }
 
+    const parsedCaptcha = Number.parseInt(captchaAnswer.trim(), 10);
+    if (!Number.isInteger(parsedCaptcha) || parsedCaptcha !== captcha.a + captcha.b) {
+      setStatus({ type: "error", text: "Please answer the verification question correctly." });
+      setCaptcha(newCaptcha());
+      setCaptchaAnswer("");
+      return;
+    }
+
     setSending(true);
     try {
       const result = await apiSendLandingMessage({
@@ -44,10 +65,16 @@ export default function MessageSection() {
         contact: contact.trim(),
         topic: topic.trim(),
         message: message.trim(),
+        captchaA: captcha.a,
+        captchaB: captcha.b,
+        captchaAnswer: parsedCaptcha,
+        website: website.trim(),
       });
 
       if (result.error) {
         setStatus({ type: "error", text: result.error.message });
+        setCaptcha(newCaptcha());
+        setCaptchaAnswer("");
         return;
       }
 
@@ -56,8 +83,13 @@ export default function MessageSection() {
       setContact("");
       setTopic("");
       setMessage("");
+      setCaptcha(newCaptcha());
+      setCaptchaAnswer("");
+      setWebsite("");
     } catch {
       setStatus({ type: "error", text: "Message could not be sent. Please try again later." });
+      setCaptcha(newCaptcha());
+      setCaptchaAnswer("");
     } finally {
       setSending(false);
     }
@@ -126,6 +158,25 @@ export default function MessageSection() {
                 id="landing-message-body"
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
+              />
+            </div>
+            <div className="trs-field" aria-hidden="true" style={{ display: "none" }}>
+              <label htmlFor="landing-message-website">Website</label>
+              <input
+                id="landing-message-website"
+                tabIndex={-1}
+                autoComplete="off"
+                value={website}
+                onChange={(event) => setWebsite(event.target.value)}
+              />
+            </div>
+            <div className="trs-field">
+              <label htmlFor="landing-message-captcha">Verification: {captcha.a} + {captcha.b}</label>
+              <input
+                id="landing-message-captcha"
+                inputMode="numeric"
+                value={captchaAnswer}
+                onChange={(event) => setCaptchaAnswer(event.target.value.replace(/\D/g, ""))}
               />
             </div>
           </div>

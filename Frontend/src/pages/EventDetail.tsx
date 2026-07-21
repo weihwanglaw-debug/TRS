@@ -1043,7 +1043,6 @@ export default function EventDetail() {
               <h2 className="event-detail-section-heading font-bold text-xl mb-6">Event Information</h2>
               <InfoRow icon={Calendar} label="Event Dates" value={`${formatDate(event.eventStartDate)} - ${formatDate(event.eventEndDate)}`} />
               <InfoRow icon={MapPin} label="Venue" value={`${event.venue}, ${event.venueAddress}`} />
-              <InfoRow icon={Users} label="Max Participants" value={String(event.maxParticipants)} />
               <InfoRow icon={Calendar} label="Registration Period" value={`${formatDate(event.openDate)} - ${formatDate(event.closeDate)}`} />
               {event.sponsorInfo && (
                 <div className="flex items-start gap-3">

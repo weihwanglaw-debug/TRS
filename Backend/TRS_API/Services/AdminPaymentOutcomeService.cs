@@ -1,4 +1,5 @@
 using TRS_API.Models;
+using TRS_Data.Models;
 
 namespace TRS_API.Services;
 
@@ -43,6 +44,43 @@ public sealed class AdminPaymentOutcomeService
         }
 
         return RegistrationWorkflowResult<AdminPaymentOutcome>.Ok(new AdminPaymentOutcome(status, null, null));
+    }
+
+    public void ApplyOutcome(
+        Payment payment,
+        AdminPaymentOutcome outcome,
+        string? adminNote,
+        int? receiptProgramId)
+    {
+        var now = DateTime.UtcNow;
+        payment.PaymentMethod = outcome.Method;
+        payment.PaymentStatus = outcome.PaymentStatus;
+        payment.AdminNote = BuildAdminNote(adminNote, outcome.PaymentReference);
+        payment.UpdatedAt = now;
+
+        if (outcome.PaymentStatus == StatusCodesEx.Payment.Success)
+        {
+            payment.PaidAt = now;
+            if (string.IsNullOrWhiteSpace(payment.ReceiptNumber))
+                payment.ReceiptNumber = ReceiptNumberGenerator.Generate(payment.EventId, receiptProgramId);
+        }
+        else
+        {
+            payment.PaidAt = null;
+        }
+    }
+
+    private static string? BuildAdminNote(string? adminNote, string? paymentReference)
+    {
+        var note = adminNote?.Trim();
+        var reference = paymentReference?.Trim();
+
+        if (string.IsNullOrWhiteSpace(reference))
+            return string.IsNullOrWhiteSpace(note) ? null : note;
+
+        return string.IsNullOrWhiteSpace(note)
+            ? $"Payment reference: {reference}"
+            : $"{note}{Environment.NewLine}Payment reference: {reference}";
     }
 }
 

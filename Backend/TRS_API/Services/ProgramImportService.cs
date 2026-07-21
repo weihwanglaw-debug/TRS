@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO.Compression;
+using System.Collections.Concurrent;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -19,6 +20,7 @@ public sealed class ProgramImportService
     private const string InfoSheetName = "Template Info";
     private const string RowTypeHeader = "Row Type";
     private const string SampleRowType = "SAMPLE";
+    private static readonly ConcurrentDictionary<string, byte> ConfirmingImportTokens = new();
 
     private readonly TRSDbContext _db;
     private readonly RegistrationWorkflowService _registrationWorkflow;
@@ -88,6 +90,7 @@ public sealed class ProgramImportService
         var request = BuildRequest(ev, program, rows, GetAdminContact(user), response.Errors, response.Warnings);
         var existingParticipantKeys = await GetExistingParticipantKeysAsync(program.ProgramId, ct);
         ValidateImportedRows(program, rows, existingParticipantKeys, response.Errors);
+        await ValidateSbaMembersAsync(ev, program, rows, response.Errors, ct);
         response.EntryCount = request.Groups.Count;
         response.ParticipantCount = request.Groups.Sum(g => g.Participants.Count);
         response.Entries = request.Groups
@@ -146,25 +149,35 @@ public sealed class ProgramImportService
         if (!outcome.Success)
             return RegistrationWorkflowResult<ProgramImportConfirmResponse>.Fail(outcome.Code!, outcome.Message);
 
-        var create = await _registrationWorkflow.CreateAsync(
-            pending.Request,
-            new RegistrationPersistOptions
-            {
-                RegistrationGateMode = EventRegistrationGateMode.AdminAssisted,
-                ValidatePricingAgainstCurrentPrograms = true,
-                PaymentGateway = "Manual",
-                PaymentMethod = outcome.Value!.Method,
-                PaymentStatus = outcome.Value.PaymentStatus,
-                AdminNote = req.AdminNote.Trim(),
-                ReceiptNumber = outcome.Value.PaymentReference,
-                SuppressReceiptEmail = true,
-            },
-            ct);
+        if (!ConfirmingImportTokens.TryAdd(req.ImportToken, 0))
+            return RegistrationWorkflowResult<ProgramImportConfirmResponse>.Fail("IMPORT_IN_PROGRESS", "This import is already being saved.");
+
+        _cache.Remove(req.ImportToken);
+
+        RegistrationWorkflowResult<RegistrationCreateOutcome> create;
+        try
+        {
+            create = await _registrationWorkflow.CreateAsync(
+                pending.Request,
+                new RegistrationPersistOptions
+                {
+                    RegistrationGateMode = EventRegistrationGateMode.AdminAssisted,
+                    ValidatePricingAgainstCurrentPrograms = true,
+                    PaymentGateway = "Manual",
+                    PaymentMethod = outcome.Value!.Method,
+                    PaymentStatus = outcome.Value.PaymentStatus,
+                    AdminNote = req.AdminNote,
+                    PaymentReference = outcome.Value.PaymentReference,
+                },
+                ct);
+        }
+        finally
+        {
+            ConfirmingImportTokens.TryRemove(req.ImportToken, out _);
+        }
 
         if (!create.Success)
             return RegistrationWorkflowResult<ProgramImportConfirmResponse>.Fail(create.Code!, create.Message);
-
-        _cache.Remove(req.ImportToken);
 
         return RegistrationWorkflowResult<ProgramImportConfirmResponse>.Ok(new ProgramImportConfirmResponse
         {
@@ -373,7 +386,7 @@ public sealed class ProgramImportService
 
                 if (TryParseImportDate(row.Dob, out var dob))
                 {
-                    var age = CalculateAge(dob.Value);
+                    var age = CalculateAge(dob);
                     if (age < program.MinAge || age > program.MaxAge)
                     {
                         errors.Add(Issue(row.RowNumber, entryNo, "Date of Birth", "INVALID_AGE", $"'{row.FullName}' does not meet the age requirement for '{program.Name}'."));
@@ -381,7 +394,7 @@ public sealed class ProgramImportService
 
                     if (!string.IsNullOrWhiteSpace(row.FullName))
                     {
-                        var key = ParticipantKey(row.FullName, dob.Value);
+                        var key = ParticipantKey(row.FullName, dob);
                         if (!submittedParticipantKeys.Add(key))
                             errors.Add(Issue(row.RowNumber, entryNo, "Full Name", "DUPLICATE_REGISTRATION", $"Duplicate participant '{row.FullName}' appears in this import."));
                         if (existingParticipantKeys.Contains(key))
@@ -410,6 +423,72 @@ public sealed class ProgramImportService
                 var femaleCount = rowList.Count(r => string.Equals(r.Gender, "Female", StringComparison.OrdinalIgnoreCase));
                 if (maleCount != 1 || femaleCount != 1)
                     errors.Add(Issue(rowList.First().RowNumber, entryNo, "Gender", "INVALID_GENDER", $"'{program.Name}' requires exactly one male and one female participant."));
+            }
+        }
+    }
+
+    private async Task ValidateSbaMembersAsync(
+        Event ev,
+        TrsProgram program,
+        List<ImportedRow> rows,
+        List<ProgramImportIssue> errors,
+        CancellationToken ct)
+    {
+        if (!string.Equals(ev.SportType, "Badminton", StringComparison.OrdinalIgnoreCase))
+            return;
+        if (program.Fields?.EnableSbaId != true)
+            return;
+
+        var sbaIds = rows
+            .Select(r => NormalizeSbaId(r.SbaId))
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (sbaIds.Count == 0)
+            return;
+
+        var rankings = await _db.SbaRankings
+            .AsNoTracking()
+            .Where(r => sbaIds.Contains(r.Player1SbaId) || (r.Player2SbaId != null && sbaIds.Contains(r.Player2SbaId)))
+            .OrderBy(r => r.Ranking)
+            .ToListAsync(ct);
+
+        var members = new Dictionary<string, List<SbaMemberSnapshot>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ranking in rankings)
+        {
+            AddSbaMember(members, ranking.Player1SbaId, ranking.Player1Name, ranking.Player1DateOfBirth);
+            if (!string.IsNullOrWhiteSpace(ranking.Player2SbaId) && !string.IsNullOrWhiteSpace(ranking.Player2Name))
+                AddSbaMember(members, ranking.Player2SbaId, ranking.Player2Name, ranking.Player2DateOfBirth);
+        }
+
+        foreach (var row in rows)
+        {
+            var normalizedId = NormalizeSbaId(row.SbaId);
+            if (string.IsNullOrWhiteSpace(normalizedId))
+                continue;
+
+            if (!members.TryGetValue(normalizedId, out var candidates) || candidates.Count == 0)
+            {
+                errors.Add(Issue(row.RowNumber, row.EntryNo, "SBA ID", "SBA_ID_NOT_FOUND", $"SBA ID '{row.SbaId}' was not found in the SBA ranking master table."));
+                continue;
+            }
+
+            var nameMatches = candidates.Where(c => NamesMatch(c.Name, row.FullName)).ToList();
+            if (nameMatches.Count == 0)
+            {
+                errors.Add(Issue(row.RowNumber, row.EntryNo, "Full Name", "SBA_NAME_MISMATCH", $"SBA ID '{row.SbaId}' belongs to '{candidates[0].Name}', not '{row.FullName}'."));
+                continue;
+            }
+
+            if (TryParseImportDate(row.Dob, out var dob))
+            {
+                var importDob = DateOnly.FromDateTime(dob);
+                if (nameMatches.Any(c => c.DateOfBirth.HasValue) && !nameMatches.Any(c => c.DateOfBirth == importDob))
+                {
+                    var expectedDob = nameMatches.First(c => c.DateOfBirth.HasValue).DateOfBirth!.Value.ToString("yyyy-MM-dd");
+                    errors.Add(Issue(row.RowNumber, row.EntryNo, "Date of Birth", "SBA_DOB_MISMATCH", $"SBA ID '{row.SbaId}' has date of birth {expectedDob}, not {importDob:yyyy-MM-dd}."));
+                }
             }
         }
     }
@@ -576,9 +655,9 @@ public sealed class ProgramImportService
         return clean;
     }
 
-    private static bool TryParseImportDate(string? value, out DateTime? dob)
+    private static bool TryParseImportDate(string? value, out DateTime dob)
     {
-        dob = null;
+        dob = default;
         if (string.IsNullOrWhiteSpace(value))
             return false;
 
@@ -602,6 +681,34 @@ public sealed class ProgramImportService
 
     private static string ParticipantKey(string? fullName, DateOnly dob) =>
         $"{fullName?.Trim()}|{dob:yyyy-MM-dd}";
+
+    private static string NormalizeSbaId(string? sbaId) =>
+        string.IsNullOrWhiteSpace(sbaId) ? "" : sbaId.Trim().ToUpperInvariant();
+
+    private static bool NamesMatch(string? left, string? right) =>
+        string.Equals(NormalizeName(left), NormalizeName(right), StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizeName(string? value) =>
+        string.Join(" ", (value ?? "").Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+
+    private static void AddSbaMember(
+        Dictionary<string, List<SbaMemberSnapshot>> members,
+        string? sbaId,
+        string? name,
+        DateOnly? dateOfBirth)
+    {
+        var normalizedId = NormalizeSbaId(sbaId);
+        if (string.IsNullOrWhiteSpace(normalizedId) || string.IsNullOrWhiteSpace(name))
+            return;
+
+        if (!members.TryGetValue(normalizedId, out var candidates))
+        {
+            candidates = new List<SbaMemberSnapshot>();
+            members[normalizedId] = candidates;
+        }
+
+        candidates.Add(new SbaMemberSnapshot(name.Trim(), dateOfBirth));
+    }
 
     private static Dictionary<string, string> BuildCustomFieldMap(TrsProgram program, List<ProgramImportIssue> errors)
     {
@@ -758,6 +865,7 @@ public sealed class ProgramImportService
 
     private sealed record PendingProgramImport(CreateRegistrationRequest Request, int EntryCount, int ParticipantCount);
     private sealed record AdminContact(string Name, string Email);
+    private sealed record SbaMemberSnapshot(string Name, DateOnly? DateOfBirth);
     private sealed record ImportedCell(int Row, int Column, string Value);
 
     private sealed class ImportedWorkbook

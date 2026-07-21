@@ -17,9 +17,7 @@ public partial class Event
     public DateOnly? EventEndDate   { get; set; }
     public DateOnly  OpenDate       { get; set; }
     public DateOnly  CloseDate      { get; set; }
-    public int       MaxParticipants { get; set; }
     public string?   SponsorInfo     { get; set; }
-    public string?   ConsentStatement { get; set; }
     public bool      IsSports        { get; set; }
     public string?   SportType       { get; set; }
     public string    FixtureMode     { get; set; } = "internal";

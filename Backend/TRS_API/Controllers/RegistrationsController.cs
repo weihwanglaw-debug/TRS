@@ -803,8 +803,6 @@ public class RegistrationsController : ControllerBase
         if (!outcome.Success)
             return BadRequest(new { code = outcome.Code, message = outcome.Message });
         var status = outcome.Value!.PaymentStatus;
-        var method = outcome.Value.Method;
-        var paymentReference = outcome.Value.PaymentReference;
 
         var reg = await LoadReg(id);
         if (reg == null) return NotFound(new { code = "NOT_FOUND", message = "Registration not found." });
@@ -820,11 +818,8 @@ public class RegistrationsController : ControllerBase
                 RegistrationId = id,
                 EventId        = reg.EventId,
                 PaymentGateway = "Manual",
-                PaymentMethod  = method,
                 Amount         = reg.ParticipantGroups.Sum(g => g.Fee),
                 Currency       = "SGD",
-                PaymentStatus  = status,
-                AdminNote      = req.AdminNote,
                 CreatedAt      = DateTime.UtcNow,
             };
             _db.Payments.Add(payment);
@@ -838,33 +833,21 @@ public class RegistrationsController : ControllerBase
                     code = "INVALID_TRANSITION",
                     message = $"Cannot change payment status from {payment.PaymentStatus} to {status}."
                 });
-            payment.PaymentMethod = method;
-            payment.PaymentStatus = status;
-            payment.AdminNote     = req.AdminNote;
-            payment.ReceiptNumber = paymentReference;
-            payment.UpdatedAt = DateTime.UtcNow;
         }
+
+        var receiptProgramId = payment.Items
+            .Select(i => (int?)i.ProgramId)
+            .Where(pid => pid.HasValue)
+            .Distinct()
+            .OrderBy(pid => pid)
+            .FirstOrDefault();
+        _adminPaymentOutcome.ApplyOutcome(payment, outcome.Value, req.AdminNote, receiptProgramId);
 
         // For Paid: stamp paidAt, generate receipt, flip items to S.
         // Waived and Pending Collection intentionally keep method/reference blank.
         if (status == StatusCodesEx.Payment.Success)
         {
-            payment.PaidAt = DateTime.UtcNow;
-            if (string.IsNullOrEmpty(payment.ReceiptNumber))
-            {
-                var receiptProgramId = payment.Items
-                    .Select(i => (int?)i.ProgramId)
-                    .Where(pid => pid.HasValue)
-                    .Distinct()
-                    .OrderBy(pid => pid)
-                    .FirstOrDefault();
-                payment.ReceiptNumber = ReceiptNumberGenerator.Generate(payment.EventId, receiptProgramId);
-            }
             ConfirmPayablePaymentItems(payment, reg);
-        }
-        else
-        {
-            payment.PaidAt = null;
         }
 
         // Confirm the registration regardless of payment status

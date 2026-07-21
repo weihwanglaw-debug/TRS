@@ -197,6 +197,11 @@ export default function EventCarousel() {
             )}
           </Carousel>
         )}
+        <div className="trs-carousel-archive-action">
+          <button type="button" className="landing-button secondary" onClick={() => navigate("/events")}>
+            View All Events <span aria-hidden="true">-&gt;</span>
+          </button>
+        </div>
       </div>
     </section>
   );

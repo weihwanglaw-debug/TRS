@@ -27,6 +27,8 @@ export interface WorkbookExportOptions {
   headers: string[];
   rows: SheetData;
   columns: WorkbookColumn[];
+  preHeaderRows?: SheetData;
+  stickyRowsCount?: number;
 }
 
 function safeFilename(value: string) {
@@ -54,9 +56,12 @@ export async function exportWorkbookSheet({
   headers,
   rows,
   columns,
+  preHeaderRows = [],
+  stickyRowsCount = 1,
 }: WorkbookExportOptions) {
   const writeExcelFile = (await import("write-excel-file/browser")).default;
   const data: SheetData = [
+    ...preHeaderRows,
     headers.map(value => ({
       value,
       fontWeight: "bold" as const,
@@ -70,7 +75,7 @@ export async function exportWorkbookSheet({
 
   await writeExcelFile(data, {
     columns,
-    stickyRowsCount: 1,
+    stickyRowsCount,
   }).toFile(`${safeFilename(filename)}.xlsx`);
 }
 

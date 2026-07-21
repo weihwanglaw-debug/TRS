@@ -14,17 +14,20 @@ public class RegistrationWorkflowService
     private readonly ILogger<RegistrationWorkflowService> _log;
     private readonly IBackgroundJobQueue _jobQueue;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly AdminPaymentOutcomeService _adminPaymentOutcome;
 
     public RegistrationWorkflowService(
         TRSDbContext db,
         ILogger<RegistrationWorkflowService> log,
         IBackgroundJobQueue jobQueue,
-        IServiceScopeFactory serviceScopeFactory)
+        IServiceScopeFactory serviceScopeFactory,
+        AdminPaymentOutcomeService adminPaymentOutcome)
     {
         _db = db;
         _log = log;
         _jobQueue = jobQueue;
         _serviceScopeFactory = serviceScopeFactory;
+        _adminPaymentOutcome = adminPaymentOutcome;
     }
 
     public async Task<RegistrationWorkflowResult<PricingQuote>> ValidateAndPriceAsync(
@@ -379,10 +382,10 @@ public class RegistrationWorkflowService
                 .Distinct()
                 .OrderBy(pid => pid)
                 .FirstOrDefault();
-            var receiptNo = isConfirmed
-                ? ReceiptNumberGenerator.Generate(req.EventId, receiptProgramId)
-                : null;
-
+            var isManualAdminPayment = IsManualAdminPaymentGateway(options.PaymentGateway) && isConfirmed;
+            var receiptNo = !isManualAdminPayment && options.PaymentStatus == StatusCodesEx.Payment.Success
+                ? options.ReceiptNumber ?? ReceiptNumberGenerator.Generate(req.EventId, receiptProgramId)
+                : options.ReceiptNumber;
             var payment = new Payment
             {
                 RegistrationId = reg.RegistrationId,
@@ -395,10 +398,19 @@ public class RegistrationWorkflowService
                 AdminNote = options.AdminNote,
                 GatewaySessionId = options.GatewaySessionId,
                 GatewayPaymentId = options.GatewayPaymentId,
-                ReceiptNumber = options.ReceiptNumber ?? receiptNo,
+                ReceiptNumber = receiptNo,
                 CreatedAt = DateTime.UtcNow,
                 PaidAt = options.PaymentStatus == StatusCodesEx.Payment.Success ? DateTime.UtcNow : null,
             };
+
+            if (isManualAdminPayment)
+            {
+                _adminPaymentOutcome.ApplyOutcome(
+                    payment,
+                    new AdminPaymentOutcome(options.PaymentStatus, options.PaymentMethod, options.PaymentReference),
+                    options.AdminNote,
+                    receiptProgramId);
+            }
             _db.Payments.Add(payment);
             await _db.SaveChangesAsync(ct);
 
@@ -766,6 +778,9 @@ public class RegistrationWorkflowService
         paymentStatus == StatusCodesEx.Payment.Waived ||
         paymentStatus == StatusCodesEx.Payment.PendingCollection;
 
+    private static bool IsManualAdminPaymentGateway(string? paymentGateway) =>
+        string.Equals(paymentGateway, "Manual", StringComparison.OrdinalIgnoreCase);
+
     private async Task QueueReceiptEmailAsync(int registrationId, int paymentId)
     {
         await _jobQueue.EnqueueAsync(async ct =>
@@ -833,6 +848,7 @@ public sealed class RegistrationPersistOptions
     public string PaymentStatus { get; init; } = StatusCodesEx.Payment.Pending;
     public decimal? PaymentAmountOverride { get; init; }
     public string? AdminNote { get; init; }
+    public string? PaymentReference { get; init; }
     public string? ReceiptNumber { get; init; }
     public bool SuppressReceiptEmail { get; init; }
     public string? GatewaySessionId { get; init; }

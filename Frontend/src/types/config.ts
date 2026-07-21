@@ -161,9 +161,7 @@ export interface TournamentEvent {
   eventEndDate:     string;
   openDate:         string;
   closeDate:        string;
-  maxParticipants:  number;
   sponsorInfo:      string;
-  consentStatement: string;
   isSports:         boolean;
   sportType:        string;
   fixtureMode:      FixtureMode;

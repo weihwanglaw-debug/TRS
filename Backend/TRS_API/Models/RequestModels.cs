@@ -44,6 +44,10 @@ public class LandingMessageRequest
     [Required, MaxLength(160)] public string Contact { get; set; } = null!;
     [Required, MaxLength(160)] public string Topic { get; set; } = null!;
     [Required, MaxLength(4000)] public string Message { get; set; } = null!;
+    public int CaptchaA { get; set; }
+    public int CaptchaB { get; set; }
+    public int? CaptchaAnswer { get; set; }
+    public string? Website { get; set; }
 }
 
 public class UpsertEventRequest
@@ -59,9 +63,7 @@ public class UpsertEventRequest
     public string? EventEndDate           { get; set; }
     [Required] public string OpenDate     { get; set; } = null!;
     [Required] public string CloseDate    { get; set; } = null!;
-    public int MaxParticipants            { get; set; } = 100;
     public string? SponsorInfo            { get; set; }
-    public string? ConsentStatement       { get; set; }
     public bool IsSports                  { get; set; } = true;
     public string? SportType              { get; set; }
     public string FixtureMode             { get; set; } = "internal";

@@ -89,6 +89,7 @@ export async function apiGetEvents(filters?: {
   dateFrom?: string;
   dateTo?: string;
   includeInactive?: boolean;
+  publicArchive?: boolean;
 }): Promise<ApiResult<TournamentEvent[]>> {
   await delay();
   const params = new URLSearchParams();
@@ -96,6 +97,7 @@ export async function apiGetEvents(filters?: {
   if (filters?.dateFrom)        params.set("dateFrom",        filters.dateFrom);
   if (filters?.dateTo)          params.set("dateTo",          filters.dateTo);
   if (filters?.includeInactive) params.set("includeInactive", "true");
+  if (filters?.publicArchive)   params.set("publicArchive",   "true");
   const headers = filters?.includeInactive ? adminHeaders() : publicHeaders();
   const res = await apiFetch(`${API_BASE}/api/events?${params}`, { headers });
   if (!res.ok) return err("FETCH_FAILED", "Failed to load events.");
