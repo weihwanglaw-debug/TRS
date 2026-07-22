@@ -88,4 +88,16 @@ public static class StatusCodesEx
         public const string Failed = "F";
         public const string Ignored = "I";
     }
+
+    public static class Validation
+    {
+        public const string MissingRequiredField = "MISSING_REQUIRED_FIELD";
+        public const string DuplicateRegistration = "DUPLICATE_REGISTRATION";
+        public const string InvalidAge = "INVALID_AGE";
+        public const string InvalidGender = "INVALID_GENDER";
+        public const string ProgramFull = "PROGRAM_FULL";
+        public const string SbaIdNotFound = "SBA_ID_NOT_FOUND";
+        public const string SbaNameMismatch = "SBA_NAME_MISMATCH";
+        public const string SbaDobMismatch = "SBA_DOB_MISMATCH";
+    }
 }

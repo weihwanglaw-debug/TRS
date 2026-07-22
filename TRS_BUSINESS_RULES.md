@@ -292,6 +292,7 @@ Admin program import:
 - `Entry No` groups workbook participant rows into participant groups under that single registration and must be a positive whole number.
 - The date-of-birth column is labelled `DOB* (yyyy-mm-dd)` in the template. The importer accepts valid Excel dates and normalizes them to `yyyy-MM-dd`.
 - Preview uses two validation layers. File/template structure errors stop deeper checks because the workbook cannot be trusted. Once the workbook is structurally readable, row/content checks, SBA master checks, capacity, fixture/program status, pricing, and shared registration workflow checks are collected together where practical. The import is not saved until preview is valid and the admin confirms.
+- Participant-level import validation issues should include the Excel row number where the problem can be tied to a workbook row.
 - When preview fails, the admin UI shows the collected issues with one `OK` action and closes the import dialog; the admin must reopen import and upload the corrected workbook for a new scan.
 - After a valid preview, the admin selects one payment status for the whole import: `S` paid, `W` waived, or `PC` pending collection.
 - Payment method and payment reference apply only when the selected status is `S`.
@@ -343,6 +344,7 @@ Admin program import:
 - Structural fixture changes such as regenerate, reset/delete, raw state save, and team swaps are blocked after results have been entered.
 - Raw fixture state save accepts only clean unscored fixture state and rejects corrupt JSON, match results, heat results, advancement flags, and final placements.
 - Knockout BYE entries are backend-generated and auto-completed so non-power-of-two draws can advance without manual BYE scoring.
+- Group knockout and round-robin advancement seed the knockout bracket from final group standings, using original entry seed only to order teams within the same earned rank tier.
 - Backend score validation rejects BYE scoring, invalid winners, invalid walkover winners, missing game scores, tied game scores, negative scores, and winners that do not match the submitted game results.
 - Draw results are supported for group/round-robin style matches by saving tied numeric scores without a winner; knockout matches still require a winner.
 - Group standings use configured win/draw/loss points, then BWF-style ordering: wins, head-to-head only for exactly two tied teams, game difference, point difference, points scored, seed, then team id.

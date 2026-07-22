@@ -109,7 +109,7 @@ API modules live in `Frontend/src/lib/api/`.
 - `FixtureGenerationService`: authoritative bracket/heats generation, fixture mutation, score validation, advancement, and final placement rules.
 - `ReceiptService`: QuestPDF receipt generation.
 - `RegistrationDetailsPdfService`: QuestPDF registration-details PDF generation.
-- `EmailService`: SMTP payment/refund/cancellation emails with receipt and/or registration-details attachments.
+- `EmailService`: config-selected SMTP, Microsoft Graph, or Gmail API delivery for payment/refund/cancellation/contact emails with receipt and/or registration-details attachments.
 - `BackgroundJobQueue` and `BackgroundJobWorker`: in-memory background work queue.
 - `PaymentCleanupWorker`: hourly cleanup of expired legacy `PendingCheckout` rows and embedded payment-attempt backstop sweep.
 - `AdminAuditService`: writes admin action snapshots and field-level change details to `AdminAuditLog` and `AdminAuditLogDetail`.
@@ -209,13 +209,62 @@ Backend configuration comes from `appsettings*.json` and environment variables:
 - `RateLimiting:WindowMinutes`, `RateLimiting:PermitLimit`
 - `Email:*`
 
-Email uses SMTP through `EmailService`. The default checked-in SMTP endpoint is Microsoft 365 SMTP client submission:
+Email delivery uses `EmailService` with a config-selected provider. `Email:Provider` defaults to `Smtp` and can be changed by configuration without changing email templates or call sites.
+
+Supported values:
+
+- `Smtp`: standard SMTP client submission.
+- `MicrosoftGraph`: Microsoft Graph `/users/{id}/sendMail` using app-only client credentials.
+- `GmailApi`: Gmail API `users.messages.send` using an OAuth refresh token.
+
+SMTP configuration:
 
 - `Email:Smtp:Host`: `smtp.office365.com`
 - `Email:Smtp:Port`: `587`
 - `Email:Smtp:EnableSsl`: `true`
+- `Email:Smtp:AuthMode`: `Password` or `OAuth2`
 
-Do not commit mailbox credentials. Set `Email:Smtp:Username`, `Email:Smtp:Password`, and optionally `Email:FromAddress` through user secrets, environment variables, or deployment secret configuration. If `Email:FromAddress` is blank, the SMTP username is used as the sender address. Microsoft 365 must allow SMTP AUTH for the designated mailbox.
+For SMTP password authentication, set `Email:Smtp:Username`, `Email:Smtp:Password`, and optionally `Email:FromAddress` through user secrets, environment variables, or deployment secret configuration. If `Email:FromAddress` is blank, the SMTP username is used as the sender address. Microsoft 365 must allow SMTP AUTH for the designated mailbox.
+
+For SMTP OAuth2 authentication, set:
+
+- `Email:Provider`: `Smtp`
+- `Email:Smtp:AuthMode`: `OAuth2`
+- `Email:Smtp:Username`: mailbox address used for XOAUTH2.
+- `Email:FromAddress`: sender mailbox address shown in email headers.
+- `Email:Smtp:OAuth2:GrantType`: `ClientCredentials` or `RefreshToken`.
+- `Email:Smtp:OAuth2:ClientId`
+- `Email:Smtp:OAuth2:ClientSecret`
+- `Email:Smtp:OAuth2:Scope`
+
+For Microsoft 365 SMTP OAuth2 with client credentials, also set `Email:Smtp:OAuth2:TenantId` or `Email:Smtp:OAuth2:TokenEndpoint`; the usual scope is `https://outlook.office365.com/.default`. The tenant must still allow SMTP AUTH for the mailbox and the app/service principal must be permitted to send as that mailbox.
+
+For Gmail SMTP OAuth2 with a refresh token, set `Email:Smtp:OAuth2:GrantType=RefreshToken`, `Email:Smtp:OAuth2:RefreshToken`, and `Email:Smtp:OAuth2:TokenEndpoint=https://oauth2.googleapis.com/token` if the default is not suitable.
+
+Microsoft Graph configuration:
+
+- `Email:Provider`: `MicrosoftGraph`
+- `Email:FromAddress`: sender mailbox address shown in email headers.
+- `Email:MicrosoftGraph:TenantId`
+- `Email:MicrosoftGraph:ClientId`
+- `Email:MicrosoftGraph:ClientSecret`
+- `Email:MicrosoftGraph:SenderUserId`: mailbox user id or user principal name used in `/users/{id}/sendMail`.
+- `Email:MicrosoftGraph:SaveToSentItems`: `true` or `false`.
+
+The Entra app registration must have Microsoft Graph application permission `Mail.Send` with admin consent.
+
+Gmail API configuration:
+
+- `Email:Provider`: `GmailApi`
+- `Email:FromAddress`: sender mailbox address shown in email headers.
+- `Email:GmailApi:ClientId`
+- `Email:GmailApi:ClientSecret`
+- `Email:GmailApi:RefreshToken`
+- `Email:GmailApi:UserId`: usually `me` or the sender mailbox.
+
+The Google OAuth consent/client setup must grant a Gmail sending scope such as `https://www.googleapis.com/auth/gmail.send`.
+
+Do not commit mailbox credentials, client secrets, refresh tokens, or API keys. Use user secrets, environment variables, or deployment secret configuration.
 
 Landing page contact messages are sent through `/api/contact/message`. The public form uses the shared public rate limiter plus a lightweight math verification and honeypot field to reduce casual spam.
 

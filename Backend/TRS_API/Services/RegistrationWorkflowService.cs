@@ -45,10 +45,10 @@ public class RegistrationWorkflowService
             return RegistrationWorkflowResult<PricingQuote>.Fail("EVENT_NOT_FOUND", "Event not found.");
 
         if (string.IsNullOrWhiteSpace(req.ContactName))
-            return RegistrationWorkflowResult<PricingQuote>.Fail("MISSING_REQUIRED_FIELD", "Contact name is required.");
+            return RegistrationWorkflowResult<PricingQuote>.Fail(StatusCodesEx.Validation.MissingRequiredField, "Contact name is required.");
 
         if (string.IsNullOrWhiteSpace(req.ContactEmail) || !ContactEmailValidator.IsValid(req.ContactEmail))
-            return RegistrationWorkflowResult<PricingQuote>.Fail("MISSING_REQUIRED_FIELD", "A valid contact email is required.");
+            return RegistrationWorkflowResult<PricingQuote>.Fail(StatusCodesEx.Validation.MissingRequiredField, "A valid contact email is required.");
 
         if (req.Groups == null || req.Groups.Count == 0)
             return RegistrationWorkflowResult<PricingQuote>.Fail("INVALID_REGISTRATION", "At least one program is required.");
@@ -117,7 +117,7 @@ public class RegistrationWorkflowService
             var activeCount = activeCounts.GetValueOrDefault(group.ProgramId);
             var requestedCount = requestedPerProgram[group.ProgramId];
             if (activeCount + requestedCount > program.MaxParticipants)
-                return RegistrationWorkflowResult<PricingQuote>.Fail("PROGRAM_FULL", $"'{program.Name}' does not have enough remaining slots.");
+                return RegistrationWorkflowResult<PricingQuote>.Fail(StatusCodesEx.Validation.ProgramFull, $"'{program.Name}' does not have enough remaining slots.");
 
             var participantValidation = ValidateParticipants(group, program, existingParticipants);
             if (!participantValidation.Success)
@@ -128,7 +128,7 @@ public class RegistrationWorkflowService
                 var dob = ParseDob(participant.Dob);
                 var participantKey = $"{program.ProgramId}|{participant.FullName?.Trim()}|{dob:yyyy-MM-dd}";
                 if (!submittedParticipantIdentities.Add(participantKey))
-                    return RegistrationWorkflowResult<PricingQuote>.Fail("DUPLICATE_REGISTRATION", $"Duplicate participant detected in '{program.Name}'.");
+                    return RegistrationWorkflowResult<PricingQuote>.Fail(StatusCodesEx.Validation.DuplicateRegistration, $"Duplicate participant detected in '{program.Name}'.");
             }
 
             if (ProgramTypeRules.IsTeamProgram(program.Type))
@@ -253,7 +253,7 @@ public class RegistrationWorkflowService
                 var activeSlotCount = await CountActiveProgramSlotsAsync(program, ct);
 
                 if (activeSlotCount + incomingSlotCount > program.MaxParticipants)
-                    return await RollbackAndFail(tx, "PROGRAM_FULL", $"'{program.Name}' is full. No slots remaining.");
+                    return await RollbackAndFail(tx, StatusCodesEx.Validation.ProgramFull, $"'{program.Name}' is full. No slots remaining.");
 
                 NormalizeGroupClubValues(groupDto, program);
 
@@ -266,7 +266,7 @@ public class RegistrationWorkflowService
                     var message = teamName == null
                         ? $"One or more participants are already registered for '{program.Name}'."
                         : $"Team '{teamName}' or one of its participants is already registered for '{program.Name}'.";
-                    return await RollbackAndFail(tx, "DUPLICATE_REGISTRATION", message);
+                    return await RollbackAndFail(tx, StatusCodesEx.Validation.DuplicateRegistration, message);
                 }
 
                 var persistedGroupFee = options.ValidatePricingAgainstCurrentPrograms
@@ -528,60 +528,60 @@ public class RegistrationWorkflowService
         foreach (var participant in group.Participants)
         {
             if (string.IsNullOrWhiteSpace(participant.FullName))
-                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", "Participant full name is required.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, "Participant full name is required.");
             if (string.IsNullOrWhiteSpace(participant.Dob) || ParseDob(participant.Dob) == null)
-                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"Date of birth is required for '{participant.FullName}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"Date of birth is required for '{participant.FullName}'.");
             if (string.IsNullOrWhiteSpace(participant.Gender))
-                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"Gender is required for '{participant.FullName}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"Gender is required for '{participant.FullName}'.");
             if (string.IsNullOrWhiteSpace(participant.Email))
-                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"Email is required for '{participant.FullName}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"Email is required for '{participant.FullName}'.");
             if (string.IsNullOrWhiteSpace(participant.ContactNumber))
-                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"Contact number is required for '{participant.FullName}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"Contact number is required for '{participant.FullName}'.");
             if (string.IsNullOrWhiteSpace(participant.Nationality))
-                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"Nationality is required for '{participant.FullName}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"Nationality is required for '{participant.FullName}'.");
             if (string.IsNullOrWhiteSpace(participant.ClubSchoolCompany))
-                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"Club / school / company is required for '{participant.FullName}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"Club / school / company is required for '{participant.FullName}'.");
 
             var dob = ParseDob(participant.Dob)!;
             var identity = $"{participant.FullName}|{dob:yyyy-MM-dd}";
             if (!participantIdentities.Add(identity))
-                return RegistrationWorkflowResult<object>.Fail("DUPLICATE_REGISTRATION", $"Duplicate participant detected in '{program.Name}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.DuplicateRegistration, $"Duplicate participant detected in '{program.Name}'.");
 
             var age = CalculateAge(dob.Value);
             if (age < program.MinAge || age > program.MaxAge)
-                return RegistrationWorkflowResult<object>.Fail("INVALID_AGE", $"'{participant.FullName}' does not meet the age requirement for '{program.Name}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.InvalidAge, $"'{participant.FullName}' does not meet the age requirement for '{program.Name}'.");
 
             if (string.Equals(program.Gender, "Male", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(participant.Gender, "Male", StringComparison.OrdinalIgnoreCase))
-                return RegistrationWorkflowResult<object>.Fail("INVALID_GENDER", $"'{program.Name}' is for male participants only.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.InvalidGender, $"'{program.Name}' is for male participants only.");
 
             if (string.Equals(program.Gender, "Female", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(participant.Gender, "Female", StringComparison.OrdinalIgnoreCase))
-                return RegistrationWorkflowResult<object>.Fail("INVALID_GENDER", $"'{program.Name}' is for female participants only.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.InvalidGender, $"'{program.Name}' is for female participants only.");
 
             if (program.Fields?.EnableTshirt == true && program.Fields.RequireTshirt && string.IsNullOrWhiteSpace(participant.TshirtSize))
-                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"T-shirt size is required for '{participant.FullName}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"T-shirt size is required for '{participant.FullName}'.");
 
             if (program.Fields?.EnableGuardianInfo == true && program.Fields.RequireGuardianInfo)
             {
                 if (string.IsNullOrWhiteSpace(participant.GuardianName) || string.IsNullOrWhiteSpace(participant.GuardianContact))
-                    return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"Guardian details are required for '{participant.FullName}'.");
+                    return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"Guardian details are required for '{participant.FullName}'.");
             }
 
             if (program.Fields?.EnableSbaId == true && program.Fields.RequireSbaId && string.IsNullOrWhiteSpace(participant.SbaId))
-                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"SBA ID is required for '{participant.FullName}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"SBA ID is required for '{participant.FullName}'.");
 
             if (program.Fields?.EnableDocumentUpload == true && program.Fields.RequireDocumentUpload && string.IsNullOrWhiteSpace(participant.DocumentUrl))
-                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"Document upload is required for '{participant.FullName}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"Document upload is required for '{participant.FullName}'.");
 
             if (program.Fields?.EnableRemark == true && program.Fields.RequireRemark && string.IsNullOrWhiteSpace(participant.Remark))
-                return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"Remark is required for '{participant.FullName}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"Remark is required for '{participant.FullName}'.");
 
             foreach (var customField in program.CustomFields.Where(cf => cf.IsRequired))
             {
                 if (!participant.CustomFieldValues.TryGetValue(customField.CustomFieldId.ToString(), out var value)
                     || string.IsNullOrWhiteSpace(value))
-                    return RegistrationWorkflowResult<object>.Fail("MISSING_REQUIRED_FIELD", $"'{customField.Label}' is required for '{participant.FullName}'.");
+                    return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"'{customField.Label}' is required for '{participant.FullName}'.");
             }
 
             if (existingParticipants.Any(existing =>
@@ -589,7 +589,7 @@ public class RegistrationWorkflowService
                 && string.Equals(existing.FullName, participant.FullName, StringComparison.OrdinalIgnoreCase)
                 && existing.DateOfBirth == dob))
             {
-                return RegistrationWorkflowResult<object>.Fail("DUPLICATE_REGISTRATION", $"One or more participants are already registered for '{program.Name}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.DuplicateRegistration, $"One or more participants are already registered for '{program.Name}'.");
             }
         }
 
@@ -598,7 +598,7 @@ public class RegistrationWorkflowService
             var maleCount = group.Participants.Count(p => string.Equals(p.Gender, "Male", StringComparison.OrdinalIgnoreCase));
             var femaleCount = group.Participants.Count(p => string.Equals(p.Gender, "Female", StringComparison.OrdinalIgnoreCase));
             if (maleCount != 1 || femaleCount != 1)
-                return RegistrationWorkflowResult<object>.Fail("INVALID_GENDER", $"'{program.Name}' requires exactly one male and one female participant.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.InvalidGender, $"'{program.Name}' requires exactly one male and one female participant.");
         }
 
         return RegistrationWorkflowResult<object>.Ok(null);

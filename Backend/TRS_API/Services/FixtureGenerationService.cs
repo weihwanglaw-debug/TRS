@@ -856,18 +856,18 @@ public class FixtureGenerationService
     {
         var advance = config.AdvancePerGroup ?? 2;
         var advancers = groups
-            .Select(g => ComputeGroupStandings(g, config).Take(advance).Select(s => s.Team).ToList())
+            .Select(g => ComputeGroupStandings(g, config).Take(advance).ToList())
             .ToList();
 
         if (groups.Count == 2)
         {
             var paired = new List<(FixtureTeam Team1, FixtureTeam Team2)>();
-            var groupA = advancers.ElementAtOrDefault(0) ?? new List<FixtureTeam>();
-            var groupB = advancers.ElementAtOrDefault(1) ?? new List<FixtureTeam>();
+            var groupA = advancers.ElementAtOrDefault(0) ?? new List<GroupStandingEntry>();
+            var groupB = advancers.ElementAtOrDefault(1) ?? new List<GroupStandingEntry>();
             for (var i = 0; i < advance; i++)
             {
-                var t1 = groupA.ElementAtOrDefault(i);
-                var t2 = groupB.ElementAtOrDefault(advance - 1 - i);
+                var t1 = groupA.ElementAtOrDefault(i)?.Team;
+                var t2 = groupB.ElementAtOrDefault(advance - 1 - i)?.Team;
                 if (t1 != null && t2 != null) paired.Add((t1, t2));
             }
 
@@ -876,14 +876,49 @@ public class FixtureGenerationService
             return matches;
         }
 
-        var qualifiers = advancers
-            .SelectMany(groupAdvancers => groupAdvancers)
-            .GroupBy(team => team.Id, StringComparer.Ordinal)
-            .Select(g => g.First())
-            .ToList();
+        var qualifiers = BuildSyntheticSeededQualifiers(advancers, advance);
 
         return GenerateKnockoutMatches(qualifiers);
     }
+
+    private List<FixtureTeam> BuildSyntheticSeededQualifiers(List<List<GroupStandingEntry>> advancersByGroup, int advance)
+    {
+        var qualifiers = new List<FixtureTeam>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var syntheticSeed = 1;
+
+        for (var tier = 0; tier < advance; tier++)
+        {
+            var tierEntries = advancersByGroup
+                .Select(groupAdvancers => groupAdvancers.ElementAtOrDefault(tier))
+                .Where(entry => entry != null)
+                .OrderBy(entry => entry!.Team.Seed ?? int.MaxValue)
+                .ThenBy(entry => entry!.Team.Id, StringComparer.Ordinal)
+                .ToList();
+
+            foreach (var entry in tierEntries)
+            {
+                var team = entry!.Team;
+                if (!seen.Add(team.Id))
+                    continue;
+
+                qualifiers.Add(CloneTeamWithSeed(team, syntheticSeed));
+                syntheticSeed++;
+            }
+        }
+
+        return qualifiers;
+    }
+
+    private FixtureTeam CloneTeamWithSeed(FixtureTeam team, int seed) => new()
+    {
+        Id = team.Id,
+        Label = team.Label,
+        Participants = team.Participants.ToList(),
+        ParticipantClubs = team.ParticipantClubs.ToList(),
+        TeamMode = team.TeamMode,
+        Seed = seed,
+    };
 
     private List<FixtureMatch> GenerateNextKnockoutRound(List<FixtureMatch> matches)
     {

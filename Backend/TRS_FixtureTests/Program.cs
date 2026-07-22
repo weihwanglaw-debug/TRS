@@ -9,6 +9,8 @@ var tests = new List<(string Name, Action Test)>
     ("group draw score is accepted", GroupDrawScoreIsAccepted),
     ("knockout draw score is rejected", KnockoutDrawScoreIsRejected),
     ("group knockout uses unique qualifiers", GroupKnockoutUsesUniqueQualifiers),
+    ("group knockout reseeds qualifiers by standings", GroupKnockoutReseedsQualifiersByStandings),
+    ("round robin knockout reseeds by final standings", RoundRobinKnockoutReseedsByFinalStandings),
     ("three-way standings use game difference after primary tie", ThreeWayStandingsUseGameDifference),
 };
 
@@ -66,7 +68,7 @@ static FixtureGenerationService.FixtureMatch Match(
     Team1 = team1,
     Team2 = team2,
     Winner = winner,
-    Status = "Completed",
+    Status = StatusCodesEx.Match.Completed,
     Games = games.Select(g => new FixtureGenerationService.GameScore { P1 = g.P1, P2 = g.P2 }).ToList(),
 };
 
@@ -87,7 +89,7 @@ static void KnockoutAutoCompletesByeMatches()
 
     var byeMatches = matches.Where(m => m.Team1.Id.StartsWith("bye-") || m.Team2.Id.StartsWith("bye-")).ToList();
     AssertTrue(byeMatches.Count > 0, "Expected at least one BYE match.");
-    AssertTrue(byeMatches.All(m => m.Status == "Completed" && (m.Winner == "team1" || m.Winner == "team2")), "BYE matches must be completed with a winner.");
+    AssertTrue(byeMatches.All(m => m.Status == StatusCodesEx.Match.Completed && (m.Winner == "team1" || m.Winner == "team2")), "BYE matches must be completed with a winner.");
 }
 
 static void KnockoutSeedLineProtectsTopSeeds()
@@ -132,6 +134,61 @@ static void GroupKnockoutUsesUniqueQualifiers()
 
     AssertTrue(realTeams.Count == realTeams.Distinct().Count(), "Qualifiers must not be duplicated.");
     AssertTrue(realTeams.OrderBy(x => x).SequenceEqual(new[] { "A1", "B1", "C1" }), "Expected each group winner once.");
+}
+
+static void GroupKnockoutReseedsQualifiersByStandings()
+{
+    var service = Service();
+    var groups = new List<FixtureGenerationService.FixtureGroup>
+    {
+        Group("G1", Team("A1", 99), Team("A2", 1)),
+        Group("G2", Team("B1", 98), Team("B2", 2)),
+        Group("G3", Team("C1", 97), Team("C2", 3)),
+    };
+    var originalSeeds = groups.SelectMany(g => g.Teams).ToDictionary(t => t.Id, t => t.Seed);
+    var config = new FixtureGenerationService.FixtureConfig { Format = "group_knockout", AdvancePerGroup = 2 };
+
+    var matches = (List<FixtureGenerationService.FixtureMatch>)Invoke(service, "GenerateKnockoutFromGroups", groups, config)!;
+    var byeMatchTeamIds = matches
+        .Where(m => m.Team1.Id.StartsWith("bye-") || m.Team2.Id.StartsWith("bye-"))
+        .Select(m => m.Team1.Id.StartsWith("bye-") ? m.Team2.Id : m.Team1.Id)
+        .OrderBy(id => id)
+        .ToList();
+    var groupSeedsAfter = groups.SelectMany(g => g.Teams).ToDictionary(t => t.Id, t => t.Seed);
+
+    AssertTrue(byeMatchTeamIds.SequenceEqual(new[] { "B1", "C1" }), $"Expected top group winners to receive BYEs, got {string.Join(",", byeMatchTeamIds)}.");
+    AssertTrue(groupSeedsAfter.All(kvp => originalSeeds[kvp.Key] == kvp.Value), "Original group team seeds must not be mutated.");
+}
+
+static void RoundRobinKnockoutReseedsByFinalStandings()
+{
+    var service = Service();
+    var a = Team("A", 99);
+    var b = Team("B", 1);
+    var c = Team("C", 2);
+    var d = Team("D", 3);
+    var group = new FixtureGenerationService.FixtureGroup
+    {
+        Id = "G1",
+        Name = "Group A",
+        Teams = new List<FixtureGenerationService.FixtureTeam> { a, b, c, d },
+        Matches = new List<FixtureGenerationService.FixtureMatch>
+        {
+            Match(a, b, "group", "team1", ("21", "10"), ("21", "10")),
+            Match(a, c, "group", "team1", ("21", "10"), ("21", "10")),
+            Match(a, d, "group", "team1", ("21", "10"), ("21", "10")),
+            Match(b, c, "group", "team1", ("21", "10"), ("21", "10")),
+            Match(b, d, "group", "team1", ("21", "10"), ("21", "10")),
+            Match(c, d, "group", "team1", ("21", "10"), ("21", "10")),
+        },
+    };
+    var config = new FixtureGenerationService.FixtureConfig { Format = "round_robin", AdvancePerGroup = 4 };
+
+    var matches = (List<FixtureGenerationService.FixtureMatch>)Invoke(service, "GenerateKnockoutFromGroups", new List<FixtureGenerationService.FixtureGroup> { group }, config)!;
+    var matchups = matches.Select(m => $"{m.Team1.Id}-{m.Team2.Id}").ToList();
+
+    AssertTrue(matchups.SequenceEqual(new[] { "A-D", "C-B" }), $"Expected knockout seeding by round-robin standings, got {string.Join(",", matchups)}.");
+    AssertTrue(group.Teams.First(t => t.Id == "A").Seed == 99, "Round-robin group team seeds must not be mutated.");
 }
 
 static FixtureGenerationService.FixtureGroup Group(string id, FixtureGenerationService.FixtureTeam first, FixtureGenerationService.FixtureTeam second) => new()

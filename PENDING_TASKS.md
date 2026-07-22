@@ -160,25 +160,20 @@ Risks:
 - File-serving performance is lower than static/object storage, but acceptable for the expected event/image volume.
 - Must avoid breaking existing banner, gallery, event document, participant document, logo, ad image, and hero image display paths.
 
-## 9. Flexible Email Provider / Authentication Support
+## 9. Transactional Email Provider Adapter
 
-Priority: Medium before production
+Priority: Low to Medium before production
 
-Current email sending uses SMTP configuration. Microsoft 365 may require stronger authentication methods such as OAuth2, and future deployments may use other providers such as Google/Gmail APIs or other transactional email services.
+SMTP, Microsoft Graph, and Gmail API delivery are now config-selectable through `Email:Provider`. If production needs a dedicated transactional provider, add a provider adapter for the selected service.
 
 Expected scope:
 
-- Keep current SMTP username/password support for simple deployments.
-- Add a provider/auth abstraction around email sending.
-- Support Microsoft 365 OAuth2 SMTP or Microsoft Graph mail sending if SMTP AUTH/basic auth is not viable.
-- Consider Google/Gmail API or OAuth2 SMTP support if Gmail/Google Workspace is used.
-- Consider transactional email providers if production needs higher reliability or delivery tracking.
-- Keep receipt, registration-details, refund, cancellation, and landing contact emails using one shared email sending interface.
-- Document required environment variables/secrets per provider.
-- Preserve current email templates and attachments.
+- Choose the provider, such as SendGrid, Resend, Mailgun, AWS SES, or another vendor.
+- Add an adapter behind the existing `EmailService` provider switch.
+- Document required environment variables/secrets for that provider.
+- Preserve current receipt, registration-details, refund, cancellation, reconciliation, and landing contact email templates and attachments.
 
 Risks:
 
-- OAuth2 token refresh and secret management must be reliable.
-- Provider-specific attachment size limits and throttling may differ.
+- Provider-specific attachment limits, sender verification, throttling, webhook status tracking, and retry behavior may differ.
 - Email retry/idempotency should align with the durable email/background job pending task.
