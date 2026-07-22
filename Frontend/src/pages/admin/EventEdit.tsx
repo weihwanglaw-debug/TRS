@@ -10,6 +10,7 @@ import { getEventStatus } from "@/lib/eventUtils";
 import StatusBadge from "@/components/events/StatusBadge";
 import ProgramModal from "@/components/admin/ProgramModal";
 import SeedingModal from "@/components/admin/SeedingModal";
+import AdminPaymentOutcomeFields from "@/components/admin/AdminPaymentOutcomeFields";
 import { Switch } from "@/components/ui/switch";
 import { PageLoader } from "@/components/ui/LoadingSpinner";
 import ActionDropdownPortal from "@/components/ui/ActionDropdownPortal";
@@ -1048,29 +1049,10 @@ export default function EventEdit() {
                   <div className="p-3" style={{ border: "1px solid var(--color-table-border)" }}>
                     <p className="text-xs font-semibold opacity-50">Result</p>
                     <p className="text-lg font-bold" style={{ color: importPreview.valid ? "var(--badge-paid-text)" : "var(--badge-closed-text)" }}>
-                      {importPreview.valid ? "Ready" : "Needs Fix"}
+                      {importPreview.valid ? "Validation Passed" : "Validation Failed"}
                     </p>
                   </div>
                 </div>
-
-                {importPreview.entries.length > 0 && (
-                  <div className="max-h-40 overflow-y-auto" style={{ border: "1px solid var(--color-table-border)" }}>
-                    <table className="trs-table">
-                      <thead>
-                        <tr><th>Entry No.</th><th>Players</th><th>Names</th></tr>
-                      </thead>
-                      <tbody>
-                        {importPreview.entries.map(entry => (
-                          <tr key={entry.entryNo}>
-                            <td className="text-sm">{entry.entryNo}</td>
-                            <td className="text-sm">{entry.participantCount}</td>
-                            <td className="text-sm">{entry.names || "-"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
 
                 {importPreview.errors.length > 0 && (
                   <IssueList title="Validation Errors" issues={importPreview.errors} tone="error" />
@@ -1081,53 +1063,18 @@ export default function EventEdit() {
 
                 {importPreview.valid && (
                   <div className="space-y-4 pt-2">
-                    <div>
-                      <label className="block text-xs font-semibold mb-2 opacity-70">Payment Status *</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {([
-                          { value: "S",  label: "Paid",               sub: "Collected now" },
-                          { value: "W",  label: "Waived",             sub: "Fee waived" },
-                          { value: "PC", label: "Pending Collection", sub: "Will pay later" },
-                        ] as const).map(opt => (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            onClick={() => setImportStatus(opt.value)}
-                            className="p-3 text-left text-xs transition-all"
-                            style={{
-                              border: `2px solid ${importStatus === opt.value ? "var(--color-primary)" : "var(--color-table-border)"}`,
-                              backgroundColor: importStatus === opt.value ? "var(--color-row-hover)" : "transparent",
-                            }}>
-                            <p className="font-semibold">{opt.label}</p>
-                            <p className="opacity-50 mt-0.5">{opt.sub}</p>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {showImportPaymentDetails && (
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        <FF label="Payment Method">
-                          <select className="field-input" value={importMethod} onChange={e => setImportMethod(e.target.value)}>
-                            <option value="Cash">Cash</option>
-                            <option value="BankTransfer">Bank Transfer</option>
-                            <option value="PayNow">PayNow</option>
-                            <option value="Others">Others</option>
-                          </select>
-                        </FF>
-                        <FF label="Payment Reference (optional)">
-                          <input className="field-input" value={importReference}
-                            onChange={e => setImportReference(e.target.value)}
-                            placeholder="e.g. PayNow ref, receipt number" />
-                        </FF>
-                      </div>
-                    )}
-
-                    <FF label="Admin Remark *">
-                      <textarea className="field-input" rows={2} value={importNote}
-                        onChange={e => setImportNote(e.target.value)}
-                        placeholder="e.g. Bulk import approved by admin" />
-                    </FF>
+                    <AdminPaymentOutcomeFields
+                      status={importStatus}
+                      onStatusChange={setImportStatus}
+                      method={importMethod}
+                      onMethodChange={setImportMethod}
+                      reference={importReference}
+                      onReferenceChange={setImportReference}
+                      note={importNote}
+                      onNoteChange={setImportNote}
+                      remarkPlaceholder="e.g. Bulk import approved by admin"
+                      detailsLayout="grid"
+                    />
                   </div>
                 )}
               </div>
@@ -1144,13 +1091,13 @@ export default function EventEdit() {
             {!importPreview && !importError && (
               <button type="button" disabled={!importFile || importBusy} onClick={handleImportPreview}
                 className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
-                {importBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Scanning...</> : "Scan Template"}
+                {importBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Scanning...</> : "Validate Import"}
               </button>
             )}
             {((importPreview && !importPreview.valid) || importError) && (
               <button type="button" disabled={importBusy} onClick={resetImportDialog}
                 className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40">
-                OK
+                Cancel
               </button>
             )}
             {importPreview?.valid && (
@@ -1264,7 +1211,7 @@ function IssueList({
       <ul className="space-y-1">
         {issues.map((issue, idx) => (
           <li key={`${issue.row ?? "file"}-${issue.field ?? "general"}-${idx}`}>
-            {issue.row ? `Row ${issue.row}: ` : ""}
+            {issue.row ? `Excel row ${issue.row}: ` : ""}
             {issue.field ? `${issue.field} - ` : ""}
             {issue.message}
           </li>

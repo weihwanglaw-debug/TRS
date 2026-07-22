@@ -23,6 +23,11 @@ public class ConfigController : ControllerBase
             ["logoDarkUrl"] = "/images/app/logo_dark_mode.png",
             ["displayTimeZone"] = "+08:00",
             ["displayDateTimeFormat"] = "dd/MM/yyyy HH:mm:ss",
+            ["socialFacebookUrl"] = "https://www.facebook.com/WyseActiveHub/",
+            ["socialInstagramUrl"] = "https://www.instagram.com/wyse.active/",
+            ["socialYoutubeUrl"] = "",
+            ["socialLinkedInUrl"] = "https://sg.linkedin.com/company/wyse-active-pte-ltd",
+            ["socialTiktokUrl"] = "",
         };
         foreach (var row in rows)
         {

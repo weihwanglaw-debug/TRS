@@ -165,13 +165,15 @@ The older hosted Checkout session-first path remains as a legacy fallback throug
 
 Free registrations are created directly through `POST /api/registrations`.
 
-Admin program imports create one `EventRegistration` for the uploaded file, so all imported rows share one registration number. `Entry No` in the workbook groups participant rows into participant groups under that registration. After a valid preview, the admin chooses `S` paid, `W` waived, or `PC` pending collection for the whole import. Paid imported registrations use the same admin confirmation email behavior as admin-assisted frontend registration.
+Admin program imports create one `EventRegistration` for the uploaded file, so all imported rows share one registration number. Import template scope is read from `Event ID` and `Program ID` on the first worksheet. Every non-blank row from row 6 onward is imported; there is no sample row or row-type column. `Entry No` groups participant rows into participant groups under that registration and must be a positive whole number. After a valid preview, the admin chooses `S` paid, `W` waived, or `PC` pending collection for the whole import. Paid imported registrations use the same admin confirmation email behavior as admin-assisted frontend registration.
 
 Dashboard reports are read-only exports. The Event and Program Summary report exports one row per event/program with event dates/status, sport/fixture settings, program limits, fee settings, and registered/cancelled counts. The User Access report exports admin user name, email, role, and last login only. The Payment Summary report uses the registration export filters (search, event, program, registration status, payment status), fetches refund details for the returned registrations, and produces a single-sheet Excel workbook with one row per payment/program line item plus a registration total row under each registration. The Participant Details report exports participant rows by event/program with primary participant fields first, optional participant fields next, and custom participant fields last; upload/document fields are excluded.
 
 Badminton program imports validate supplied SBA IDs against the SBA ranking master table when SBA ID is enabled for the program. The scan reports row-level issues when an SBA ID is unknown or when the imported name/date of birth does not match the master record.
 
 Badminton program setup supports SBA-ranked programs and custom programs. SBA-ranked programs use `SbaRankingType` to derive program metadata and enable SBA-based fixture auto-seeding. Custom Badminton programs store no `SbaRankingType`, require manual program details, and allow manual seeding only.
+
+Program import preview uses two validation layers: file/template structure first, then combined business validation. Structure errors stop deeper checks. If the workbook is structurally readable, row/content errors, SBA master mismatches, capacity/program/fixture checks, pricing, and shared registration workflow validation are returned together where the parsed request is usable.
 
 Registration availability is backend-computed from `Events.RegistrationStatus`, Singapore date, event activity, and active program count. API responses expose `registrationStatus` and `computedRegistrationStatus`; frontend date-only status logic is fallback only. The public `/events` listing uses the event API archive query to show active events with active programs, including closed and past events, while hiding deleted/inactive and paused events. Program capacity is enforced by program fee structure: `per_entry` counts active entries/groups, while `per_player` counts active non-cancelled participants/headcount. Event-level `MaxParticipants` has been removed; program-level capacity is authoritative. Built-in participant fields have separate enabled and required flags in `ProgramFields`.
 
@@ -221,6 +223,8 @@ Frontend configuration:
 
 - `VITE_API_BASE_URL`
 - `VITE_MOCK_DELAY_MS`
+
+Footer social links are read from live Master Config keys: `socialInstagramUrl`, `socialYoutubeUrl`, `socialFacebookUrl`, `socialLinkedInUrl`, and `socialTiktokUrl`. Blank social URLs are hidden from the public footer.
 
 ## Known Implementation Constraints
 

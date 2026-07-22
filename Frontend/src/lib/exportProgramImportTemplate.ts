@@ -6,14 +6,11 @@ import { apiGetBadmintonClubs } from "@/lib/api";
 
 const TEMPLATE_ROW_COUNT = 200;
 const ENTRY_SHEET = "Participant Entries";
-const INFO_SHEET = "Template Info";
 const OPTIONS_SHEET = "Dropdown Options";
 const HEADER_ROW_NUMBER = 5;
 const FIRST_DATA_ROW_NUMBER = HEADER_ROW_NUMBER + 1;
 const LAST_DATA_ROW_NUMBER = FIRST_DATA_ROW_NUMBER + TEMPLATE_ROW_COUNT - 1;
 const CLUB_NO_CLUB_VALUE = "* No Club";
-const ROW_TYPE_COLUMN = "Row Type";
-const SAMPLE_ROW_TYPE = "SAMPLE";
 
 type TemplateColumnType = "text" | "number" | "date" | "select";
 
@@ -28,6 +25,7 @@ interface TemplateColumn {
 }
 
 interface ValidationRule {
+  label: string;
   columnIndex: number;
   type: TemplateColumnType;
   options?: string[];
@@ -84,6 +82,9 @@ function definedNameForColumn(label: string, index: number) {
 }
 
 function requiredLabel(column: TemplateColumn) {
+  if (column.label === "DOB") {
+    return `DOB${column.required ? "*" : ""} (yyyy-mm-dd)`;
+  }
   return `${column.label}${column.required ? " *" : ""}`;
 }
 
@@ -102,10 +103,9 @@ function buildColumns(event: TournamentEvent, program: Program, badmintonClubOpt
   const fields = program.fields;
   const useBadmintonClubDropdown = isBadmintonTemplate(event, program);
   const columns: TemplateColumn[] = [
-    { label: ROW_TYPE_COLUMN, type: "select", options: [SAMPLE_ROW_TYPE, "DATA"], width: 14, note: "Use SAMPLE for sample rows. Leave blank or use DATA for rows to import." },
     { label: "Entry No", required: true, type: "number", width: 12, note: "Use the same Entry No for players in the same doubles/team entry." },
     { label: "Full Name", required: true, type: "text", width: 28 },
-    { label: "Date of Birth", required: true, type: "date", width: 16, note: "Use yyyy-mm-dd." },
+    { label: "DOB", required: true, type: "date", width: 18, note: "Use yyyy-mm-dd." },
     { label: "Gender", required: true, type: "select", options: genderOptions(program), width: 14 },
     { label: "Email", required: true, type: "text", width: 28 },
     { label: "Contact Number", required: true, type: "text", width: 18 },
@@ -172,6 +172,10 @@ function validationXml(rules: ValidationRule[]) {
       return `<dataValidation type="list" allowBlank="1" showDropDown="0" showErrorMessage="${showErrorMessage}" sqref="${sqref}"><formula1>${xmlEscape(formula)}</formula1></dataValidation>`;
     }
 
+    if (rule.label === "Entry No" && rule.type === "number") {
+      return `<dataValidation type="whole" operator="greaterThanOrEqual" allowBlank="1" showErrorMessage="1" sqref="${sqref}"><formula1>1</formula1></dataValidation>`;
+    }
+
     return [];
   });
 
@@ -227,27 +231,21 @@ function headerCell(value: string) {
   };
 }
 
+function textCell(value = "") {
+  return { value, type: String, format: "@" };
+}
+
+function isPhoneColumn(column: TemplateColumn) {
+  return column.label === "Contact Number" || column.label === "Guardian Contact Number";
+}
+
 function buildEntrySheet(event: TournamentEvent, program: Program, columns: TemplateColumn[]): SheetData {
   const headerRow = columns.map(column => headerCell(requiredLabel(column)));
-  const exampleRow = columns.map(column => {
-    if (column.label === ROW_TYPE_COLUMN) return SAMPLE_ROW_TYPE;
-    if (column.label === "Entry No") return { value: 1, type: Number, align: "right" as const };
-    if (column.label === "Full Name") return "Sample Player";
-    if (column.label === "Gender") return genderOptions(program)[0] ?? "Male";
-    if (column.label === "Email") return "sample@example.com";
-    if (column.label === "Contact Number") return "0123456789";
-    if (column.label === "Nationality") return "MY - Malaysia";
-    if (column.label === "Club / Team / School") return isBadmintonTemplate(event, program) ? CLUB_NO_CLUB_VALUE : "Sample Club";
-    if (column.label === "Player No") return { value: 1, type: Number, align: "right" as const };
-    if (column.label === "Date of Birth" || column.type === "date") {
-      return { value: new Date(2000, 0, 1), type: Date, format: "yyyy-mm-dd" };
-    }
-    return "";
-  });
-  const blankRows = Array.from({ length: TEMPLATE_ROW_COUNT - 1 }, () =>
+  const blankRows = Array.from({ length: TEMPLATE_ROW_COUNT }, () =>
     columns.map(column => {
       if (column.type === "date") return { value: undefined, type: Date, format: "yyyy-mm-dd" };
       if (column.type === "number") return { value: undefined, type: Number };
+      if (isPhoneColumn(column)) return textCell();
       return "";
     }),
   );
@@ -258,42 +256,7 @@ function buildEntrySheet(event: TournamentEvent, program: Program, columns: Temp
     [`Program: ${program.name}`, null, `Program ID: ${program.id}`, null],
     [`Players per entry: ${program.minPlayers}-${program.maxPlayers}`, null, `Fee structure: ${program.feeStructure}`, null],
     headerRow,
-    exampleRow,
     ...blankRows,
-  ];
-}
-
-function buildInfoSheet(event: TournamentEvent, program: Program, columns: TemplateColumn[]): SheetData {
-  const customColumns = columns.filter(column => column.note?.startsWith("Custom:"));
-  const optionalDocumentNote = program.fields.enableDocumentUpload
-    ? "Document upload is configured for this program but is intentionally excluded from the Excel template. Upload/import validation can handle documents separately later."
-    : "No document upload field is configured for this program.";
-
-  return [
-    [{ value: "Template Scope", fontWeight: "bold", fontSize: 14 }],
-    ["Event ID", event.id],
-    ["Event Name", event.name],
-    ["Program ID", program.id],
-    ["Program Name", program.name],
-    ["Program Type", program.type],
-    ["Program Gender", program.gender],
-    ["Min Players Per Entry", program.minPlayers],
-    ["Max Players Per Entry", program.maxPlayers],
-    ["Fee Structure", program.feeStructure],
-    [],
-    [{ value: "Import Notes", fontWeight: "bold", fontSize: 14 }],
-    ["Rows", `Fill participants from row ${FIRST_DATA_ROW_NUMBER} onward on "${ENTRY_SHEET}".`],
-    ["Sample Rows", `Rows marked ${SAMPLE_ROW_TYPE} in "${ROW_TYPE_COLUMN}" are ignored during import. Delete them or overwrite Row Type with DATA/blank before entering real participants.`],
-    ["Entry No", "This groups players into one entry/team. For singles, each participant can use a different Entry No. For doubles/team, use the same Entry No for all players in that entry."],
-    ["Dates", "Use yyyy-mm-dd format."],
-    ["Dropdowns", `Dropdown values are stored in "${OPTIONS_SHEET}".`],
-    ...(isBadmintonTemplate(event, program) ? [["Badminton Club", "Club / Team / School is sourced from the badminton club master table, but custom text is allowed for clubs not in the list."]] : []),
-    ["Document Upload", optionalDocumentNote],
-    ["Future Import Check", "Import should verify Event ID and Program ID from this sheet before accepting rows."],
-    [],
-    [{ value: "Custom Field Mapping", fontWeight: "bold", fontSize: 14 }],
-    ["Column Label", "Field Key"],
-    ...customColumns.map(column => [column.label, column.note ?? ""]),
   ];
 }
 
@@ -341,7 +304,7 @@ export async function exportProgramImportTemplate(event: TournamentEvent, progra
         : undefined;
       return { ...column, columnIndex, definedName };
     })
-    .filter(column => column.type === "select");
+    .filter(column => column.type === "select" || column.label === "Entry No");
 
   await writeExcelFile(
     [
@@ -351,11 +314,6 @@ export async function exportProgramImportTemplate(event: TournamentEvent, progra
         columns: columns.map(column => ({ width: column.width })),
         stickyRowsCount: HEADER_ROW_NUMBER,
         dateFormat: "yyyy-mm-dd",
-      },
-      {
-        sheet: INFO_SHEET,
-        data: buildInfoSheet(event, program, columns),
-        columns: [{ width: 24 }, { width: 90 }],
       },
       {
         sheet: OPTIONS_SHEET,

@@ -25,6 +25,11 @@ export interface LiveConfig {
   displayDateTimeFormat: string;
   contactEmail:  string;
   copyrightText: string;
+  socialFacebookUrl: string;
+  socialInstagramUrl: string;
+  socialYoutubeUrl: string;
+  socialLinkedInUrl: string;
+  socialTiktokUrl: string;
   consentText:   string;
   messageTitle:  string;
   messageBody:   string;
@@ -55,6 +60,11 @@ const EMPTY: LiveConfig = {
   displayTimeZone: DEFAULT_DISPLAY_TIME_ZONE,
   displayDateTimeFormat: DEFAULT_DISPLAY_DATE_TIME_FORMAT,
   copyrightText: "", consentText: "",
+  socialFacebookUrl: "https://www.facebook.com/WyseActiveHub/",
+  socialInstagramUrl: "https://www.instagram.com/wyse.active/",
+  socialYoutubeUrl: "",
+  socialLinkedInUrl: "https://sg.linkedin.com/company/wyse-active-pte-ltd",
+  socialTiktokUrl: "",
   messageTitle: "Questions before joining?",
   messageBody: "Players, parents, coaches, and club representatives can leave a message for the tournament team.\nUse this space for event questions, program clarification, venue help, or registration support.",
   adEnabled: "true", adUrl: "", adImageUrl: "",

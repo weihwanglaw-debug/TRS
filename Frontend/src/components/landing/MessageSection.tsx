@@ -112,10 +112,7 @@ export default function MessageSection() {
           </h2>
           <p style={{ whiteSpace: "pre-line" }}>
             {messageBody}
-          </p>
-          <a className="landing-button" href="#events-section" style={{ background: "rgb(0 0 0 / 0)", border: "2px solid rgb(255 255 255 / 30%)" }}>
-            View Events
-          </a>
+          </p>       
         </motion.div>
 
         <motion.form

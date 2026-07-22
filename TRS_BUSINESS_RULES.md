@@ -285,11 +285,13 @@ Admin program import:
 
 - Program import is available only to authenticated admins with `superadmin` or `eventadmin`.
 - Import templates are scoped to one event and one program. The backend verifies the template event/program identifiers during preview.
-- Template rows marked `SAMPLE` in the `Row Type` column are ignored during import. Admins may delete sample rows or overwrite them as real data.
+- Import template scope is read from `Event ID` and `Program ID` on the first worksheet. The separate template-info worksheet is not required.
+- Every non-blank row from row 6 onward is treated as a participant row to import. The template does not include sample rows or a row-type column.
 - Event sport type controls badminton template behavior. When `Event.SportType='Badminton'`, the downloaded template gives `Club / Team / School` a badminton club dropdown from the master table while still allowing free text. Other sport types use free text.
 - One uploaded workbook creates one `EventRegistration`; all imported entries share the same registration number.
-- `Entry No` groups workbook participant rows into participant groups under that single registration.
-- Preview validates the full workbook and returns all import-detectable validation errors together. The import is not saved until preview is valid and the admin confirms.
+- `Entry No` groups workbook participant rows into participant groups under that single registration and must be a positive whole number.
+- The date-of-birth column is labelled `DOB* (yyyy-mm-dd)` in the template. The importer accepts valid Excel dates and normalizes them to `yyyy-MM-dd`.
+- Preview uses two validation layers. File/template structure errors stop deeper checks because the workbook cannot be trusted. Once the workbook is structurally readable, row/content checks, SBA master checks, capacity, fixture/program status, pricing, and shared registration workflow checks are collected together where practical. The import is not saved until preview is valid and the admin confirms.
 - When preview fails, the admin UI shows the collected issues with one `OK` action and closes the import dialog; the admin must reopen import and upload the corrected workbook for a new scan.
 - After a valid preview, the admin selects one payment status for the whole import: `S` paid, `W` waived, or `PC` pending collection.
 - Payment method and payment reference apply only when the selected status is `S`.

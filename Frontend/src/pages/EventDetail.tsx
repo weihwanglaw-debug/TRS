@@ -27,6 +27,7 @@ import ParticipantFieldsForm, {
   MONTHS, DAYS, YEARS,
 } from "@/components/registration/ParticipantFieldsForm";
 import EmbeddedPaymentModal from "@/components/registration/EmbeddedPaymentModal";
+import AdminPaymentOutcomeFields from "@/components/admin/AdminPaymentOutcomeFields";
 import type { EmbeddedPaymentAttempt } from "@/types/registration";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -1528,53 +1529,17 @@ export default function EventDetail() {
             <div className="p-3 text-sm" style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
               Admin registration - Payment will be bypassed. Select the payment outcome below.
             </div>
-            <div>
-              <label className="block text-xs font-semibold mb-2 opacity-70">Payment Status *</label>
-              <div className="grid grid-cols-3 gap-2">
-                {([
-                  { value: "S",  label: "Paid",              sub: "Collected now" },
-                  { value: "W",  label: "Waived",            sub: "Fee waived" },
-                  { value: "PC", label: "Pending Collection",sub: "Will pay later" },
-                ] as const).map(opt => (
-                  <button key={opt.value} type="button"
-                    onClick={() => setAdminConfirmStatus(opt.value)}
-                    className="p-3 text-left text-xs transition-all"
-                    style={{
-                      border: `2px solid ${adminConfirmStatus === opt.value ? "var(--color-primary)" : "var(--color-table-border)"}`,
-                      backgroundColor: adminConfirmStatus === opt.value ? "var(--color-row-hover)" : "transparent",
-                    }}>
-                    <p className="font-semibold">{opt.label}</p>
-                    <p className="opacity-50 mt-0.5">{opt.sub}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-            {showAdminPaymentDetails && (
-              <div>
-                <label className="block text-xs font-semibold mb-2 opacity-70">Payment Method</label>
-                <select className="field-input" value={adminConfirmMethod}
-                  onChange={e => setAdminConfirmMethod(e.target.value)}>
-                  <option value="Cash">Cash</option>
-                  <option value="BankTransfer">Bank Transfer</option>
-                  <option value="PayNow">PayNow</option>
-                  <option value="Others">Others</option>
-                </select>
-              </div>
-            )}
-            {showAdminPaymentDetails && (
-              <div>
-                <label className="block text-xs font-semibold mb-2 opacity-70">Payment Reference <span className="opacity-40">(optional)</span></label>
-                <input className="field-input" value={adminConfirmRef}
-                  onChange={e => setAdminConfirmRef(e.target.value)}
-                  placeholder="e.g. PayNow ref, receipt number" />
-              </div>
-            )}
-            <div>
-              <label className="block text-xs font-semibold mb-2 opacity-70">Admin Remark *</label>
-              <textarea className="field-input" rows={2} value={adminConfirmNote}
-                onChange={e => setAdminConfirmNote(e.target.value)}
-                placeholder="e.g. Walk-in at counter, cash collected by John" />
-            </div>
+            <AdminPaymentOutcomeFields
+              status={adminConfirmStatus}
+              onStatusChange={setAdminConfirmStatus}
+              method={adminConfirmMethod}
+              onMethodChange={setAdminConfirmMethod}
+              reference={adminConfirmRef}
+              onReferenceChange={setAdminConfirmRef}
+              note={adminConfirmNote}
+              onNoteChange={setAdminConfirmNote}
+              remarkPlaceholder="e.g. Walk-in at counter, cash collected by John"
+            />
           </div>
           <div className="p-8 pt-0 flex gap-3 justify-end">
             <button onClick={() => { setAdminConfirmOpen(false); setAdminConfirmNote(""); setAdminConfirmRef(""); }}

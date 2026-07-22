@@ -10,20 +10,24 @@
   "footer": {
     "socialLinks": [
       {
-        "platform": "Facebook",
-        "url": "https://facebook.com/sbatournaments"
-      },
-      {
         "platform": "Instagram",
-        "url": "https://instagram.com/sbatournaments"
+        "url": "https://www.instagram.com/wyse.active/"
       },
       {
-        "platform": "X",
-        "url": "https://x.com/sbatournaments"
+        "platform": "YouTube",
+        "url": ""
+      },
+      {
+        "platform": "Facebook",
+        "url": "https://www.facebook.com/WyseActiveHub/"
       },
       {
         "platform": "LinkedIn",
-        "url": "https://linkedin.com/company/sbatournaments"
+        "url": "https://sg.linkedin.com/company/wyse-active-pte-ltd"
+      },
+      {
+        "platform": "TikTok",
+        "url": ""
       }
     ],
     "extraLinks": [

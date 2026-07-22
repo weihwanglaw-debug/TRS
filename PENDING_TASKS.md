@@ -136,3 +136,49 @@ Risks:
 - Duplicate participant/team checks, capacity checks, fixture locks, age/gender rules, required custom fields, and payment total rules must match manual/admin registration behavior.
 - Template format must be stable enough for admins to fill correctly but flexible enough for singles, doubles, per-entry, per-head, and team programs.
 - Need clear row-level error reporting so strict import failures are actionable.
+
+## 8. DB-Backed Upload/File Storage
+
+Priority: Medium before production
+
+Move newly uploaded TRS files from backend local disk storage to database-backed storage while keeping existing URL fields as references.
+
+Expected scope:
+
+- Add an `UploadedFiles` table for file metadata and bytes.
+- Store file bytes in the database for new uploads.
+- Keep existing URL/path fields in events, gallery images, documents, participant uploads, and config values where practical.
+- Return DB-backed URLs such as `/api/files/{fileId}` from the upload endpoint.
+- Add a file-serving endpoint that streams the stored bytes with the correct content type.
+- Preserve old `/uploads/...` URLs temporarily so existing testing data does not break.
+- Apply existing file size/type validation rules.
+- Review whether any file endpoints should be public versus admin-protected.
+
+Risks:
+
+- Database size and backup/restore time will increase, though expected TRS volume is small.
+- File-serving performance is lower than static/object storage, but acceptable for the expected event/image volume.
+- Must avoid breaking existing banner, gallery, event document, participant document, logo, ad image, and hero image display paths.
+
+## 9. Flexible Email Provider / Authentication Support
+
+Priority: Medium before production
+
+Current email sending uses SMTP configuration. Microsoft 365 may require stronger authentication methods such as OAuth2, and future deployments may use other providers such as Google/Gmail APIs or other transactional email services.
+
+Expected scope:
+
+- Keep current SMTP username/password support for simple deployments.
+- Add a provider/auth abstraction around email sending.
+- Support Microsoft 365 OAuth2 SMTP or Microsoft Graph mail sending if SMTP AUTH/basic auth is not viable.
+- Consider Google/Gmail API or OAuth2 SMTP support if Gmail/Google Workspace is used.
+- Consider transactional email providers if production needs higher reliability or delivery tracking.
+- Keep receipt, registration-details, refund, cancellation, and landing contact emails using one shared email sending interface.
+- Document required environment variables/secrets per provider.
+- Preserve current email templates and attachments.
+
+Risks:
+
+- OAuth2 token refresh and secret management must be reliable.
+- Provider-specific attachment size limits and throttling may differ.
+- Email retry/idempotency should align with the durable email/background job pending task.

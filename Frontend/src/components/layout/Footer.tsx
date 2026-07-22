@@ -1,17 +1,25 @@
 import config from "@/data/config.json";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
-import { Facebook, Instagram, Linkedin, Twitter, Mail } from "lucide-react";
+import { Facebook, Instagram, Linkedin, Mail, Music2, Youtube } from "lucide-react";
 
 const iconMap: Record<string, React.ElementType> = {
   Facebook,
   Instagram,
+  YouTube: Youtube,
   LinkedIn: Linkedin,
-  X: Twitter,
-  Twitter,
+  TikTok: Music2,
 };
 
 export default function Footer() {
   const { cfg } = useLiveConfig();
+  const socialLinks = [
+    { platform: "Instagram", url: cfg.socialInstagramUrl },
+    { platform: "YouTube", url: cfg.socialYoutubeUrl },
+    { platform: "Facebook", url: cfg.socialFacebookUrl },
+    { platform: "LinkedIn", url: cfg.socialLinkedInUrl },
+    { platform: "TikTok", url: cfg.socialTiktokUrl },
+  ].filter(link => link.url.trim());
+
   return (
     <footer
       id="receipt"
@@ -19,9 +27,9 @@ export default function Footer() {
       style={{ background: "var(--color-hero-bg)", color: "var(--color-hero-text)" }}
     >
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-  {/* Social icons - static config; not editable via MasterConfig */}
+  {/* Social icons - from live master config. Blank URLs are hidden. */}
         <div className="flex items-center gap-4">
-          {config.footer.socialLinks.map((link) => {
+          {socialLinks.map((link) => {
             const Icon = iconMap[link.platform] || Mail;
             return (
               <a

@@ -10,6 +10,8 @@ import { LiveConfigProvider } from "@/contexts/LiveConfigContext";
 import Landing from "@/pages/Landing";
 import EventsArchive from "@/pages/EventsArchive";
 import EventDetail from "@/pages/EventDetail";
+import PrivacyPolicy from "@/pages/PrivacyPolicy";
+import TermsOfService from "@/pages/TermsOfService";
 import PaymentResult from "@/pages/PaymentResult";
 import Login from "@/pages/Login";
 import AdminLayout from "@/components/admin/AdminLayout";
@@ -42,6 +44,8 @@ const App = () => (
                 <Route path="/" element={<Landing />} />
                 <Route path="/events" element={<EventsArchive />} />
                 <Route path="/event/:id" element={<EventDetail />} />
+                <Route path="/privacy" element={<PrivacyPolicy />} />
+                <Route path="/terms" element={<TermsOfService />} />
                 <Route path="/payment/result" element={<PaymentResult />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/admin" element={<AdminLayout />}>

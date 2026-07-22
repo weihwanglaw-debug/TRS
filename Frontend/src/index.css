@@ -542,12 +542,14 @@
 }
 
 .landing-button {
+  align-items: center;
   background: var(--landing-red);
   border: 1px solid var(--landing-red);
   color: var(--landing-white);
   display: inline-flex;
   font-size: 14px;
   font-weight: 700;
+  gap: 8px;
   isolation: isolate;
   justify-content: center;
   min-width: 156px;
