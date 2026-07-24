@@ -11,6 +11,7 @@ const HEADER_ROW_NUMBER = 5;
 const FIRST_DATA_ROW_NUMBER = HEADER_ROW_NUMBER + 1;
 const LAST_DATA_ROW_NUMBER = FIRST_DATA_ROW_NUMBER + TEMPLATE_ROW_COUNT - 1;
 const CLUB_NO_CLUB_VALUE = "* No Club";
+const DEFAULT_IMPORT_DATE_FORMAT = "yyyy-MM-dd";
 
 type TemplateColumnType = "text" | "number" | "date" | "select";
 
@@ -81,9 +82,17 @@ function definedNameForColumn(label: string, index: number) {
   return `TRS_${index + 1}_${clean || "Options"}`;
 }
 
-function requiredLabel(column: TemplateColumn) {
+function dateOnlyFormat(displayDateTimeFormat?: string) {
+  return (displayDateTimeFormat || DEFAULT_IMPORT_DATE_FORMAT).trim().split(/\s+/)[0] || DEFAULT_IMPORT_DATE_FORMAT;
+}
+
+function excelDateFormat(displayDateTimeFormat?: string) {
+  return dateOnlyFormat(displayDateTimeFormat).replace(/MM/g, "mm");
+}
+
+function requiredLabel(column: TemplateColumn, importDateFormat: string) {
   if (column.label === "DOB") {
-    return `DOB${column.required ? "*" : ""} (yyyy-mm-dd)`;
+    return `DOB${column.required ? "*" : ""} (${importDateFormat})`;
   }
   return `${column.label}${column.required ? " *" : ""}`;
 }
@@ -99,13 +108,13 @@ function isBadmintonTemplate(event: TournamentEvent, program: Program) {
   return event.sportType?.trim().toLowerCase() === "badminton";
 }
 
-function buildColumns(event: TournamentEvent, program: Program, badmintonClubOptions: string[]): TemplateColumn[] {
+function buildColumns(event: TournamentEvent, program: Program, badmintonClubOptions: string[], importDateFormat: string): TemplateColumn[] {
   const fields = program.fields;
   const useBadmintonClubDropdown = isBadmintonTemplate(event, program);
   const columns: TemplateColumn[] = [
     { label: "Entry No", required: true, type: "number", width: 12, note: "Use the same Entry No for players in the same doubles/team entry." },
     { label: "Full Name", required: true, type: "text", width: 28 },
-    { label: "DOB", required: true, type: "date", width: 18, note: "Use yyyy-mm-dd." },
+    { label: "DOB", required: true, type: "date", width: 18, note: `Use ${importDateFormat}.` },
     { label: "Gender", required: true, type: "select", options: genderOptions(program), width: 14 },
     { label: "Email", required: true, type: "text", width: 28 },
     { label: "Contact Number", required: true, type: "text", width: 18 },
@@ -239,11 +248,12 @@ function isPhoneColumn(column: TemplateColumn) {
   return column.label === "Contact Number" || column.label === "Guardian Contact Number";
 }
 
-function buildEntrySheet(event: TournamentEvent, program: Program, columns: TemplateColumn[]): SheetData {
-  const headerRow = columns.map(column => headerCell(requiredLabel(column)));
+function buildEntrySheet(event: TournamentEvent, program: Program, columns: TemplateColumn[], importDateFormat: string): SheetData {
+  const dateFormat = excelDateFormat(importDateFormat);
+  const headerRow = columns.map(column => headerCell(requiredLabel(column, importDateFormat)));
   const blankRows = Array.from({ length: TEMPLATE_ROW_COUNT }, () =>
     columns.map(column => {
-      if (column.type === "date") return { value: undefined, type: Date, format: "yyyy-mm-dd" };
+      if (column.type === "date") return { value: undefined, type: Date, format: dateFormat };
       if (column.type === "number") return { value: undefined, type: Number };
       if (isPhoneColumn(column)) return textCell();
       return "";
@@ -274,8 +284,9 @@ function buildOptionsSheet(columns: TemplateColumn[]): SheetData {
   return rows;
 }
 
-export async function exportProgramImportTemplate(event: TournamentEvent, program: Program) {
+export async function exportProgramImportTemplate(event: TournamentEvent, program: Program, displayDateTimeFormat?: string) {
   const writeExcelFile = (await import("write-excel-file/browser")).default;
+  const importDateFormat = dateOnlyFormat(displayDateTimeFormat);
   let badmintonClubOptions: string[] = [];
   if (isBadmintonTemplate(event, program)) {
     const clubResult = await apiGetBadmintonClubs();
@@ -288,7 +299,7 @@ export async function exportProgramImportTemplate(event: TournamentEvent, progra
     ];
   }
 
-  const columns = buildColumns(event, program, badmintonClubOptions);
+  const columns = buildColumns(event, program, badmintonClubOptions, importDateFormat);
   const optionColumns = columns.filter(column => column.type === "select" && column.options?.length);
   const optionRanges: OptionRange[] = optionColumns.map((column, columnIndex) => ({
     label: column.label,
@@ -310,10 +321,10 @@ export async function exportProgramImportTemplate(event: TournamentEvent, progra
     [
       {
         sheet: ENTRY_SHEET,
-        data: buildEntrySheet(event, program, columns),
+        data: buildEntrySheet(event, program, columns, importDateFormat),
         columns: columns.map(column => ({ width: column.width })),
         stickyRowsCount: HEADER_ROW_NUMBER,
-        dateFormat: "yyyy-mm-dd",
+        dateFormat: excelDateFormat(importDateFormat),
       },
       {
         sheet: OPTIONS_SHEET,

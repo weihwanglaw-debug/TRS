@@ -39,7 +39,7 @@ public class FixtureGenerationService
             return normalizedSeeds;
         var seedEntries = normalizedSeeds.State!.Seeds;
 
-        var config = NormalizeConfig(req.Config);
+        var config = NormalizeConfig(req.Config, groups.Count);
         if (!config.Success)
             return config;
         var fixtureConfig = config.State!.Config;
@@ -170,6 +170,10 @@ public class FixtureGenerationService
 
         if (!state.Groups.All(g => g.Matches.All(IsCompleted)))
             return FixtureGenerationResult.Fail("GROUP_NOT_DONE", "Complete all group matches before generating the knockout phase.");
+
+        var advanceValidation = ValidateAdvancePerGroup(state);
+        if (advanceValidation != null)
+            return advanceValidation;
 
         if (string.Equals(state.Format, "round_robin", StringComparison.OrdinalIgnoreCase) &&
             state.Config.AdvancePerGroup == null)
@@ -493,13 +497,15 @@ public class FixtureGenerationService
         var seedNums = seeds.Where(s => s.Seed.HasValue).Select(s => s.Seed!.Value).ToList();
         if (seedNums.Any(n => n < 1))
             return FixtureGenerationResult.Fail("INVALID_SEED", "Seed numbers must be positive.");
+        if (seedNums.Any(n => n > seeds.Count))
+            return FixtureGenerationResult.Fail("INVALID_SEED", "Seed numbers cannot exceed the number of registered entries.");
         if (seedNums.Count != seedNums.Distinct().Count())
             return FixtureGenerationResult.Fail("DUPLICATE_SEEDS", "Duplicate seed numbers are not allowed.");
 
         return FixtureGenerationResult.Ok(new FixtureState { Seeds = seeds });
     }
 
-    private FixtureGenerationResult NormalizeConfig(FixtureConfigRequest req)
+    private FixtureGenerationResult NormalizeConfig(FixtureConfigRequest req, int participantCount)
     {
         var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -510,6 +516,8 @@ public class FixtureGenerationService
 
         if (req.NumSeeds < 0)
             return FixtureGenerationResult.Fail("INVALID_CONFIG", "Number of seeds cannot be negative.");
+        if (req.NumSeeds > participantCount)
+            return FixtureGenerationResult.Fail("INVALID_CONFIG", "Number of seeds cannot exceed the number of registered entries.");
         if (req.StandingPoints != null && (req.StandingPoints.Win < 0 || req.StandingPoints.Draw < 0 || req.StandingPoints.Loss < 0))
             return FixtureGenerationResult.Fail("INVALID_CONFIG", "Standing points cannot be negative.");
 
@@ -852,6 +860,33 @@ public class FixtureGenerationService
         return state.Matches.FirstOrDefault(m => m.Id == matchId);
     }
 
+    private FixtureGenerationResult? ValidateAdvancePerGroup(FixtureState state)
+    {
+        var advance = state.Config.AdvancePerGroup;
+        if (!advance.HasValue)
+            return null;
+
+        if (advance.Value < 1)
+            return FixtureGenerationResult.Fail("INVALID_CONFIG", "At least 1 participant must advance per group.");
+
+        if (!string.Equals(state.Format, "group_knockout", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var smallestGroupSize = state.Groups
+            .Select(g => g.Teams.Count)
+            .DefaultIfEmpty(0)
+            .Min();
+
+        if (advance.Value > smallestGroupSize)
+        {
+            return FixtureGenerationResult.Fail(
+                "INVALID_CONFIG",
+                $"Advance count exceeds the smallest group's size ({smallestGroupSize}).");
+        }
+
+        return null;
+    }
+
     private List<FixtureMatch> GenerateKnockoutFromGroups(List<FixtureGroup> groups, FixtureConfig config)
     {
         var advance = config.AdvancePerGroup ?? 2;
@@ -1146,7 +1181,6 @@ public class FixtureGenerationService
     {
         var pow = 1;
         while (pow < teams.Count) pow *= 2;
-        var byeCount = pow - teams.Count;
 
         var slots = Enumerable.Repeat<FixtureTeam?>(null, pow).ToList();
         var seedLine = BuildSeedLine(pow);
@@ -1166,29 +1200,27 @@ public class FixtureGenerationService
             }
         }
 
-        var protectedByeSlots = seededTeams
-            .Take(Math.Min(byeCount, seededTeams.Count))
-            .Select(team =>
-            {
-                var pos = slots.FindIndex(s => s?.Id == team.Id);
-                return pos == -1 ? -1 : PairedSlot(pos);
-            })
-            .Where(pos => pos >= 0)
+        var usedSeedValues = seededTeams
+            .Select(t => t.Seed!.Value)
             .ToHashSet();
+        var virtualSeedValues = Enumerable.Range(1, pow)
+            .Where(seed => !usedSeedValues.Contains(seed))
+            .ToList();
+        var virtualSeedIndex = 0;
 
         foreach (var team in teams.Where(t => !placed.Contains(t.Id)))
         {
-            var empty = -1;
-            for (var idx = 0; idx < slots.Count; idx++)
+            while (virtualSeedIndex < virtualSeedValues.Count)
             {
-                if (slots[idx] == null && !protectedByeSlots.Contains(idx))
+                var virtualSeed = virtualSeedValues[virtualSeedIndex];
+                virtualSeedIndex++;
+                var empty = seedLine.IndexOf(virtualSeed);
+                if (empty != -1 && slots[empty] == null)
                 {
-                    empty = idx;
+                    slots[empty] = team;
                     break;
                 }
             }
-            if (empty == -1) empty = slots.FindIndex(s => s == null);
-            if (empty != -1) slots[empty] = team;
         }
 
         var matches = new List<FixtureMatch>();
@@ -1202,8 +1234,6 @@ public class FixtureGenerationService
         ApplyRoundLabels(matches);
         return matches;
     }
-
-    private int PairedSlot(int index) => index % 2 == 0 ? index + 1 : index - 1;
 
     private List<int> BuildSeedLine(int size)
     {

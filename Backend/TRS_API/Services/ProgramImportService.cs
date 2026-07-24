@@ -17,6 +17,8 @@ public sealed class ProgramImportService
     private const int FirstDataRow = 6;
     private const int MaxRows = 1000;
     private const string EntrySheetName = "Participant Entries";
+    private const string DisplayDateTimeFormatConfigKey = "displayDateTimeFormat";
+    private const string DefaultImportDateFormat = "yyyy-MM-dd";
     private static readonly Regex PhoneAllowedChars = new(@"^[\d+\-()\s]+$", RegexOptions.Compiled);
     private static readonly Regex WholeNumber = new(@"^\d+$", RegexOptions.Compiled);
     private static readonly ConcurrentDictionary<string, byte> ConfirmingImportTokens = new();
@@ -83,7 +85,8 @@ public sealed class ProgramImportService
 
         ValidateTemplateScope(workbook, eventId, programId, response.Errors);
 
-        var rows = ReadRows(workbook, response.Errors);
+        var importDateFormat = await GetConfiguredImportDateFormatAsync(ct);
+        var rows = ReadRows(workbook, response.Errors, importDateFormat);
         response.RowCount = rows.Count;
         if (response.Errors.Count > 0)
         {
@@ -607,7 +610,27 @@ public sealed class ProgramImportService
         }
     }
 
-    private static List<ImportedRow> ReadRows(ImportedWorkbook workbook, List<ProgramImportIssue> errors)
+    private static string DateOnlyFormat(string? displayDateTimeFormat)
+    {
+        var clean = (displayDateTimeFormat ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(clean))
+            return DefaultImportDateFormat;
+
+        return clean.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? DefaultImportDateFormat;
+    }
+
+    private async Task<string> GetConfiguredImportDateFormatAsync(CancellationToken ct)
+    {
+        var configured = await _db.SystemConfigs
+            .AsNoTracking()
+            .Where(c => c.ConfigKey == DisplayDateTimeFormatConfigKey)
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+
+        return DateOnlyFormat(configured ?? "dd/MM/yyyy HH:mm:ss");
+    }
+
+    private static List<ImportedRow> ReadRows(ImportedWorkbook workbook, List<ProgramImportIssue> errors, string importDateFormat)
     {
         var sheet = workbook.CellTables.GetValueOrDefault(EntrySheetName);
         if (sheet == null)
@@ -655,9 +678,9 @@ public sealed class ProgramImportService
                 continue;
 
             var dobValue = Value(byHeader, "Date of Birth");
-            var normalizedDob = NormalizeDate(dobValue, out var validDate);
+            var normalizedDob = NormalizeDate(dobValue, importDateFormat, out var validDate);
             if (!validDate)
-                errors.Add(Issue(rowNumber, Value(byHeader, "Entry No"), "DOB", "INVALID_DATE_FORMAT", "DOB must use yyyy-mm-dd or a valid Excel date."));
+                errors.Add(Issue(rowNumber, Value(byHeader, "Entry No"), "DOB", "INVALID_DATE_FORMAT", $"DOB must use {importDateFormat} or a valid Excel date."));
 
             var row = new ImportedRow
             {
@@ -709,8 +732,8 @@ public sealed class ProgramImportService
         var clean = Regex.Replace(value.Trim(), @"\s+", " ");
         clean = Regex.Replace(clean, @"\s*\*$", "").Trim();
 
-        if (Regex.IsMatch(clean, @"^DOB\s*\*?\s*(\(yyyy-mm-dd\))?$", RegexOptions.IgnoreCase) ||
-            Regex.IsMatch(clean, @"^Date of Birth\s*(\(yyyy-mm-dd\))?$", RegexOptions.IgnoreCase))
+        if (Regex.IsMatch(clean, @"^DOB\s*\*?\s*(\([^)]+\))?$", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(clean, @"^Date of Birth\s*(\([^)]+\))?$", RegexOptions.IgnoreCase))
         {
             return "Date of Birth";
         }
@@ -728,11 +751,24 @@ public sealed class ProgramImportService
         return dash > 0 ? clean[..dash].Trim() : clean;
     }
 
-    private static string NormalizeDate(string value, out bool valid)
+    private static string NormalizeDate(string value, string importDateFormat, out bool valid)
     {
         var clean = value.Trim();
         valid = true;
         if (string.IsNullOrWhiteSpace(clean)) return "";
+
+        var acceptedFormats = new[]
+            {
+                importDateFormat,
+                DefaultImportDateFormat,
+                "yyyy-M-d",
+            }
+            .Where(f => !string.IsNullOrWhiteSpace(f))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (DateTime.TryParseExact(clean, acceptedFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var exact))
+            return exact.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
         if (DateTime.TryParse(clean, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var dt))
             return dt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);

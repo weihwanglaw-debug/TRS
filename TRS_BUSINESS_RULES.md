@@ -290,7 +290,7 @@ Admin program import:
 - Event sport type controls badminton template behavior. When `Event.SportType='Badminton'`, the downloaded template gives `Club / Team / School` a badminton club dropdown from the master table while still allowing free text. Other sport types use free text.
 - One uploaded workbook creates one `EventRegistration`; all imported entries share the same registration number.
 - `Entry No` groups workbook participant rows into participant groups under that single registration and must be a positive whole number.
-- The date-of-birth column is labelled `DOB* (yyyy-mm-dd)` in the template. The importer accepts valid Excel dates and normalizes them to `yyyy-MM-dd`.
+- The date-of-birth column is labelled with the date part of `displayDateTimeFormat` from master configuration. The importer accepts that configured date format, valid Excel dates, and legacy `yyyy-MM-dd` values, then normalizes DOB internally to `yyyy-MM-dd`.
 - Preview uses two validation layers. File/template structure errors stop deeper checks because the workbook cannot be trusted. Once the workbook is structurally readable, row/content checks, SBA master checks, capacity, fixture/program status, pricing, and shared registration workflow checks are collected together where practical. The import is not saved until preview is valid and the admin confirms.
 - Participant-level import validation issues should include the Excel row number where the problem can be tied to a workbook row.
 - When preview fails, the admin UI shows the collected issues with one `OK` action and closes the import dialog; the admin must reopen import and upload the corrected workbook for a new scan.
@@ -335,6 +335,8 @@ Admin program import:
 - Fixture generation prompts the admin because generating a fixture closes the affected program to stop further registrations.
 - One fixture exists per event/program pair.
 - Supported formats include knockout, group knockout, round robin, and heats.
+- Fixture seed count may be any non-negative whole number up to the number of registered entries in the program.
+- For group knockout, advance-per-group cannot exceed the smallest generated group size.
 - Fixture state is stored as JSON in `Fixture.BracketStateJson`.
 - Backend fixture APIs are the source of truth for generated draws, bracket advancement, score validation, heat advancement, and final placements.
 - Frontend fixture code should only preview/display state, collect admin input, call backend fixture actions, and show backend validation errors.

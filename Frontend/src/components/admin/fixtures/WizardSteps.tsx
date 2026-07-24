@@ -80,6 +80,20 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, canAutoSeedFr
   const fmt      = FORMATS.find(f => f.value === format)!;
   const showSeeds = fmt.needsSeeds && numSeeds > 0;
   const count    = participants.length;
+  const groupSizes = Array.from({ length: numGroups }, (_, groupIndex) =>
+    participants.filter((_, participantIndex) => {
+      const cycleIndex = participantIndex % (numGroups * 2);
+      const assignedGroup = cycleIndex < numGroups
+        ? cycleIndex
+        : numGroups - 1 - (participantIndex % numGroups);
+      return assignedGroup === groupIndex;
+    }).length,
+  );
+  const smallestGroupSize = Math.min(...groupSizes);
+  const advanceOptions = Array.from({ length: Math.min(4, smallestGroupSize) }, (_, i) => i + 1);
+  const groupSizeSummary = groupSizes
+    .map((size, idx) => `${String.fromCharCode(65 + idx)}: ${size}`)
+    .join(", ");
 
   const getSba = (s: SeedEntry) => matchSbaRanking(s, sbaRankings);
   const entryDisplay = (s: SeedEntry) => {
@@ -94,6 +108,12 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, canAutoSeedFr
   useEffect(() => {
     setSeeds(participants.map(p => ({ ...p })));
   }, [participants]);
+
+  useEffect(() => {
+    if (format === "group_knockout" && advancePerGroup > smallestGroupSize) {
+      setAdvancePerGroup(Math.max(1, smallestGroupSize));
+    }
+  }, [advancePerGroup, format, smallestGroupSize]);
 
   const handleFormatChange = (f: WizardConfig["format"]) => {
     setFormat(f);
@@ -124,6 +144,11 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, canAutoSeedFr
   const setSeedValue = (id: string, val: string) =>
     setSeeds(seeds.map(s => s.id === id ? { ...s, seed: val === "" ? null : +val } : s));
   const clearAllSeeds = () => setSeeds(seeds.map(s => ({ ...s, seed: null })));
+  const setSeedCount = (value: string) => {
+    const next = value === "" ? 0 : Math.min(Math.max(0, Math.floor(Number(value) || 0)), count);
+    setNumSeeds(next);
+    setSeeds(seeds.map(s => ({ ...s, seed: next === 0 || (s.seed ?? 0) > next ? null : s.seed })));
+  };
 
   const effectiveSeeds = numSeeds > 0 ? seeds : seeds.map(s => ({ ...s, seed: null }));
   const seedNums = effectiveSeeds.filter(s => s.seed !== null).map(s => s.seed as number);
@@ -171,18 +196,19 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, canAutoSeedFr
           style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
           <div>
             <label className="block text-xs font-semibold mb-2 opacity-60">Number of Groups</label>
-            <select className="field-input w-full" value={numGroups}
-              onChange={e => setNumGroups(+e.target.value)}>
+              <select className="field-input w-full" value={numGroups}
+                onChange={e => setNumGroups(+e.target.value)}>
               {Array.from({ length: Math.min(Math.floor(count / 2), 8) }, (_, i) => i + 2).map(n => (
-                <option key={n} value={n}>{n} groups (~{Math.ceil(count / n)} per group)</option>
+                <option key={n} value={n}>{n} groups</option>
               ))}
             </select>
+            <p className="text-xs opacity-40 mt-1">Group sizes: {groupSizeSummary}</p>
           </div>
           <div>
             <label className="block text-xs font-semibold mb-2 opacity-60">Advance Per Group</label>
             <select className="field-input w-full" value={advancePerGroup}
               onChange={e => setAdvancePerGroup(+e.target.value)}>
-              {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}
+              {advanceOptions.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
             <p className="text-xs opacity-40 mt-1">{numGroups * advancePerGroup} teams advance to KO</p>
           </div>
@@ -251,18 +277,10 @@ function ScreenConfigure({ participants, sbaRankings, isBadminton, canAutoSeedFr
           <div className="flex items-center gap-4 mb-4 flex-wrap">
             <div>
               <label className="block text-xs font-semibold mb-2 opacity-60">Number of Seeds</label>
-              <select className="field-input w-48"
+              <input type="number" min={0} max={count} className="field-input w-48"
                 value={numSeeds}
-                onChange={e => {
-                  const n = +e.target.value;
-                  setNumSeeds(n);
-                  if (n === 0) setSeeds(seeds.map(s => ({ ...s, seed: null })));
-                }}>
-                <option value={0}>No seeding (random draw)</option>
-                {Array.from({ length: Math.min(count, 8) }, (_, i) => i + 1).map(n => (
-                  <option key={n} value={n}>Top {n} seed{n > 1 ? "s" : ""}</option>
-                ))}
-              </select>
+                onChange={e => setSeedCount(e.target.value)} />
+              <p className="text-xs opacity-40 mt-1">0 for random draw, up to {count}.</p>
             </div>
             {showSeeds && (
               <div className="self-end flex flex-wrap gap-2">

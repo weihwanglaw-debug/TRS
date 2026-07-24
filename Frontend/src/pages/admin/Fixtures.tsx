@@ -165,6 +165,11 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, canAutoSeedFrom
 
   const setSeedVal = (id: string, v: string) => setSeeds(seeds.map(s => s.id === id ? { ...s, seed: v === '' ? null : +v } : s));
   const clearAllSeeds = () => setSeeds(seeds.map(s => ({ ...s, seed: null })));
+  const setSeedCount = (value: string) => {
+    const next = value === '' ? 0 : Math.min(Math.max(0, Math.floor(Number(value) || 0)), participants.length);
+    setNumSeeds(next);
+    setSeeds(seeds.map(s => ({ ...s, seed: next === 0 || (s.seed ?? 0) > next ? null : s.seed })));
+  };
   const seedNums = seeds.filter(s => s.seed !== null).map(s => s.seed as number);
   const hasDups  = seedNums.length !== new Set(seedNums).size;
   const outRange = seedNums.some(n => n < 1 || n > numSeeds);
@@ -206,12 +211,10 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, canAutoSeedFrom
         <div className="flex flex-wrap gap-3">
           <div>
             <label className="block text-xs font-semibold mb-2 opacity-60">Number of Seeds</label>
-            <select className="field-input w-52" value={numSeeds} onChange={e => setNumSeeds(+e.target.value)}>
-              <option value={0}>No seeding</option>
-              {Array.from({ length: Math.min(participants.length, 8) }, (_, i) => i + 1).map(n => (
-                <option key={n} value={n}>Top {n} seed{n > 1 ? 's' : ''}</option>
-              ))}
-            </select>
+            <input type="number" min={0} max={participants.length} className="field-input w-52"
+              value={numSeeds}
+              onChange={e => setSeedCount(e.target.value)} />
+            <p className="text-xs opacity-40 mt-1">0 for no seeding, up to {participants.length}.</p>
           </div>
           <div className="flex items-end gap-3">
             {numSeeds > 0 && (

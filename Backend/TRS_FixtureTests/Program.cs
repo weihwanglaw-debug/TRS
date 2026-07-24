@@ -5,11 +5,14 @@ using TRS_API.Services;
 var tests = new List<(string Name, Action Test)>
 {
     ("knockout auto-completes BYE matches", KnockoutAutoCompletesByeMatches),
+    ("knockout BYEs are paired with real teams", KnockoutByesArePairedWithRealTeams),
     ("knockout seed line protects top seeds", KnockoutSeedLineProtectsTopSeeds),
     ("group draw score is accepted", GroupDrawScoreIsAccepted),
     ("knockout draw score is rejected", KnockoutDrawScoreIsRejected),
     ("group knockout uses unique qualifiers", GroupKnockoutUsesUniqueQualifiers),
     ("group knockout reseeds qualifiers by standings", GroupKnockoutReseedsQualifiersByStandings),
+    ("group knockout rejects impossible advance count", GroupKnockoutRejectsImpossibleAdvanceCount),
+    ("group knockout allows advance count within smallest group", GroupKnockoutAllowsAdvanceWithinSmallestGroup),
     ("round robin knockout reseeds by final standings", RoundRobinKnockoutReseedsByFinalStandings),
     ("three-way standings use game difference after primary tie", ThreeWayStandingsUseGameDifference),
 };
@@ -92,6 +95,35 @@ static void KnockoutAutoCompletesByeMatches()
     AssertTrue(byeMatches.All(m => m.Status == StatusCodesEx.Match.Completed && (m.Winner == "team1" || m.Winner == "team2")), "BYE matches must be completed with a winner.");
 }
 
+static void KnockoutByesArePairedWithRealTeams()
+{
+    AssertByeDistribution(5, new Dictionary<int, int?> { [1] = 1 });
+    AssertByeDistribution(12, new Dictionary<int, int?> { [1] = 1, [2] = 3 });
+    AssertByeDistribution(20, new Dictionary<int, int?> { [1] = 1, [2] = 5, [3] = 9 });
+}
+
+static void AssertByeDistribution(int teamCount, Dictionary<int, int?> seedOverrides)
+{
+    var service = Service();
+    var teams = Enumerable.Range(1, teamCount)
+        .Select(i => Team(i.ToString(), seedOverrides.GetValueOrDefault(i)))
+        .ToList();
+
+    var matches = (List<FixtureGenerationService.FixtureMatch>)Invoke(service, "GenerateKnockoutMatches", teams)!;
+    var pow = 1;
+    while (pow < teamCount) pow *= 2;
+    var expectedByes = pow - teamCount;
+    var byeMatches = matches.Where(m => IsBye(m.Team1) || IsBye(m.Team2)).ToList();
+    var byeVsBye = matches.Where(m => IsBye(m.Team1) && IsBye(m.Team2)).ToList();
+
+    AssertTrue(matches.Count == pow / 2, $"Expected {pow / 2} first-round matches for {teamCount} teams, got {matches.Count}.");
+    AssertTrue(byeMatches.Count == expectedByes, $"Expected {expectedByes} BYE matches for {teamCount} teams, got {byeMatches.Count}.");
+    AssertTrue(byeVsBye.Count == 0, $"Expected no BYE-vs-BYE matches for {teamCount} teams.");
+}
+
+static bool IsBye(FixtureGenerationService.FixtureTeam team) =>
+    team.Label == "BYE" || team.Id.StartsWith("bye-");
+
 static void KnockoutSeedLineProtectsTopSeeds()
 {
     var service = Service();
@@ -159,6 +191,47 @@ static void GroupKnockoutReseedsQualifiersByStandings()
     AssertTrue(byeMatchTeamIds.SequenceEqual(new[] { "B1", "C1" }), $"Expected top group winners to receive BYEs, got {string.Join(",", byeMatchTeamIds)}.");
     AssertTrue(groupSeedsAfter.All(kvp => originalSeeds[kvp.Key] == kvp.Value), "Original group team seeds must not be mutated.");
 }
+
+static void GroupKnockoutRejectsImpossibleAdvanceCount()
+{
+    var service = Service();
+    var state = UnevenGroupKnockoutState(3);
+
+    var result = (FixtureGenerationService.FixtureGenerationResult?)Invoke(service, "ValidateAdvancePerGroup", state);
+
+    AssertTrue(result?.Success == false && result.Code == "INVALID_CONFIG", "Advance count above smallest group size should be rejected.");
+}
+
+static void GroupKnockoutAllowsAdvanceWithinSmallestGroup()
+{
+    var service = Service();
+    var state = UnevenGroupKnockoutState(2);
+
+    var result = (FixtureGenerationService.FixtureGenerationResult?)Invoke(service, "ValidateAdvancePerGroup", state);
+
+    AssertTrue(result == null, "Advance count within smallest group size should be allowed.");
+}
+
+static FixtureGenerationService.FixtureState UnevenGroupKnockoutState(int advancePerGroup) => new()
+{
+    Format = "group_knockout",
+    Config = new FixtureGenerationService.FixtureConfig { Format = "group_knockout", AdvancePerGroup = advancePerGroup },
+    Groups = new List<FixtureGenerationService.FixtureGroup>
+    {
+        new()
+        {
+            Id = "G1",
+            Name = "Group A",
+            Teams = new List<FixtureGenerationService.FixtureTeam> { Team("A1"), Team("A2"), Team("A3") },
+        },
+        new()
+        {
+            Id = "G2",
+            Name = "Group B",
+            Teams = new List<FixtureGenerationService.FixtureTeam> { Team("B1"), Team("B2") },
+        },
+    },
+};
 
 static void RoundRobinKnockoutReseedsByFinalStandings()
 {

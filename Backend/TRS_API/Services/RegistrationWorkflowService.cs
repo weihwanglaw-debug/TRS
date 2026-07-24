@@ -258,13 +258,15 @@ public class RegistrationWorkflowService
                 NormalizeGroupClubValues(groupDto, program);
 
                 var duplicateCheck = await FindDuplicateAsync(groupDto, program, ct);
-                if (duplicateCheck)
+                if (duplicateCheck.HasDuplicate)
                 {
                     var teamName = ProgramTypeRules.IsTeamProgram(program.Type)
                         ? NormalizeTeamName(groupDto.Participants.FirstOrDefault()?.ClubSchoolCompany)
                         : null;
-                    var message = teamName == null
-                        ? $"One or more participants are already registered for '{program.Name}'."
+                    var message = !string.IsNullOrWhiteSpace(duplicateCheck.ParticipantName)
+                        ? $"Participant '{duplicateCheck.ParticipantName}' is already registered for '{program.Name}'."
+                        : teamName == null
+                            ? $"One or more participants are already registered for '{program.Name}'."
                         : $"Team '{teamName}' or one of its participants is already registered for '{program.Name}'.";
                     return await RollbackAndFail(tx, StatusCodesEx.Validation.DuplicateRegistration, message);
                 }
@@ -454,7 +456,7 @@ public class RegistrationWorkflowService
         }
     }
 
-    private async Task<bool> FindDuplicateAsync(CreateGroupDto group, TrsProgram program, CancellationToken ct)
+    private async Task<DuplicateCheckResult> FindDuplicateAsync(CreateGroupDto group, TrsProgram program, CancellationToken ct)
     {
 
                // Step 1: Server-side — EF translates these two predicates fine
@@ -481,19 +483,21 @@ public class RegistrationWorkflowService
             })
             .ToList();
 
-        var duplicateParticipant = existingParticipants.Any(existing =>
-            incoming.Any(i =>
+        var duplicateParticipant = incoming.FirstOrDefault(i =>
+            existingParticipants.Any(existing =>
                 string.Equals(i.FullName, existing.FullName, StringComparison.OrdinalIgnoreCase)
                 && i.Dob == existing.DateOfBirth));
 
-        if (duplicateParticipant)
-            return true;
+        if (duplicateParticipant != null)
+            return new DuplicateCheckResult(true, duplicateParticipant.FullName);
 
         if (!ProgramTypeRules.IsTeamProgram(program.Type))
-            return false;
+            return DuplicateCheckResult.None;
 
         var teamName = NormalizeTeamName(group.Participants.FirstOrDefault()?.ClubSchoolCompany);
-        return await FindDuplicateTeamNameAsync(program.ProgramId, teamName, ct);
+        return await FindDuplicateTeamNameAsync(program.ProgramId, teamName, ct)
+            ? new DuplicateCheckResult(true, null)
+            : DuplicateCheckResult.None;
     }
 
     private async Task<bool> FindDuplicateTeamNameAsync(int programId, string teamName, CancellationToken ct, int? excludingGroupId = null)
@@ -545,7 +549,7 @@ public class RegistrationWorkflowService
             var dob = ParseDob(participant.Dob)!;
             var identity = $"{participant.FullName}|{dob:yyyy-MM-dd}";
             if (!participantIdentities.Add(identity))
-                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.DuplicateRegistration, $"Duplicate participant detected in '{program.Name}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.DuplicateRegistration, $"Duplicate participant '{participant.FullName}' detected in '{program.Name}'.");
 
             var age = CalculateAge(dob.Value);
             if (age < program.MinAge || age > program.MaxAge)
@@ -589,7 +593,7 @@ public class RegistrationWorkflowService
                 && string.Equals(existing.FullName, participant.FullName, StringComparison.OrdinalIgnoreCase)
                 && existing.DateOfBirth == dob))
             {
-                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.DuplicateRegistration, $"One or more participants are already registered for '{program.Name}'.");
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.DuplicateRegistration, $"Participant '{participant.FullName}' is already registered for '{program.Name}'.");
             }
         }
 
@@ -818,6 +822,11 @@ public class RegistrationWorkflowService
         public int ProgramId { get; init; }
         public string FullName { get; init; } = "";
         public DateOnly? DateOfBirth { get; init; }
+    }
+
+    private sealed record DuplicateCheckResult(bool HasDuplicate, string? ParticipantName)
+    {
+        public static DuplicateCheckResult None { get; } = new(false, null);
     }
 
     private sealed class PendingPaymentItem

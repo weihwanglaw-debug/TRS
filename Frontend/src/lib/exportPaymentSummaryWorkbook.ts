@@ -170,19 +170,33 @@ function textCell(value: string, wrap = false, bold = false) {
   };
 }
 
-function borderedBlankCell() {
+function borderedBlankCell(border: "top" | "bottom" = "top") {
   return {
     value: "",
-    topBorderStyle: "medium" as const,
-    topBorderColor: "#000000",
+    ...(border === "top"
+      ? {
+          topBorderStyle: "medium" as const,
+          topBorderColor: "#000000",
+        }
+      : {
+          bottomBorderStyle: "medium" as const,
+          bottomBorderColor: "#000000",
+        }),
   };
 }
 
-function totalFormulaCell(formula: string) {
+function totalFormulaCell(formula: string, border: "top" | "bottom" = "top") {
   return {
     ...moneyFormulaCell(formula, true),
-    topBorderStyle: "medium" as const,
-    topBorderColor: "#000000",
+    ...(border === "top"
+      ? {
+          topBorderStyle: "medium" as const,
+          topBorderColor: "#000000",
+        }
+      : {
+          bottomBorderStyle: "medium" as const,
+          bottomBorderColor: "#000000",
+        }),
   };
 }
 
@@ -269,8 +283,8 @@ export async function exportPaymentSummaryWorkbook(
     const lastDetailRow = firstDetailRow + detailRows - 1;
     const subtotalSheetRow = rows.length + firstDataSheetRow;
     subtotalRows.push(subtotalSheetRow);
-    const totalRow: SheetData[number] = Array(24).fill(null).map(() => borderedBlankCell());
-    totalRow[20] = totalFormulaCell(`MAX(0,SUM(S${firstDetailRow}:S${lastDetailRow})-SUM(T${firstDetailRow}:T${lastDetailRow}))`);
+    const totalRow: SheetData[number] = Array(24).fill(null).map(() => borderedBlankCell("bottom"));
+    totalRow[20] = totalFormulaCell(`MAX(0,SUM(S${firstDetailRow}:S${lastDetailRow})-SUM(T${firstDetailRow}:T${lastDetailRow}))`, "bottom");
     rows.push(totalRow);
   }
 

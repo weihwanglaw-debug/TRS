@@ -1677,6 +1677,24 @@
   transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
 }
 
+[data-theme="a"] .participant-registration-form .field-input {
+  background-color: rgb(255 255 255 / 60%);
+}
+
+[data-theme="a"] .participant-registration-form .field-input:disabled,
+[data-theme="a"] .participant-registration-form .field-input[readonly] {
+  background-color: rgb(0 0 0 / 5%);
+  color: #2d323a;
+}
+
+[data-theme="a"] .participant-registration-form select.field-input:disabled,
+[data-theme="a"] .participant-registration-form select.field-input:disabled option,
+[data-theme="a"] .participant-registration-form select.field-input:disabled optgroup {
+  background: rgb(0 0 0 / 5%);
+  background-color: rgb(0 0 0 / 5%);
+  color: #2d323a;
+}
+
 .event-detail-shell .field-input:focus {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px rgb(var(--landing-red-rgb, 232 105 74) / 14%);

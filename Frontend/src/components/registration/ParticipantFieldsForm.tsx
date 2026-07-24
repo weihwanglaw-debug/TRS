@@ -398,7 +398,7 @@ export default function ParticipantFieldsForm({
   }, [clubNames, isBadminton, values.clubSchoolCompany]);
 
   return (
-    <div className="grid sm:grid-cols-2 gap-5">
+    <div className="participant-registration-form grid sm:grid-cols-2 gap-5">
 
   {/*  SBA ID (conditional)  */}
       {programFields.enableSbaId && (
@@ -521,7 +521,6 @@ export default function ParticipantFieldsForm({
       <FieldWrapper label="Gender *" error={errors.gender}>
         <select className="field-input" value={values.gender}
           disabled={disabled}
-          style={sbaLocked ? { opacity: 0.6 } : undefined}
           onChange={e => set({ gender: e.target.value })}>
           <option value="">Select</option>
           <option value="Male">Male</option>

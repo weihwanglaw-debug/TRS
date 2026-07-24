@@ -27,6 +27,7 @@ import {
   type ProgramImportPreviewResponse,
 } from "@/lib/api";
 import { exportProgramImportTemplate } from "@/lib/exportProgramImportTemplate";
+import { useLiveConfig } from "@/contexts/LiveConfigContext";
 
 //  Quill rich-text editor
 // Install: npm install react-quilljs quill && npm install -D @types/quill
@@ -131,6 +132,7 @@ interface DocRow {
 export default function EventEdit() {
   const { eventId } = useParams();
   const navigate = useNavigate();
+  const { cfg } = useLiveConfig();
   const isNew = eventId === "new";
 
   const [event,    setEvent]   = useState<TournamentEvent | null>(null);
@@ -936,7 +938,7 @@ export default function EventEdit() {
               const prog = openAction.prog;
               setOpenAction(null);
               try {
-                await exportProgramImportTemplate(event, prog);
+                await exportProgramImportTemplate(event, prog, cfg.displayDateTimeFormat);
               } catch {
                 showError("Import template could not be downloaded", "Please try again. If the issue persists, refresh the page and retry.");
               }
