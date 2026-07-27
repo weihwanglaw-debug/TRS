@@ -152,6 +152,16 @@ Payment status codes:
 - `W`: waived.
 - `PC`: pending collection.
 
+Payment item status codes:
+
+- `P`: pending.
+- `S`: success/paid.
+- `R`: refunded.
+- `X`: cancelled.
+- `W`: waived.
+
+When an admin confirms a payment as waived, all active related payment items are marked `W`. Refunded and cancelled items are not overwritten.
+
 Registration workflow status codes:
 
 - `P`: pending.
@@ -204,7 +214,7 @@ Refund-only:
 - Refund-only actions may be performed after payment has been made, including after a registration/entry/participant is already cancelled.
 - Refund-only actions do not cancel participants/groups and do not free registration slots.
 - Fixtures do not block refund-only actions because fixture eligibility is based on participant/group cancellation state, not payment state.
-- Only successful paid items (`ItemStatus="S"`) or previously cancelled paid items can be refunded when refundable amount remains.
+- Only successful paid items (`ItemStatus="S"`) or previously cancelled paid items can be refunded when refundable amount remains. Waived items (`ItemStatus="W"`) are not refundable.
 - Refund amount cannot exceed remaining refundable amount.
 - Existing pending refunds block conflicting duplicate refunds.
 - Internal system refunds through the payment gateway use an idempotency key based on the refund id.

@@ -207,12 +207,9 @@ function participantStatusLabel(status?: ParticipantStatus): string {
   return status ? PARTICIPANT_STATUS_LABEL[status] : "-";
 }
 
-function rowPaymentStatusLabel(paymentStatus: PaymentStatus, itemStatus: ItemStatus): string {
+function rowPaymentStatusLabel(itemStatus: ItemStatus): string {
   if (itemStatus === "R") return "Refunded";
   if (itemStatus === "X") return "Cancelled";
-  if (paymentStatus === "W" || paymentStatus === "PC" || paymentStatus === "P" || paymentStatus === "F") {
-    return PAYMENT_STATUS_LABEL[paymentStatus];
-  }
   return itemStatusLabel(itemStatus);
 }
 
@@ -262,7 +259,7 @@ function buildPaymentLineRows(
       programName: item.programName,
       typeLabel: description.isPerPlayer ? "Per head" : "Per entry",
       regStatus: description.regStatus,
-      paymentStatus: rowPaymentStatusLabel(payment.paymentStatus, item.itemStatus as ItemStatus),
+      paymentStatus: rowPaymentStatusLabel(item.itemStatus as ItemStatus),
       entryLabel: description.entryLabel,
       remark: refundReasons.length ? Array.from(new Set(refundReasons)).join("; ") : undefined,
       amount: item.amount,
@@ -1101,6 +1098,9 @@ export default function AdminRegistrations() {
     }
     if (item.itemStatus === "X") {
       return { label: "Cancelled", bg: "var(--badge-closed-bg)", text: "var(--badge-closed-text)" };
+    }
+    if (item.itemStatus === "W") {
+      return { label: "Waived", bg: "var(--color-row-hover)", text: "var(--color-primary)" };
     }
     return { label: "Pending", bg: "var(--badge-soon-bg)", text: "var(--badge-soon-text)" };
   };

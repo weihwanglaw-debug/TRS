@@ -35,6 +35,7 @@ public static class StatusCodesEx
         public const string Success = "S";
         public const string Refunded = "R";
         public const string Cancelled = "X";
+        public const string Waived = "W";
     }
 
     public static class Refund

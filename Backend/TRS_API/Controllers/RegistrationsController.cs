@@ -274,21 +274,30 @@ public class RegistrationsController : ControllerBase
 
         if (req.ReceiptNo != null) payment.ReceiptNumber = req.ReceiptNo;
 
-        if (payment.PaymentStatus == StatusCodesEx.Payment.Success)
+        if (payment.PaymentStatus == StatusCodesEx.Payment.Success ||
+            payment.PaymentStatus == StatusCodesEx.Payment.Waived)
         {
-            payment.PaidAt = DateTime.UtcNow;
-            if (string.IsNullOrEmpty(payment.ReceiptNumber))
+            if (payment.PaymentStatus == StatusCodesEx.Payment.Success)
             {
-                var receiptProgramId = payment.Items
-                    .Select(i => (int?)i.ProgramId)
-                    .Where(pid => pid.HasValue)
-                    .Distinct()
-                    .OrderBy(pid => pid)
-                    .FirstOrDefault();
-                payment.ReceiptNumber = ReceiptNumberGenerator.Generate(payment.EventId, receiptProgramId);
+                payment.PaidAt = DateTime.UtcNow;
+                if (string.IsNullOrEmpty(payment.ReceiptNumber))
+                {
+                    var receiptProgramId = payment.Items
+                        .Select(i => (int?)i.ProgramId)
+                        .Where(pid => pid.HasValue)
+                        .Distinct()
+                        .OrderBy(pid => pid)
+                        .FirstOrDefault();
+                    payment.ReceiptNumber = ReceiptNumberGenerator.Generate(payment.EventId, receiptProgramId);
+                }
             }
             var reg = await LoadReg(id);
-            ConfirmPayablePaymentItems(payment, reg);
+            SetActivePaymentItemsStatus(
+                payment,
+                reg,
+                payment.PaymentStatus == StatusCodesEx.Payment.Success
+                    ? StatusCodesEx.PaymentItem.Success
+                    : StatusCodesEx.PaymentItem.Waived);
 
             // also flip registration
             if (reg != null)
@@ -844,10 +853,15 @@ public class RegistrationsController : ControllerBase
         _adminPaymentOutcome.ApplyOutcome(payment, outcome.Value, req.AdminNote, receiptProgramId);
 
         // For Paid: stamp paidAt, generate receipt, flip items to S.
+        // For Waived: mark active fee lines as W so item-level reports match the admin outcome.
         // Waived and Pending Collection intentionally keep method/reference blank.
         if (status == StatusCodesEx.Payment.Success)
         {
-            ConfirmPayablePaymentItems(payment, reg);
+            SetActivePaymentItemsStatus(payment, reg, StatusCodesEx.PaymentItem.Success);
+        }
+        else if (status == StatusCodesEx.Payment.Waived)
+        {
+            SetActivePaymentItemsStatus(payment, reg, StatusCodesEx.PaymentItem.Waived);
         }
 
         // Confirm the registration regardless of payment status
@@ -886,7 +900,7 @@ public class RegistrationsController : ControllerBase
         return Ok(MapReg(updated!));
     }
 
-    private static void ConfirmPayablePaymentItems(Payment payment, EventRegistration? reg)
+    private static void SetActivePaymentItemsStatus(Payment payment, EventRegistration? reg, string itemStatus)
     {
         var groupsById = reg?.ParticipantGroups.ToDictionary(g => g.GroupId) ?? new Dictionary<int, ParticipantGroup>();
 
@@ -906,7 +920,7 @@ public class RegistrationsController : ControllerBase
                 }
             }
 
-            item.ItemStatus = StatusCodesEx.PaymentItem.Success;
+            item.ItemStatus = itemStatus;
             item.UpdatedAt = DateTime.UtcNow;
         }
     }
@@ -1047,7 +1061,8 @@ public class RegistrationsController : ControllerBase
                 }
             }
 
-            if (item.ItemStatus == StatusCodesEx.PaymentItem.Pending)
+            if (item.ItemStatus == StatusCodesEx.PaymentItem.Pending ||
+                item.ItemStatus == StatusCodesEx.PaymentItem.Waived)
             {
                 var oldStatus = item.ItemStatus;
                 item.ItemStatus = StatusCodesEx.PaymentItem.Cancelled;

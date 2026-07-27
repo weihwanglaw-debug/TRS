@@ -26,8 +26,8 @@
  *
  * Status code alignment (frontend type -> DB value):
  *  PaymentStatus: "Pending"->'P'  "Success"->'S'  "PartiallyRefunded"->'PR'
- *  "FullyRefunded"->'FR'  "Failed"->'F'  "Cancelled"->'X'
- *  ItemStatus:  "Pending"->'P'  "Success"->'S'  "Refunded"->'R'
+ *  "FullyRefunded"->'FR'  "Failed"->'F'  "Cancelled"->'X'  "Waived"->'W'
+ *  ItemStatus:  "Pending"->'P'  "Success"->'S'  "Refunded"->'R'  "Cancelled"->'X'  "Waived"->'W'
  *  RefundStatus:  "Pending"->'P'  "Success"->'S'  "Failed"->'F'
  */
 

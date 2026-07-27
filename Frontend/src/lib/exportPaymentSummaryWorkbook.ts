@@ -5,7 +5,6 @@ import type {
   ParticipantStatus,
   Payment,
   PaymentItem,
-  PaymentStatus,
   Refund,
   Registration,
 } from "@/types/registration";
@@ -13,7 +12,6 @@ import {
   ITEM_STATUS_LABEL,
   PARTICIPANT_STATUS_LABEL,
   PAYMENT_METHOD_LABEL,
-  PAYMENT_STATUS_LABEL,
   REG_STATUS_LABEL,
 } from "@/types/registration";
 import { exportWorkbookSheet } from "@/lib/exportRegistrationPaymentsWorkbook";
@@ -74,12 +72,9 @@ function itemStatusLabel(status: string): string {
   return ITEM_STATUS_LABEL[status as ItemStatus] ?? status;
 }
 
-function rowPaymentStatusLabel(paymentStatus: PaymentStatus, itemStatus: ItemStatus): string {
+function rowPaymentStatusLabel(itemStatus: ItemStatus): string {
   if (itemStatus === "R") return "Refunded";
   if (itemStatus === "X") return "Cancelled";
-  if (paymentStatus === "W" || paymentStatus === "PC" || paymentStatus === "P" || paymentStatus === "F") {
-    return PAYMENT_STATUS_LABEL[paymentStatus];
-  }
   return itemStatusLabel(itemStatus);
 }
 
@@ -262,7 +257,7 @@ export async function exportPaymentSummaryWorkbook(
         description.feeStructure,
         textCell(description.entryLabel, true),
         description.registrationStatus || (REG_STATUS_LABEL[reg.regStatus] ?? reg.regStatus),
-        rowPaymentStatusLabel(payment.paymentStatus, item.itemStatus as ItemStatus),
+        rowPaymentStatusLabel(item.itemStatus as ItemStatus),
         payment.method ? PAYMENT_METHOD_LABEL[payment.method] ?? payment.method : "",
         textCell(payment.adminNote ?? "", true),
         paymentTransactionId(payment),

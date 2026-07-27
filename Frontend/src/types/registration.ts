@@ -32,6 +32,7 @@
  *  "Success"  -> 'S'  Payment confirmed by webhook
  *  "Refunded"  -> 'R'  Refund confirmed by gateway
  *  "Cancelled"  -> 'X'  Cancelled without refund
+ *  "Waived"  -> 'W'  Fee waived by admin
  *
  *  RefundStatus  (Refund.refundStatus)  DB column: Refunds.RefundStatus CHAR(1)
  *  "Pending"  -> 'P'  Refund initiated, awaiting gateway
@@ -42,7 +43,8 @@
  *  PaymentStatus:  Pending -> Success | Failed | Cancelled
  *  Success -> PartiallyRefunded -> FullyRefunded
  *  ItemStatus:  Pending -> Success -> Refunded
- *  Success -> Cancelled
+ *  Pending -> Waived
+ *  Pending/Waived/Success -> Cancelled
  *  RefundStatus:  Pending -> Success | Failed
  *
  *  After any PaymentItem -> Refunded:
@@ -80,7 +82,8 @@ export type ItemStatus =
   | "P"
   | "S"
   | "R"
-  | "X";
+  | "X"
+  | "W";
 
 export type ParticipantStatus =
   | "A"
@@ -124,6 +127,7 @@ export const ITEM_STATUS_LABEL: Record<ItemStatus, string> = {
   S: "Paid",
   R: "Refunded",
   X: "Cancelled",
+  W: "Waived",
 };
 
 export const REG_STATUS_LABEL: Record<RegStatus, string> = {

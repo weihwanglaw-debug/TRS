@@ -428,7 +428,7 @@ public class RegistrationWorkflowService
                     Description = item.Description,
                     PlayerName = item.PlayerName,
                     Amount = item.Amount,
-                    ItemStatus = options.PaymentStatus == StatusCodesEx.Payment.Success ? StatusCodesEx.PaymentItem.Success : StatusCodesEx.PaymentItem.Pending,
+                    ItemStatus = InitialPaymentItemStatus(options.PaymentStatus),
                     CreatedAt = DateTime.UtcNow,
                     ParticipantId = item.ParticipantId,
                 });
@@ -840,6 +840,14 @@ public class RegistrationWorkflowService
         public decimal Amount { get; init; }
         public int? ParticipantId { get; init; }
     }
+
+    private static string InitialPaymentItemStatus(string paymentStatus) =>
+        paymentStatus switch
+        {
+            StatusCodesEx.Payment.Success => StatusCodesEx.PaymentItem.Success,
+            StatusCodesEx.Payment.Waived => StatusCodesEx.PaymentItem.Waived,
+            _ => StatusCodesEx.PaymentItem.Pending,
+        };
 }
 
 public sealed class RegistrationValidationOptions
