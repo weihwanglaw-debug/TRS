@@ -15,6 +15,7 @@ export interface ProgramFields {
   enableGuardianInfo: boolean;
   enableRemark?: boolean;
   enableTshirt?: boolean;
+  tshirtOptions?: string | null;
   requireSbaId?: boolean;
   requireDocumentUpload?: boolean;
   requireGuardianInfo?: boolean;
@@ -165,6 +166,7 @@ export interface TournamentEvent {
   isSports:         boolean;
   sportType:        string;
   fixtureMode:      FixtureMode;
+  maxProgramsPerParticipant?: number | null;
   registrationStatus?: "O" | "PA" | "CL";
   computedRegistrationStatus?: EventStatus;
   programs:         Program[];

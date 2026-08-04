@@ -67,6 +67,7 @@ public class UpsertEventRequest
     public bool IsSports                  { get; set; } = true;
     public string? SportType              { get; set; }
     public string FixtureMode             { get; set; } = "internal";
+    public int? MaxProgramsPerParticipant { get; set; }
     public List<string> GalleryUrls       { get; set; } = new();
 }
 
@@ -94,6 +95,7 @@ public class ProgramFieldsDto
     public bool EnableGuardianInfo { get; set; }
     public bool EnableRemark { get; set; }
     public bool EnableTshirt { get; set; }
+    public string? TshirtOptions { get; set; }
     public bool RequireSbaId { get; set; }
     public bool RequireDocumentUpload { get; set; }
     public bool RequireGuardianInfo { get; set; }

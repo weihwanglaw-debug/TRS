@@ -13,6 +13,7 @@ namespace TRS_API.Services;
 
 public sealed class ProgramImportService
 {
+    private const string DefaultTshirtOptions = "XS,S,M,L,XL,XXL,3XL";
     private const int HeaderRow = 5;
     private const int FirstDataRow = 6;
     private const int MaxRows = 1000;
@@ -568,6 +569,10 @@ public sealed class ProgramImportService
 
         if (fields.EnableTshirt && fields.RequireTshirt)
             ValidateRequired(row, "T-Shirt Size", row.TshirtSize, errors);
+        if (fields.EnableTshirt && !string.IsNullOrWhiteSpace(row.TshirtSize) && !IsAllowedTshirtSize(fields.TshirtOptions, row.TshirtSize))
+        {
+            errors.Add(Issue(row.RowNumber, row.EntryNo, "T-Shirt Size", StatusCodesEx.Validation.InvalidTshirtSize, $"T-shirt size '{row.TshirtSize}' is not configured for '{program.Name}'."));
+        }
         if (fields.EnableGuardianInfo && fields.RequireGuardianInfo)
         {
             ValidateRequired(row, "Guardian Name", row.GuardianName, errors);
@@ -596,6 +601,15 @@ public sealed class ProgramImportService
                 "INVALID_PHONE",
                 $"{field} can only contain digits, spaces, +, -, (, and ), and must include at least one digit."));
         }
+    }
+
+    private static bool IsAllowedTshirtSize(string? options, string value)
+    {
+        var normalizedValue = value.Trim();
+        var availableOptions = string.IsNullOrWhiteSpace(options) ? DefaultTshirtOptions : options;
+        return availableOptions
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(option => string.Equals(option, normalizedValue, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void ValidateCustomFieldRequirements(

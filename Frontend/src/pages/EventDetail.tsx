@@ -353,6 +353,12 @@ export default function EventDetail() {
   const getCartEntryCount = (programId: string, excludeIndex: number | null = null) =>
     cart.filter((entry, index) => entry.programId === programId && index !== excludeIndex).length;
   const isAdminPaymentBypass = isAuthenticated && cartRequiresPayment;
+  const participantLimitKey = (participant: Participant) => {
+    if (!participant.fullName.trim() || !participant.dobDay || !participant.dobMonth || !participant.dobYear) return null;
+    return `${participant.fullName.trim()}|${participant.dobYear}-${participant.dobMonth}-${participant.dobDay}`.toLowerCase();
+  };
+  const participantLimitMessage = (name: string, limit: number) =>
+    `${name || "This participant"} can take part in up to ${limit} program(s) for this event.`;
 
   const scrollToCartSection = (behavior: ScrollBehavior = "smooth") => {
     const target = cartSectionRef.current;
@@ -649,6 +655,21 @@ export default function EventDetail() {
       });
       if (cartDupe && !allErrs[`${px}.fullName`])
         allErrs[`${px}.fullName`] = "Already registered in this program";
+
+      const maxPrograms = event?.maxProgramsPerParticipant;
+      const participantKey = maxPrograms ? participantLimitKey(p) : null;
+      if (maxPrograms && participantKey) {
+        const programIds = new Set<string>([selectedProgram.id]);
+        cart.forEach((entry, ci) => {
+          if (editingCartIndex !== null && ci === editingCartIndex) return;
+          if (entry.participants.some(ep => participantLimitKey(ep) === participantKey)) {
+            programIds.add(entry.programId);
+          }
+        });
+        if (programIds.size > maxPrograms && !allErrs[`${px}.fullName`]) {
+          allErrs[`${px}.fullName`] = participantLimitMessage(p.fullName, maxPrograms);
+        }
+      }
     });
 
   // Mixed gender composition - checked across all participants together
@@ -882,6 +903,26 @@ export default function EventDetail() {
   // for final registration creation.
   const handleCheckout = async () => {
     if (!event || !canSubmitCart) return;
+
+    const maxPrograms = event.maxProgramsPerParticipant;
+    if (maxPrograms) {
+      const programIdsByParticipant = new Map<string, { name: string; programIds: Set<string> }>();
+      cart.forEach(entry => {
+        entry.participants.forEach(participant => {
+          const key = participantLimitKey(participant);
+          if (!key) return;
+          const current = programIdsByParticipant.get(key) ?? { name: participant.fullName, programIds: new Set<string>() };
+          current.programIds.add(entry.programId);
+          programIdsByParticipant.set(key, current);
+        });
+      });
+      const exceeded = Array.from(programIdsByParticipant.values()).find(item => item.programIds.size > maxPrograms);
+      if (exceeded) {
+        setSubmitError(participantLimitMessage(exceeded.name, maxPrograms));
+        scrollToCartSection();
+        return;
+      }
+    }
 
     if (!isAdminPaymentBypass) {
   // Validate contact fields

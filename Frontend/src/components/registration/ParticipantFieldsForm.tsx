@@ -34,7 +34,7 @@ export const MONTHS = [
 ];
 export const DAYS  = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0"));
 export const YEARS = Array.from({ length: 100 }, (_, i) => String(new Date().getFullYear() - i));
-export const TSHIRT_SIZES = ["XS","S","M","L","XL","XXL","3XL"];
+export const DEFAULT_TSHIRT_SIZES = ["XS","S","M","L","XL","XXL","3XL"];
 const CLUB_NO_CLUB_VALUE = "* No Club";
 const LEGACY_CLUB_NA_VALUE = "NA";
 const CLUB_OTHERS_VALUE = "__others__";
@@ -73,6 +73,14 @@ export function blankParticipantFormValues(): ParticipantFormValues {
     guardianName: "", guardianContact: "", remark: "",
     customFieldValues: {}, documentFile: null,
   };
+}
+
+export function parseTshirtOptions(options?: string | null) {
+  const parsed = (options ?? "")
+    .split(",")
+    .map(option => option.trim())
+    .filter(Boolean);
+  return parsed.length > 0 ? parsed : DEFAULT_TSHIRT_SIZES;
 }
 
 //  Validation
@@ -591,12 +599,15 @@ export default function ParticipantFieldsForm({
             </select>
 
             {clubSelectValue === CLUB_OTHERS_VALUE && (
-              <input className="field-input mt-2" value={otherClubName}
-                disabled={clubFieldDisabled}
-                onChange={e => {
-                  setOtherClubName(e.target.value);
-                  set({ clubSchoolCompany: e.target.value });
-                }} />
+              <div className="mt-2">
+                <label className="block text-xs font-semibold opacity-60 mb-1">Other Club / School / Company</label>
+                <input className="field-input" value={otherClubName}
+                  disabled={clubFieldDisabled}
+                  onChange={e => {
+                    setOtherClubName(e.target.value);
+                    set({ clubSchoolCompany: e.target.value });
+                  }} />
+              </div>
             )}
           </>
         ) : (
@@ -616,7 +627,7 @@ export default function ParticipantFieldsForm({
             disabled={disabled}
             onChange={e => set({ tshirtSize: e.target.value })}>
             <option value="">Select</option>
-            {TSHIRT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+            {parseTshirtOptions(programFields.tshirtOptions).map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </FieldWrapper>
       )}

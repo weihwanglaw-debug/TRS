@@ -96,6 +96,8 @@ public static class StatusCodesEx
         public const string DuplicateRegistration = "DUPLICATE_REGISTRATION";
         public const string InvalidAge = "INVALID_AGE";
         public const string InvalidGender = "INVALID_GENDER";
+        public const string InvalidTshirtSize = "INVALID_TSHIRT_SIZE";
+        public const string ProgramParticipationLimitExceeded = "PROGRAM_PARTICIPATION_LIMIT_EXCEEDED";
         public const string ProgramFull = "PROGRAM_FULL";
         public const string SbaIdNotFound = "SBA_ID_NOT_FOUND";
         public const string SbaNameMismatch = "SBA_NAME_MISMATCH";

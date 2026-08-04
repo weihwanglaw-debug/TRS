@@ -7,6 +7,7 @@ public partial class ProgramField
     public bool EnableGuardianInfo { get; set; }
     public bool EnableRemark { get; set; }
     public bool EnableTshirt { get; set; }
+    public string? TshirtOptions { get; set; }
     public bool RequireSbaId { get; set; }
     public bool RequireDocumentUpload { get; set; }
     public bool RequireGuardianInfo { get; set; }

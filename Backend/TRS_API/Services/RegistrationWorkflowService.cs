@@ -8,6 +8,7 @@ namespace TRS_API.Services;
 
 public class RegistrationWorkflowService
 {
+    private const string DefaultTshirtOptions = "XS,S,M,L,XL,XXL,3XL";
     private static readonly EmailAddressAttribute ContactEmailValidator = new();
 
     private readonly TRSDbContext _db;
@@ -93,6 +94,27 @@ public class RegistrationWorkflowService
                 DateOfBirth = p.DateOfBirth,
             }))
             .ToListAsync(ct);
+
+        var existingEventParticipants = eventEntity.MaxProgramsPerParticipant.HasValue
+            ? await _db.ParticipantGroups
+                .Where(g =>
+                    g.EventId == req.EventId &&
+                    g.GroupStatus != StatusCodesEx.Registration.Cancelled &&
+                    g.Registration.RegStatus != StatusCodesEx.Registration.Cancelled)
+                .SelectMany(g => g.Participants
+                    .Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
+                    .Select(p => new ExistingParticipantIdentity
+                    {
+                        ProgramId = g.ProgramId,
+                        FullName = p.FullName,
+                        DateOfBirth = p.DateOfBirth,
+                    }))
+                .ToListAsync(ct)
+            : new List<ExistingParticipantIdentity>();
+
+        var participationLimitValidation = ValidateProgramParticipationLimit(req, eventEntity.MaxProgramsPerParticipant, existingEventParticipants);
+        if (!participationLimitValidation.Success)
+            return RegistrationWorkflowResult<PricingQuote>.Fail(participationLimitValidation.Code!, participationLimitValidation.Message);
 
         var requestedPerProgram = req.Groups
             .GroupBy(g => g.ProgramId)
@@ -566,6 +588,9 @@ public class RegistrationWorkflowService
             if (program.Fields?.EnableTshirt == true && program.Fields.RequireTshirt && string.IsNullOrWhiteSpace(participant.TshirtSize))
                 return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"T-shirt size is required for '{participant.FullName}'.");
 
+            if (program.Fields?.EnableTshirt == true && !string.IsNullOrWhiteSpace(participant.TshirtSize) && !IsAllowedTshirtSize(program.Fields.TshirtOptions, participant.TshirtSize))
+                return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.InvalidTshirtSize, $"T-shirt size '{participant.TshirtSize}' is not available for '{program.Name}'.");
+
             if (program.Fields?.EnableGuardianInfo == true && program.Fields.RequireGuardianInfo)
             {
                 if (string.IsNullOrWhiteSpace(participant.GuardianName) || string.IsNullOrWhiteSpace(participant.GuardianContact))
@@ -683,6 +708,75 @@ public class RegistrationWorkflowService
             return null;
 
         return DateOnly.TryParse(dob, out var parsed) ? parsed : null;
+    }
+
+    private static bool IsAllowedTshirtSize(string? options, string value)
+    {
+        var normalizedValue = value.Trim();
+        var availableOptions = string.IsNullOrWhiteSpace(options) ? DefaultTshirtOptions : options;
+        return availableOptions
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(option => string.Equals(option, normalizedValue, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static RegistrationWorkflowResult<object> ValidateProgramParticipationLimit(
+        CreateRegistrationRequest req,
+        int? maxProgramsPerParticipant,
+        List<ExistingParticipantIdentity> existingEventParticipants)
+    {
+        if (!maxProgramsPerParticipant.HasValue)
+            return RegistrationWorkflowResult<object>.Ok(null);
+
+        var programIdsByParticipant = new Dictionary<string, HashSet<int>>(StringComparer.OrdinalIgnoreCase);
+        var displayNamesByParticipant = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var existing in existingEventParticipants)
+        {
+            var key = ParticipantLimitKey(existing.FullName, existing.DateOfBirth);
+            if (key == null) continue;
+            if (!programIdsByParticipant.TryGetValue(key, out var programIds))
+            {
+                programIds = new HashSet<int>();
+                programIdsByParticipant[key] = programIds;
+                displayNamesByParticipant[key] = existing.FullName.Trim();
+            }
+            programIds.Add(existing.ProgramId);
+        }
+
+        foreach (var group in req.Groups)
+        {
+            foreach (var participant in group.Participants)
+            {
+                var dob = ParseDob(participant.Dob);
+                var key = ParticipantLimitKey(participant.FullName, dob);
+                if (key == null) continue;
+                if (!programIdsByParticipant.TryGetValue(key, out var programIds))
+                {
+                    programIds = new HashSet<int>();
+                    programIdsByParticipant[key] = programIds;
+                    displayNamesByParticipant[key] = participant.FullName.Trim();
+                }
+                programIds.Add(group.ProgramId);
+
+                if (programIds.Count > maxProgramsPerParticipant.Value)
+                {
+                    var displayName = displayNamesByParticipant.GetValueOrDefault(key, participant.FullName.Trim());
+                    return RegistrationWorkflowResult<object>.Fail(
+                        StatusCodesEx.Validation.ProgramParticipationLimitExceeded,
+                        $"Participant '{displayName}' can take part in up to {maxProgramsPerParticipant.Value} program(s) for this event.");
+                }
+            }
+        }
+
+        return RegistrationWorkflowResult<object>.Ok(null);
+    }
+
+    private static string? ParticipantLimitKey(string? fullName, DateOnly? dob)
+    {
+        if (string.IsNullOrWhiteSpace(fullName) || dob == null)
+            return null;
+
+        return $"{fullName.Trim()}|{dob:yyyy-MM-dd}";
     }
 
     private static int CalculateAge(DateOnly dob)

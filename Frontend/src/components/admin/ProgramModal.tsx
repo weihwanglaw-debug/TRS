@@ -100,6 +100,7 @@ export default function ProgramModal({
     enableGuardianInfo:   false,
     enableRemark:         false,
     enableTshirt:         true,
+    tshirtOptions:        "XS,S,M,L,XL,XXL,3XL",
     requireSbaId:          false,
     requireDocumentUpload: false,
     requireGuardianInfo:   false,
@@ -158,6 +159,7 @@ export default function ProgramModal({
         enableGuardianInfo:   program.fields.enableGuardianInfo,
         enableRemark:         program.fields.enableRemark ?? false,
         enableTshirt:         program.fields.enableTshirt ?? true,
+        tshirtOptions:        program.fields.tshirtOptions ?? "XS,S,M,L,XL,XXL,3XL",
         requireSbaId:          program.fields.requireSbaId ?? false,
         requireDocumentUpload: program.fields.requireDocumentUpload ?? false,
         requireGuardianInfo:   program.fields.requireGuardianInfo ?? false,
@@ -181,6 +183,7 @@ export default function ProgramModal({
         minParticipants: 4, maxParticipants: 32,
         enableSbaId: false, enableDocumentUpload: false,
         enableGuardianInfo: false, enableRemark: false, enableTshirt: true,
+        tshirtOptions: "XS,S,M,L,XL,XXL,3XL",
         requireSbaId: false, requireDocumentUpload: false,
         requireGuardianInfo: false, requireRemark: false, requireTshirt: false,
         customFields: [],
@@ -270,6 +273,12 @@ export default function ProgramModal({
     if (form.minPlayers > form.maxPlayers)           errs.players  = "Min players must be <= max players";
     if (form.minParticipants > form.maxParticipants) errs.parts    = "Min participants must be <= max";
     if (parseFloat(form.fee) < 0)                    errs.fee      = "Fee cannot be negative";
+    if (form.enableTshirt && !form.tshirtOptions.split(",").some(option => option.trim()))
+      errs.tshirtOptions = "Add at least one T-shirt size option";
+    if (form.enableTshirt && form.tshirtOptions.length > 500)
+      errs.tshirtOptions = "T-shirt size options cannot exceed 500 characters";
+    if (form.enableTshirt && form.tshirtOptions.split(",").some(option => option.trim().length > 50))
+      errs.tshirtOptions = "Each T-shirt size option must be 50 characters or fewer";
     setFormErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
@@ -298,6 +307,7 @@ export default function ProgramModal({
         enableGuardianInfo:   form.enableGuardianInfo,
         enableRemark:         form.enableRemark,
         enableTshirt:         form.enableTshirt,
+        tshirtOptions:        form.enableTshirt ? form.tshirtOptions : undefined,
         requireSbaId:          form.enableSbaId && form.requireSbaId,
         requireDocumentUpload: form.enableDocumentUpload && form.requireDocumentUpload,
         requireGuardianInfo:   form.enableGuardianInfo && form.requireGuardianInfo,
@@ -549,6 +559,19 @@ export default function ProgramModal({
                       onCheckedChange={v => s(opt.requiredKey, v)}
                     />
                   </label>
+                  {opt.key === "enableTshirt" && form.enableTshirt && (
+                    <div className="sm:col-span-3 pt-2">
+                      <label className="block text-xs font-semibold opacity-60 mb-2">T-Shirt Size Options</label>
+                      <input
+                        className="field-input"
+                        value={form.tshirtOptions}
+                        placeholder="S,M,L,XL"
+                        onChange={e => s("tshirtOptions", e.target.value)}
+                      />
+                      <p className="text-xs opacity-50 mt-1">Separate sizes with commas.</p>
+                      {formErrors.tshirtOptions && <p className="text-xs text-red-500 mt-1">{formErrors.tshirtOptions}</p>}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

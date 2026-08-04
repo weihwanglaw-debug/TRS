@@ -78,6 +78,7 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.AdditionalInfo).HasColumnType("nvarchar(max)");
             e.Property(x => x.SportType).HasMaxLength(100);
             e.Property(x => x.FixtureMode).HasMaxLength(15).IsUnicode(false).HasDefaultValue("internal");
+            e.Property(x => x.MaxProgramsPerParticipant);
             e.Property(x => x.RegistrationStatus).HasMaxLength(2).IsUnicode(false).HasDefaultValue("O");
             e.Property(x => x.IsSports).HasDefaultValue(true);
             e.Property(x => x.IsActive).HasDefaultValue(true);
@@ -138,6 +139,7 @@ public partial class TRSDbContext : DbContext
         mb.Entity<ProgramField>(e => {
             e.HasKey(x => x.ProgramId).HasName("PK_ProgramFields");
             e.Property(x => x.ProgramId).HasColumnName("ProgramID");
+            e.Property(x => x.TshirtOptions).HasMaxLength(500);
             e.HasOne(x => x.Program).WithOne(x => x.Fields)
              .HasForeignKey<ProgramField>(x => x.ProgramId).OnDelete(DeleteBehavior.Cascade)
              .HasConstraintName("FK_ProgramFields_Program");
@@ -234,7 +236,7 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.ClubSchoolCompany).HasMaxLength(200);
             e.Property(x => x.Email).HasMaxLength(255);
             e.Property(x => x.ContactNumber).HasMaxLength(30).IsUnicode(false);
-            e.Property(x => x.TshirtSize).HasMaxLength(5).IsUnicode(false);
+            e.Property(x => x.TshirtSize).HasMaxLength(50);
             e.Property(x => x.SbaId).HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.GuardianName).HasMaxLength(200);
             e.Property(x => x.GuardianContact).HasMaxLength(30).IsUnicode(false);

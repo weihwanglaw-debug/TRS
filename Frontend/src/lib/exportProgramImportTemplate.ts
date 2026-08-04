@@ -1,7 +1,7 @@
 import type { Feature, SheetData } from "write-excel-file/browser";
 import type { Program, TournamentEvent, CustomField } from "@/types/config";
 import { NATIONALITY_OPTIONS } from "@/lib/countries";
-import { TSHIRT_SIZES } from "@/components/registration/ParticipantFieldsForm";
+import { parseTshirtOptions } from "@/components/registration/ParticipantFieldsForm";
 import { apiGetBadmintonClubs } from "@/lib/api";
 
 const TEMPLATE_ROW_COUNT = 200;
@@ -141,7 +141,7 @@ function buildColumns(event: TournamentEvent, program: Program, badmintonClubOpt
   }
 
   if (fields.enableTshirt) {
-    columns.push({ label: "T-Shirt Size", required: fields.requireTshirt, type: "select", options: TSHIRT_SIZES, width: 14 });
+    columns.push({ label: "T-Shirt Size", required: fields.requireTshirt, type: "select", options: parseTshirtOptions(fields.tshirtOptions), width: 14 });
   }
 
   if (fields.enableGuardianInfo) {

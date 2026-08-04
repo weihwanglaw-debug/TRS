@@ -155,6 +155,7 @@ export default function EventEdit() {
     additionalInfo: "",          // replaces prospectusUrl
     isSports: true, sportType: "Badminton",
     fixtureMode: "internal" as "internal" | "external" | "not_required",
+    maxProgramsPerParticipant: null as number | null,
   });
 
   const [registrationStatusDraft, setRegistrationStatusDraft] = useState<"O" | "PA" | "CL">("O");
@@ -228,6 +229,7 @@ export default function EventEdit() {
         isSports:         ev.isSports ?? true,
         sportType:        ev.sportType === "Badminton" ? "Badminton" : "Non Badminton",
         fixtureMode:      (ev.fixtureMode || "internal") as "internal" | "external" | "not_required",
+        maxProgramsPerParticipant: ev.maxProgramsPerParticipant ?? null,
       });
     }).finally(() => setLoading(false));
   }, [eventId, isNew]);
@@ -352,6 +354,8 @@ export default function EventEdit() {
       e.closeDate = "Must be before event start date";
     if (form.openDate && form.closeDate && form.openDate >= form.closeDate)
       e.openDate = "Must be before close date";
+    if (form.maxProgramsPerParticipant !== null && (form.maxProgramsPerParticipant < 1 || form.maxProgramsPerParticipant > 8))
+      e.maxProgramsPerParticipant = "Choose 1 to 8, or no restriction";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -501,10 +505,11 @@ export default function EventEdit() {
             <button onClick={() => navigate("/admin/events")} className="btn-back">
               <ArrowLeft className="h-4 w-4" /> Back
             </button>
-            <div>
+            <div className="flex flex-wrap items-center gap-3">
               <h1 className="font-bold text-2xl">
                 {isNew ? "Create New Event" : event?.name || "Event"}
               </h1>
+              {!isNew && status && <StatusBadge status={status} />}
             </div>
           </div>
           <div className="flex gap-3">
@@ -567,30 +572,40 @@ export default function EventEdit() {
           <FF label="Registration Close Date" error={errors.closeDate}>
             <input type="date" className="field-input" value={form.closeDate} onChange={e => set("closeDate", e.target.value)} disabled={!editing} />
           </FF>
-          <FF label="Sponsor Information">
-            <input className="field-input" value={form.sponsorInfo} onChange={e => set("sponsorInfo", e.target.value)} disabled={!editing} />
-          </FF>
-          {!isNew && event && status && (
-            <div>
-              <FF label="Registration Status">
-                <div className="flex flex-wrap items-center gap-3">
-                  <StatusBadge status={status} />
-                  <select
-                    className="field-input"
-                    value={registrationStatusDraft}
-                    disabled={!editing || saving || !canChangeRegistrationStatus}
-                    onChange={e => setRegistrationStatusDraft(e.target.value as "O" | "PA" | "CL")}
-                    style={{ maxWidth: 260 }}
-                    title={canChangeRegistrationStatus ? "Registration status" : "Add at least one program before changing registration status"}
-                  >
-                    <option value="O">Open registration</option>
-                    <option value="PA">Pause registration</option>
-                    <option value="CL">Close registration</option>
-                  </select>
-                </div>
-              </FF>
-            </div>
-          )}
+          <div className="md:col-span-2 grid md:grid-cols-[2fr_1fr_1fr] gap-6">
+            <FF label="Sponsor Information">
+              <input className="field-input" value={form.sponsorInfo} onChange={e => set("sponsorInfo", e.target.value)} disabled={!editing} />
+            </FF>
+            {!isNew && event && status && (
+              <div>
+                <label className="block text-xs font-semibold mb-2 opacity-70">Registration Status</label>
+                <select
+                  className="field-input"
+                  value={registrationStatusDraft}
+                  disabled={!editing || saving || !canChangeRegistrationStatus}
+                  onChange={e => setRegistrationStatusDraft(e.target.value as "O" | "PA" | "CL")}
+                  title={canChangeRegistrationStatus ? "Registration status" : "Add at least one program before changing registration status"}
+                >
+                  <option value="O">Open registration</option>
+                  <option value="PA">Pause registration</option>
+                  <option value="CL">Close registration</option>
+                </select>
+              </div>
+            )}
+            <FF label="Programs Per Participant" error={errors.maxProgramsPerParticipant}>
+              <select
+                className="field-input"
+                value={form.maxProgramsPerParticipant ?? ""}
+                disabled={!editing}
+                onChange={e => set("maxProgramsPerParticipant", e.target.value === "" ? null : Number(e.target.value))}
+              >
+                <option value="">No restriction</option>
+                {Array.from({ length: 8 }, (_, i) => i + 1).map(value => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </FF>
+          </div>
           <div className="md:col-span-2">
             <FF label="Short Description (shown on event header)">
               <textarea className="field-input" rows={2} value={form.description} onChange={e => set("description", e.target.value)} disabled={!editing} />

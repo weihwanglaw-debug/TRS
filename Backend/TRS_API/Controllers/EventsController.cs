@@ -11,6 +11,7 @@ namespace TRS_API.Controllers;
 [ApiController, Route("api/events")]
 public class EventsController : ControllerBase
 {
+    private const string DefaultTshirtOptions = "XS,S,M,L,XL,XXL,3XL";
     private readonly TRSDbContext _db;
     private readonly AdminAuditService _audit;
     // HtmlSanitizer (Ganss.Xss NuGet) strips dangerous tags from admin-authored HTML.
@@ -53,6 +54,8 @@ public class EventsController : ControllerBase
     [HttpPost, Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> Create([FromBody] UpsertEventRequest req)
     {
+        var validation = ValidateEventSettings(req);
+        if (validation != null) return BadRequest(validation);
         var ev = ApplyEventFields(new Event { CreatedAt = DateTime.UtcNow, IsActive = true }, req);
         _db.Events.Add(ev);
         await _db.SaveChangesAsync();
@@ -76,6 +79,8 @@ public class EventsController : ControllerBase
             .Include(e => e.GalleryImages)
             .FirstOrDefaultAsync(e => e.EventId == id);
         if (ev == null) return NotFound(new { code = "NOT_FOUND", message = "Event not found." });
+        var validation = ValidateEventSettings(req);
+        if (validation != null) return BadRequest(validation);
         var oldValue = AuditEventSnapshot(ev);
         ev.GalleryImages.Clear();
         ApplyEventFields(ev, req);
@@ -251,6 +256,8 @@ public class EventsController : ControllerBase
     {
         if (!await _db.Events.AnyAsync(e => e.EventId == id))
             return NotFound(new { code = "NOT_FOUND", message = "Event not found." });
+        var fieldValidation = ValidateProgramFieldOptions(req.Fields);
+        if (fieldValidation != null) return BadRequest(fieldValidation);
         var prog = ApplyProgramFields(new TrsProgram { EventId = id, CreatedAt = DateTime.UtcNow, IsActive = true }, req);
         _db.Programs.Add(prog);
         await _db.SaveChangesAsync();
@@ -272,6 +279,8 @@ public class EventsController : ControllerBase
         var prog = await _db.Programs.Include(p => p.Fields).Include(p => p.CustomFields)
             .FirstOrDefaultAsync(p => p.ProgramId == pid && p.EventId == eid);
         if (prog == null) return NotFound(new { code = "NOT_FOUND", message = "Program not found." });
+        var fieldValidation = ValidateProgramFieldOptions(req.Fields);
+        if (fieldValidation != null) return BadRequest(fieldValidation);
         if (!string.Equals(prog.Type, req.Type, StringComparison.Ordinal))
         {
             var fixtureExists = await _db.Fixtures.AnyAsync(f => f.ProgramId == pid);
@@ -466,11 +475,29 @@ public class EventsController : ControllerBase
         ev.IsSports         = r.IsSports;
         ev.SportType        = r.SportType;
         ev.FixtureMode      = r.FixtureMode;
+        ev.MaxProgramsPerParticipant = r.MaxProgramsPerParticipant;
         if (string.IsNullOrWhiteSpace(ev.RegistrationStatus))
             ev.RegistrationStatus = StatusCodesEx.EventRegistration.Open;
         ev.GalleryImages    = r.GalleryUrls.Select((url, i) =>
             new EventGalleryImage { ImageUrl = url, SortOrder = i }).ToList();
         return ev;
+    }
+
+    private static object? ValidateEventSettings(UpsertEventRequest req)
+    {
+        if (req.MaxProgramsPerParticipant is null)
+            return null;
+
+        if (req.MaxProgramsPerParticipant < 1 || req.MaxProgramsPerParticipant > 8)
+        {
+            return new
+            {
+                code = "INVALID_PROGRAM_PARTICIPATION_LIMIT",
+                message = "Program participation limit must be between 1 and 8, or no restriction."
+            };
+        }
+
+        return null;
     }
 
     private static TrsProgram ApplyProgramFields(TrsProgram p, UpsertProgramRequest r)
@@ -486,6 +513,7 @@ public class EventsController : ControllerBase
             p.Fields.EnableSbaId = r.Fields.EnableSbaId; p.Fields.EnableDocumentUpload = r.Fields.EnableDocumentUpload;
             p.Fields.EnableGuardianInfo = r.Fields.EnableGuardianInfo; p.Fields.EnableRemark = r.Fields.EnableRemark;
             p.Fields.EnableTshirt = r.Fields.EnableTshirt;
+            p.Fields.TshirtOptions = NormalizeTshirtOptions(r.Fields.TshirtOptions, r.Fields.EnableTshirt);
             p.Fields.RequireSbaId = r.Fields.RequireSbaId && r.Fields.EnableSbaId;
             p.Fields.RequireDocumentUpload = r.Fields.RequireDocumentUpload && r.Fields.EnableDocumentUpload;
             p.Fields.RequireGuardianInfo = r.Fields.RequireGuardianInfo && r.Fields.EnableGuardianInfo;
@@ -499,6 +527,7 @@ public class EventsController : ControllerBase
                 EnableSbaId = r.Fields.EnableSbaId, EnableDocumentUpload = r.Fields.EnableDocumentUpload,
                 EnableGuardianInfo = r.Fields.EnableGuardianInfo, EnableRemark = r.Fields.EnableRemark,
                 EnableTshirt = r.Fields.EnableTshirt,
+                TshirtOptions = NormalizeTshirtOptions(r.Fields.TshirtOptions, r.Fields.EnableTshirt),
                 RequireSbaId = r.Fields.RequireSbaId && r.Fields.EnableSbaId,
                 RequireDocumentUpload = r.Fields.RequireDocumentUpload && r.Fields.EnableDocumentUpload,
                 RequireGuardianInfo = r.Fields.RequireGuardianInfo && r.Fields.EnableGuardianInfo,
@@ -558,6 +587,28 @@ public class EventsController : ControllerBase
     private static string? NormalizeNullable(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
+    private static string? NormalizeTshirtOptions(string? value, bool enabled) =>
+        enabled ? NormalizeNullable(value) ?? DefaultTshirtOptions : null;
+
+    private static object? ValidateProgramFieldOptions(ProgramFieldsDto fields)
+    {
+        if (!fields.EnableTshirt)
+            return null;
+
+        var options = NormalizeTshirtOptions(fields.TshirtOptions, fields.EnableTshirt)!;
+        if (options.Length > 500)
+            return new { code = "INVALID_TSHIRT_OPTIONS", message = "T-shirt size options cannot exceed 500 characters." };
+
+        var values = options.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (values.Length == 0)
+            return new { code = "INVALID_TSHIRT_OPTIONS", message = "Add at least one T-shirt size option." };
+
+        if (values.Any(value => value.Length > 50))
+            return new { code = "INVALID_TSHIRT_OPTIONS", message = "Each T-shirt size option must be 50 characters or fewer." };
+
+        return null;
+    }
+
     private static bool ProgramFieldsMatch(ProgramField? current, ProgramFieldsDto requested)
     {
         if (current == null)
@@ -567,6 +618,7 @@ public class EventsController : ControllerBase
                    !requested.EnableGuardianInfo &&
                    !requested.EnableRemark &&
                    !requested.EnableTshirt &&
+                   string.IsNullOrWhiteSpace(requested.TshirtOptions) &&
                    !requested.RequireSbaId &&
                    !requested.RequireDocumentUpload &&
                    !requested.RequireGuardianInfo &&
@@ -579,6 +631,7 @@ public class EventsController : ControllerBase
                current.EnableGuardianInfo == requested.EnableGuardianInfo &&
                current.EnableRemark == requested.EnableRemark &&
                current.EnableTshirt == requested.EnableTshirt &&
+               NormalizeTshirtOptions(current.TshirtOptions, current.EnableTshirt) == NormalizeTshirtOptions(requested.TshirtOptions, requested.EnableTshirt) &&
                current.RequireSbaId == (requested.RequireSbaId && requested.EnableSbaId) &&
                current.RequireDocumentUpload == (requested.RequireDocumentUpload && requested.EnableDocumentUpload) &&
                current.RequireGuardianInfo == (requested.RequireGuardianInfo && requested.EnableGuardianInfo) &&
@@ -637,12 +690,13 @@ public class EventsController : ControllerBase
         p.MinPlayers, p.MaxPlayers, p.MinParticipants, p.MaxParticipants,
         currentParticipants, p.Status, participantSeeds = new List<object>(),
         fields = p.Fields == null
-            ? (object)new { enableSbaId = false, enableDocumentUpload = false, enableGuardianInfo = false, enableRemark = false, enableTshirt = false, requireSbaId = false, requireDocumentUpload = false, requireGuardianInfo = false, requireRemark = false, requireTshirt = false, customFields = new List<object>() }
+            ? (object)new { enableSbaId = false, enableDocumentUpload = false, enableGuardianInfo = false, enableRemark = false, enableTshirt = false, tshirtOptions = (string?)null, requireSbaId = false, requireDocumentUpload = false, requireGuardianInfo = false, requireRemark = false, requireTshirt = false, customFields = new List<object>() }
             : new
             {
                 enableSbaId = p.Fields.EnableSbaId, enableDocumentUpload = p.Fields.EnableDocumentUpload,
                 enableGuardianInfo = p.Fields.EnableGuardianInfo, enableRemark = p.Fields.EnableRemark,
                 enableTshirt = p.Fields.EnableTshirt,
+                tshirtOptions = p.Fields.TshirtOptions,
                 requireSbaId = p.Fields.RequireSbaId, requireDocumentUpload = p.Fields.RequireDocumentUpload,
                 requireGuardianInfo = p.Fields.RequireGuardianInfo, requireRemark = p.Fields.RequireRemark,
                 requireTshirt = p.Fields.RequireTshirt,
@@ -683,6 +737,7 @@ public class EventsController : ControllerBase
         ev.IsSports,
         sportType       = ev.SportType ?? "",
         ev.FixtureMode,
+        ev.MaxProgramsPerParticipant,
         registrationStatus = ev.RegistrationStatus,
         computedRegistrationStatus = RegistrationWorkflowService.ComputeRegistrationStatus(ev, ev.Programs.Count(p => p.IsActive)),
         programs        = ev.Programs.Where(p => p.IsActive)
@@ -709,6 +764,7 @@ public class EventsController : ControllerBase
         ev.IsSports,
         ev.SportType,
         ev.FixtureMode,
+        ev.MaxProgramsPerParticipant,
         ev.RegistrationStatus,
         ev.IsActive,
         GalleryUrls = ev.GalleryImages.OrderBy(g => g.SortOrder).Select(g => g.ImageUrl).ToList(),
@@ -742,6 +798,7 @@ public class EventsController : ControllerBase
                 p.Fields.EnableGuardianInfo,
                 p.Fields.EnableRemark,
                 p.Fields.EnableTshirt,
+                p.Fields.TshirtOptions,
                 p.Fields.RequireSbaId,
                 p.Fields.RequireDocumentUpload,
                 p.Fields.RequireGuardianInfo,
