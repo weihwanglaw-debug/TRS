@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import type Quill from "quill";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, Edit2, Users, Save, X, Image, Trash2,
@@ -29,9 +30,6 @@ import {
 import { exportProgramImportTemplate } from "@/lib/exportProgramImportTemplate";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
 
-//  Quill rich-text editor
-// Install: npm install react-quilljs quill && npm install -D @types/quill
-import { useQuill } from "react-quilljs";
 import "quill/dist/quill.snow.css";
 
 const MAX_IMAGE_MB = 2;
@@ -41,9 +39,6 @@ const MAX_PDF_MB = 8;
 function isBlobUrl(url: string) { return url.startsWith("blob:"); }
 
 //  Quill WYSIWYG editor
-// Uses react-quilljs (hook wrapper) + Quill Snow theme.
-// The Snow theme renders the familiar toolbar with dropdowns for heading,
-// font size, alignment, lists, bold, italic, underline, link, etc.
 const QUILL_MODULES = {
   toolbar: [
     [{ header: [2, 3, 4, false] }],
@@ -75,36 +70,57 @@ function RichTextEditor({
   onChange: (html: string) => void;
   disabled: boolean;
 }) {
-  const { quill, quillRef } = useQuill({
-    modules:  QUILL_MODULES,
-    formats:  QUILL_FORMATS,
-    readOnly: disabled,
-    theme:    "snow",
-  });
+  const quillRef = useRef<HTMLDivElement | null>(null);
+  const quillInstanceRef = useRef<Quill | null>(null);
+  const onChangeRef = useRef(onChange);
+  const valueRef = useRef(value);
+  const disabledRef = useRef(disabled);
 
-  // Populate editor when value loads from API
-  const initialised = useRef(false);
   useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  useEffect(() => {
+    if (!quillRef.current || quillInstanceRef.current) return;
+
+    let cancelled = false;
+
+    import("quill").then(({ default: Quill }) => {
+      if (cancelled || !quillRef.current || quillInstanceRef.current) return;
+
+      const instance = new Quill(quillRef.current, {
+        modules: QUILL_MODULES,
+        formats: QUILL_FORMATS,
+        readOnly: disabledRef.current,
+        theme: "snow",
+      });
+
+      instance.clipboard.dangerouslyPasteHTML(valueRef.current || "");
+      instance.on("text-change", () => onChangeRef.current(instance.root.innerHTML));
+      instance.enable(!disabledRef.current);
+      quillInstanceRef.current = instance;
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    valueRef.current = value;
+    const quill = quillInstanceRef.current;
     if (!quill) return;
-    if (!initialised.current) {
+    if (quill.root.innerHTML !== (value || "")) {
       quill.clipboard.dangerouslyPasteHTML(value || "");
-      initialised.current = true;
     }
-  }, [quill, value]);
+  }, [value]);
 
-  // Sync disabled state
   useEffect(() => {
+    disabledRef.current = disabled;
+    const quill = quillInstanceRef.current;
     if (!quill) return;
     quill.enable(!disabled);
-  }, [quill, disabled]);
-
-  // Fire onChange on every text-change
-  useEffect(() => {
-    if (!quill) return;
-    const handler = () => onChange(quill.root.innerHTML);
-    quill.on("text-change", handler);
-    return () => { quill.off("text-change", handler); };
-  }, [quill, onChange]);
+  }, [disabled]);
 
   return (
     <div
@@ -165,6 +181,11 @@ export default function EventEdit() {
 
   //  Document rows
   const [docs, setDocs] = useState<DocRow[]>([]);
+  const docsRef = useRef<DocRow[]>(docs);
+
+  useEffect(() => {
+    docsRef.current = docs;
+  }, [docs]);
 
   //  Gallery / banner
   const [gallery,          setGallery]          = useState<string[]>([]);
@@ -286,11 +307,18 @@ export default function EventEdit() {
 
   const removeDocRow = async (idx: number) => {
     const doc = docs[idx];
-  // If already saved to backend, delete it
-    if (doc.id && !isNew && eventId) {
-      await apiDeleteEventDocument(eventId, doc.id);
+    try {
+      if (doc.id && !isNew && eventId) {
+        const result = await apiDeleteEventDocument(eventId, doc.id);
+        if (result.error) {
+          showError("Document could not be deleted", result.error.message);
+          return;
+        }
+      }
+      setDocs(prev => prev.filter((_, i) => i !== idx));
+    } catch {
+      showError("Document could not be deleted", "Please check your connection and try again.");
     }
-    setDocs(prev => prev.filter((_, i) => i !== idx));
   };
 
   const handleDocFileUpload = async (idx: number, file: File) => {
@@ -298,6 +326,7 @@ export default function EventEdit() {
       updateDocRow(idx, { labelError: `File exceeds ${MAX_PDF_MB}MB.` });
       return;
     }
+    const targetDocumentId = docs[idx]?.id;
     updateDocRow(idx, { uploading: true, labelError: undefined });
     const r = await apiUploadFile(file, "events/documents");
     updateDocRow(idx, { uploading: false });
@@ -305,39 +334,42 @@ export default function EventEdit() {
     updateDocRow(idx, { fileUrl: r.data! });
 
   // If saved event exists, persist immediately.
-  // Use a ref-safe approach: read current doc state via a one-shot setter to avoid stale closure.
     if (!isNew && eventId) {
-      let currentDoc: DocRow | undefined;
-      setDocs(prev => {
-        currentDoc = prev[idx];
-        return prev; // no mutation - reading only
-      });
+      const currentDoc = targetDocumentId == null
+        ? undefined
+        : docsRef.current.find(doc => doc.id === targetDocumentId);
       if (currentDoc?.id) {
         const label = currentDoc.label || file.name.replace(/\.[^.]+$/, "");
-        await apiUpdateEventDocument(eventId, currentDoc.id, {
+        const updateResult = await apiUpdateEventDocument(eventId, currentDoc.id, {
           label, fileUrl: r.data!, displayOrder: currentDoc.displayOrder,
         });
+        if (updateResult.error) {
+          updateDocRow(idx, { labelError: updateResult.error.message });
+        }
       }
     }
   };
 
   // Save all unsaved/updated document rows after event is saved
-  const saveDocuments = async (savedEventId: string, docsSnapshot: DocRow[]) => {
+  const saveDocuments = async (savedEventId: string, docsSnapshot: DocRow[]): Promise<string | null> => {
     for (let i = 0; i < docsSnapshot.length; i++) {
       const doc = docsSnapshot[i];
       if (!doc.fileUrl) continue; // skip rows without a file
       const label = doc.label.trim() || `Document ${i + 1}`;
       if (doc.id) {
-        await apiUpdateEventDocument(savedEventId, doc.id, {
+        const result = await apiUpdateEventDocument(savedEventId, doc.id, {
           label, fileUrl: doc.fileUrl, displayOrder: i,
         });
+        if (result.error) return `Document "${label}" could not be updated: ${result.error.message}`;
       } else {
         const r = await apiAddEventDocument(savedEventId, {
           label, fileUrl: doc.fileUrl, displayOrder: i,
         });
+        if (r.error) return `Document "${label}" could not be added: ${r.error.message}`;
         if (r.data) updateDocRow(i, { id: r.data.id, label });
       }
     }
+    return null;
   };
 
   //  Validation
@@ -379,12 +411,14 @@ export default function EventEdit() {
           const pr = await apiAddProgram(newId, progPayload);
           if (pr.error) { showError("Event partially saved", `Event created but failed to save program "${prog.name}": ${pr.error.message}`); return; }
         }
-        await saveDocuments(newId, docs);
+        const documentError = await saveDocuments(newId, docs);
+        if (documentError) { showError("Event partially saved", documentError); return; }
         navigate("/admin/events");
       } else {
         const r = await apiUpdateEvent(eventId!, payload);
         if (r.error) { showError("Event could not be saved", r.error.message); return; }
-        await saveDocuments(eventId!, docs);
+        const documentError = await saveDocuments(eventId!, docs);
+        if (documentError) { showError("Event partially saved", documentError); return; }
         let savedEvent = r.data!;
         if (event && registrationStatusDraft !== (event.registrationStatus ?? "O")) {
           const sr = await apiUpdateEventRegistrationStatus(eventId!, registrationStatusDraft);
@@ -397,6 +431,11 @@ export default function EventEdit() {
         setEditing(false);
         setFeedback({ open: true, variant: "success", title: "Event saved", description: "The event details have been updated." });
       }
+    } catch {
+      showError(
+        isNew ? "Event could not be fully saved" : "Event could not be saved",
+        "Please check your connection and reload the event before trying again.",
+      );
     } finally {
       setSaving(false);
     }

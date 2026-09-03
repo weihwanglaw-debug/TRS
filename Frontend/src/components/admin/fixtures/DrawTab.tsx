@@ -258,7 +258,7 @@ window.addEventListener("load", function() {
     setTimeout(function() { window.close(); }, 30000);
   }, 600);
 });
-<\/script>` : ""}
+</script>` : ""}
 </body></html>`;
 
   const w = window.open("", "_blank");

@@ -1,4 +1,4 @@
-import type { TournamentEvent, EventStatus } from "@/types/config";
+import type { CartEntry, TournamentEvent, EventStatus, Program } from "@/types/config";
 
 const SINGAPORE_TIME_ZONE = "Asia/Singapore";
 
@@ -30,6 +30,19 @@ export function getEventStatus(event: TournamentEvent): EventStatus {
   if (today < event.openDate) return "U";
   if (today > event.closeDate) return "CL";
   return "O";
+}
+
+export function getCartProgramCapacityUsage(
+  cart: CartEntry[],
+  program: Program,
+  excludeIndex: number | null = null,
+): number {
+  return cart
+    .filter((entry, index) => entry.programId === program.id && index !== excludeIndex)
+    .reduce(
+      (total, entry) => total + (program.feeStructure === "per_player" ? entry.participants.length : 1),
+      0,
+    );
 }
 
 export function formatDate(dateStr: string): string {

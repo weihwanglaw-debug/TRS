@@ -390,7 +390,7 @@ export default function ParticipantFieldsForm({
       setClubSelectValue(CLUB_NO_CLUB_VALUE);
       setOtherClubName("");
       if (savedClub !== CLUB_NO_CLUB_VALUE) {
-        set({ clubSchoolCompany: CLUB_NO_CLUB_VALUE });
+        onChange({ clubSchoolCompany: CLUB_NO_CLUB_VALUE });
       }
       return;
     }
@@ -403,7 +403,7 @@ export default function ParticipantFieldsForm({
 
     setClubSelectValue(CLUB_OTHERS_VALUE);
     setOtherClubName(savedClub);
-  }, [clubNames, isBadminton, values.clubSchoolCompany]);
+  }, [clubNames, clubSelectValue, isBadminton, onChange, values.clubSchoolCompany]);
 
   return (
     <div className="participant-registration-form grid sm:grid-cols-2 gap-5">

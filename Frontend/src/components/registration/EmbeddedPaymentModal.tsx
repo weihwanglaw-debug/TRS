@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { loadStripe, StripeElementsOptions } from "@stripe/stripe-js";
 import { AlertCircle, CheckCircle2, Loader2, XCircle } from "lucide-react";
@@ -71,9 +71,10 @@ export default function EmbeddedPaymentModal(props: EmbeddedPaymentModalProps) {
   const [closeLocked, setCloseLocked] = useState(false);
   const [currentPhase, setCurrentPhase] = useState<PaymentModalPhase>("ready");
   const [confirmedRegistrationId, setConfirmedRegistrationId] = useState<string | null>(null);
+  const publishableKey = attempt?.publishableKey;
   const stripePromise = useMemo(
-    () => attempt ? getStripePromise(attempt.publishableKey) : null,
-    [attempt?.publishableKey],
+    () => publishableKey ? getStripePromise(publishableKey) : null,
+    [publishableKey],
   );
 
   const options = useMemo<StripeElementsOptions | undefined>(() => {
@@ -156,6 +157,8 @@ function EmbeddedPaymentBody({
   const mountedRef = useRef(true);
   const pollFailureCountRef = useRef(0);
   const successHandledRef = useRef(false);
+  const paymentAttemptId = attempt?.paymentAttemptId;
+  const paymentExpiresAt = attempt?.expiresAt;
 
   const submitted = phase === "submitting" || phase === "waiting" || phase === "success" || phase === "review";
   const controlsDisabled = phase === "submitting" || phase === "waiting" || phase === "success" || phase === "review";
@@ -188,7 +191,8 @@ function EmbeddedPaymentBody({
     onConfirmedRegistrationChange(null);
     pollFailureCountRef.current = 0;
     setStripeLoadTimedOut(false);
-  }, [attempt?.paymentAttemptId, onConfirmedRegistrationChange]);
+    setMessage("");
+  }, [paymentAttemptId, onConfirmedRegistrationChange]);
 
   useEffect(() => {
     if (isTerminalPhase(phase)) settledRef.current = true;
@@ -207,9 +211,9 @@ function EmbeddedPaymentBody({
   }, [confirmedRegistrationId, onCloseLockChange, onPhaseChange, phase]);
 
   useEffect(() => {
-    if (!attempt || submitted) return;
+    if (!paymentExpiresAt || submitted) return;
     const timer = window.setInterval(() => {
-      const left = secondsLeft(attempt.expiresAt);
+      const left = secondsLeft(paymentExpiresAt);
       setRemaining(left);
       if (left <= 0) {
         setTerminalPhase("expired", "Payment session has expired. Please close this window and try again.");
@@ -217,7 +221,7 @@ function EmbeddedPaymentBody({
       }
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [attempt?.expiresAt, submitted]);
+  }, [paymentExpiresAt, submitted]);
 
   useEffect(() => {
     if (phase !== "ready" || stripeLoadTimedOut || (stripe && elements)) return;
@@ -232,7 +236,7 @@ function EmbeddedPaymentBody({
   }, [elements, stripe]);
 
   useEffect(() => {
-    if (!attempt || (phase !== "waiting" && phase !== "submitting")) return;
+    if (!paymentAttemptId || (phase !== "waiting" && phase !== "submitting")) return;
     const patienceTimer = window.setTimeout(
       () => setPatienceReached(true),
       phase === "submitting" ? PAYMENT_OPEN_PATIENCE_MS : 30000,
@@ -240,7 +244,7 @@ function EmbeddedPaymentBody({
     const pollTimer = window.setInterval(async () => {
       let status;
       try {
-        status = await apiGetEmbeddedPaymentAttemptStatus(attempt.paymentAttemptId);
+        status = await apiGetEmbeddedPaymentAttemptStatus(paymentAttemptId);
       } catch {
         status = { error: { code: "NETWORK_ERROR", message: "Payment status check failed." }, data: undefined };
       }
@@ -294,19 +298,19 @@ function EmbeddedPaymentBody({
       window.clearTimeout(patienceTimer);
       window.clearInterval(pollTimer);
     };
-  }, [attempt?.paymentAttemptId, phase]);
+  }, [onConfirmedRegistrationChange, paymentAttemptId, phase]);
 
-  const completeSuccess = () => {
+  const completeSuccess = useCallback(() => {
     if (!confirmedRegistrationId || successHandledRef.current) return;
     successHandledRef.current = true;
     onConfirmed(confirmedRegistrationId);
-  };
+  }, [confirmedRegistrationId, onConfirmed]);
 
   useEffect(() => {
     if (phase !== "success" || !confirmedRegistrationId) return;
     const timer = window.setTimeout(completeSuccess, SUCCESS_REDIRECT_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [confirmedRegistrationId, phase]);
+  }, [completeSuccess, confirmedRegistrationId, phase]);
 
   if (!attempt) return null;
 
@@ -321,7 +325,7 @@ function EmbeddedPaymentBody({
       const elementSubmit = await elements.submit();
       if (settledRef.current) return;
       if (elementSubmit.error) {
-        setTerminalPhase("failed", elementSubmit.error.message || "Payment details are incomplete. Please check and try again.");
+        setNonTerminalPhase("ready", elementSubmit.error.message || "Payment details are incomplete. Please check and try again.");
         return;
       }
 
@@ -404,6 +408,17 @@ function EmbeddedPaymentBody({
           <div>
             <p className="font-semibold">Payment form failed to load.</p>
             <p className="text-sm opacity-80">This can happen with ad blockers or a slow connection. Please refresh and try again.</p>
+          </div>
+        </div>
+      );
+    }
+    if (phase === "ready" && message) {
+      return (
+        <div className="p-4 flex gap-3" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
+          <AlertCircle className="h-5 w-5 flex-shrink-0" />
+          <div>
+            <p className="font-semibold">Check your payment details.</p>
+            <p className="text-sm opacity-80">{message}</p>
           </div>
         </div>
       );

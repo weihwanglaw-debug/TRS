@@ -167,8 +167,8 @@ export default function ProgramModal({
         requireTshirt:         program.fields.requireTshirt ?? false,
         customFields: program.fields.customFields.map(cf => ({
           label:     cf.label,
-          type:      (cf as any).fieldType ?? cf.type,     // backend may return fieldType
-          mandatory: (cf as any).isRequired ?? cf.required, // backend may return isRequired
+          type:      cf.type,
+          mandatory: cf.required,
           options:   cf.options || "",
         })),
       });
@@ -191,7 +191,7 @@ export default function ProgramModal({
     }
     setFormErrors({});
     setSaving(false);
-  }, [program, open, isBadminton]);
+  }, [program, open, isBadminton, defaultType.maxPlayers, defaultType.minPlayers, defaultType.value]);
 
   const s = (k: string, v: unknown) => setForm(p => ({ ...p, [k]: v }));
 
@@ -271,7 +271,9 @@ export default function ProgramModal({
                                errs.players  = "Mixed gender requires exactly 2 players per entry (1 Male + 1 Female).";
     if (form.minAge > form.maxAge)                   errs.ageRange = "Min age must be <= max age";
     if (form.minPlayers > form.maxPlayers)           errs.players  = "Min players must be <= max players";
-    if (form.minParticipants > form.maxParticipants) errs.parts    = "Min participants must be <= max";
+    if (form.minParticipants < 1 || form.maxParticipants < 1) errs.parts = "Capacity must be at least 1";
+    else if (form.minParticipants > form.maxParticipants) errs.parts = "Minimum capacity must be <= maximum capacity";
+    if (form.minPlayers < 1 || form.maxPlayers < 1) errs.players = "Players per entry must be at least 1";
     if (parseFloat(form.fee) < 0)                    errs.fee      = "Fee cannot be negative";
     if (form.enableTshirt && !form.tshirtOptions.split(",").some(option => option.trim()))
       errs.tshirtOptions = "Add at least one T-shirt size option";
@@ -445,8 +447,8 @@ export default function ProgramModal({
   {/* Capacity */}
           <Sec title="Capacity">
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              <div><Lbl>Min Entries</Lbl><input type="number" className="field-input" value={form.minParticipants} onChange={e => s("minParticipants", +e.target.value)} /></div>
-              <div><Lbl>Max Entries</Lbl><input type="number" className="field-input" value={form.maxParticipants} onChange={e => s("maxParticipants", +e.target.value)} /></div>
+              <div><Lbl>Min {form.feeStructure === "per_player" ? "Participants" : "Entries"}</Lbl><input type="number" min={1} className="field-input" value={form.minParticipants} onChange={e => s("minParticipants", +e.target.value)} /></div>
+              <div><Lbl>Max {form.feeStructure === "per_player" ? "Participants" : "Entries"}</Lbl><input type="number" min={1} className="field-input" value={form.maxParticipants} onChange={e => s("maxParticipants", +e.target.value)} /></div>
               <div>
                 <Lbl>Min Players / Entry</Lbl>
   {/* Fixed-size program types are auto-set and read-only. */}

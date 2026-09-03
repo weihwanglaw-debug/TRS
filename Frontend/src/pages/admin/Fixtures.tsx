@@ -453,6 +453,8 @@ export default function AdminFixtures() {
   const showResetLatestRound = !!bracketState && bracketState.phase === "knockout" && maxKoRound > 1;
   const canResetLatestRound = showResetLatestRound && currKoRound.every(m => !hasEnteredResult(m));
   const isHeats      = bracketState?.format === "heats";
+  const selectedFixtureEventId = selRow?.eventId;
+  const selectedFixtureProgramId = selRow?.programId;
 
   //  Helpers
   const apiErr = (e: ApiError | null) => { if (e) feedbackApi.error(e.message); };
@@ -462,9 +464,9 @@ export default function AdminFixtures() {
 
   //  Load bracket when row selected
   useEffect(() => {
-    if (!selRow) { setBracketState(null); return; }
+    if (!selectedFixtureEventId || !selectedFixtureProgramId) { setBracketState(null); return; }
     let cancelled = false;
-    apiGetFixture(selRow.eventId, selRow.programId).then(r => {
+    apiGetFixture(selectedFixtureEventId, selectedFixtureProgramId).then(r => {
       if (cancelled) return;
       if (r.error) {
         feedbackApi.error(r.error.message);
@@ -477,7 +479,7 @@ export default function AdminFixtures() {
       if (!cancelled) feedbackApi.error("Fixture could not be loaded. Please check your connection and try again.");
     });
     return () => { cancelled = true; };
-  }, [selRow?.eventId, selRow?.programId, feedbackApi]);
+  }, [feedbackApi, selectedFixtureEventId, selectedFixtureProgramId]);
 
   useEffect(() => {
     if (!selRow?.sbaRankingType) { setSbaRankings([]); return; }
@@ -946,12 +948,6 @@ export default function AdminFixtures() {
                     className="btn-outline px-4 py-2 text-xs font-semibold"
                     style={{ color: "var(--color-primary)", borderColor: "var(--color-primary)" }}>
                     Reset Draw
-                  </button>
-                )}
-                {false && bracketState && showNextRound && (
-                  <button onClick={handleNextRound} disabled={loading}
-                    className="btn-primary px-5 py-2 text-sm font-semibold disabled:opacity-40">
-                    {groupsDone ? "Generate KO Phase" : "Next Round"}
                   </button>
                 )}
               </div>

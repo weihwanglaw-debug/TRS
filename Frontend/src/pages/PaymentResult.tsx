@@ -174,7 +174,9 @@ export default function PaymentResult() {
       setRegId(r.data!.registrationId);
       setPhase("polling");
     });
-  }, []); // run once on mount
+  // This flow intentionally uses the URL and navigation state captured on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   //  Poll until registration is confirmed
   // Resolves when:

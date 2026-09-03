@@ -14,12 +14,58 @@
  *
  *  BASE URL
  *
- *  .env.development  ->  VITE_API_BASE_URL=https://localhost:7183
- *  .env.production  ->  VITE_API_BASE_URL=https://api.yourdomain.com
+ *  The frontend reads /config.json during boot. This lets the same portal
+ *  build run in local, UAT, and production by changing only config.json.
  */
 
-export const API_BASE: string =
-  (import.meta.env?.VITE_API_BASE_URL as string | undefined) ?? "";
+interface RuntimeConfig {
+  apiBaseUrl?: string;
+  mockDelayMs?: number;
+}
+
+function normalizeApiBase(value: string | undefined): string {
+  return (value ?? "").trim().replace(/\/+$/, "");
+}
+
+function validateApiBase(value: string): void {
+  if (!value) return;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("config.json apiBaseUrl must be an absolute URL.");
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("config.json apiBaseUrl must use http or https.");
+  }
+}
+
+export let API_BASE: string = normalizeApiBase(import.meta.env.VITE_API_BASE_URL as string | undefined);
+let mockDelayMs = Number(import.meta.env.VITE_MOCK_DELAY_MS ?? 60);
+
+export async function loadRuntimeConfig(): Promise<void> {
+  try {
+    const res = await fetch("/config.json", { cache: "no-store" });
+    if (!res.ok) {
+      if (res.status === 404) return;
+      throw new Error(`Unable to load config.json. HTTP ${res.status}`);
+    }
+
+    const config = await res.json() as RuntimeConfig;
+    const apiBaseUrl = normalizeApiBase(config.apiBaseUrl);
+    validateApiBase(apiBaseUrl);
+    API_BASE = apiBaseUrl;
+
+    if (typeof config.mockDelayMs === "number") {
+      mockDelayMs = config.mockDelayMs;
+    }
+  } catch (error) {
+    console.error("TRS runtime config failed to load.", error);
+    throw error;
+  }
+}
 
 /**
  * Converts a relative upload path (e.g. /uploads/events/gallery/file.jpg)
@@ -117,8 +163,7 @@ export async function parseError(
 
 //  Mock delay
 
-const DELAY_MS = Number(import.meta.env?.VITE_MOCK_DELAY_MS ?? 60);
-export const delay = () => new Promise(r => setTimeout(r, DELAY_MS));
+export const delay = () => new Promise(r => setTimeout(r, mockDelayMs));
 
 //  Pagination helpers
 

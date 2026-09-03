@@ -31,6 +31,31 @@ public class FixtureGenerationService
             .OrderBy(g => g.GroupId)
             .ToListAsync();
 
+        var invalidRoster = groups.FirstOrDefault(g =>
+        {
+            var activePlayers = g.Participants.Count(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled);
+            return activePlayers < program.MinPlayers || activePlayers > program.MaxPlayers;
+        });
+        if (invalidRoster != null)
+        {
+            return FixtureGenerationResult.Fail(
+                "INVALID_ROSTER",
+                $"Entry '{invalidRoster.NamesDisplay}' no longer has a valid active roster. Resolve cancellations before generating fixtures.");
+        }
+
+        var activeSlotCount = string.Equals(program.FeeStructure, "per_player", StringComparison.OrdinalIgnoreCase)
+            ? groups.Sum(g => g.Participants.Count(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled))
+            : groups.Count;
+        if (activeSlotCount < program.MinParticipants)
+        {
+            var unit = string.Equals(program.FeeStructure, "per_player", StringComparison.OrdinalIgnoreCase)
+                ? "participants"
+                : "entries";
+            return FixtureGenerationResult.Fail(
+                "MINIMUM_NOT_MET",
+                $"At least {program.MinParticipants} active {unit} are required before fixtures can be generated.");
+        }
+
         if (groups.Count < 2)
             return FixtureGenerationResult.Fail("NOT_ENOUGH", "At least 2 registered entries are required.");
 
@@ -260,6 +285,10 @@ public class FixtureGenerationService
         if (match == null)
             return FixtureGenerationResult.Fail("NOT_FOUND", "Match not found.");
 
+        var dependencyValidation = ValidateScoreEditDependency(state, match);
+        if (dependencyValidation != null)
+            return dependencyValidation;
+
         var validation = ValidateScoreRequest(match, req);
         if (validation != null)
             return validation;
@@ -486,11 +515,19 @@ public class FixtureGenerationService
                 GroupId = g.GroupId.ToString(),
                 RegistrationId = g.RegistrationId.ToString(),
                 Club = g.ClubDisplay ?? "",
-                Participants = g.Participants.Select(p => p.FullName).ToList(),
-                ParticipantClubs = g.Participants.Select(p => p.ClubSchoolCompany ?? "").ToList(),
+                Participants = g.Participants
+                    .Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
+                    .Select(p => p.FullName)
+                    .ToList(),
+                ParticipantClubs = g.Participants
+                    .Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
+                    .Select(p => p.ClubSchoolCompany ?? "")
+                    .ToList(),
                 TeamMode = teamMode,
                 Seed = req.Seed,
-                SbaId = g.Participants.FirstOrDefault()?.SbaId,
+                SbaId = g.Participants
+                    .FirstOrDefault(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
+                    ?.SbaId,
             };
         }).ToList();
 
@@ -788,6 +825,30 @@ public class FixtureGenerationService
             return FixtureGenerationResult.Fail("WINNER_MISMATCH", "Selected winner does not match the submitted game scores.");
         if (req.Winner == "team2" && team2Games < team1Games)
             return FixtureGenerationResult.Fail("WINNER_MISMATCH", "Selected winner does not match the submitted game scores.");
+
+        return null;
+    }
+
+    private FixtureGenerationResult? ValidateScoreEditDependency(FixtureState state, FixtureMatch match)
+    {
+        if (string.Equals(match.Phase, "knockout", StringComparison.OrdinalIgnoreCase) &&
+            state.Matches.Any(m =>
+                string.Equals(m.Phase, "knockout", StringComparison.OrdinalIgnoreCase) &&
+                m.Round > match.Round))
+        {
+            return FixtureGenerationResult.Fail(
+                "ROUND_ADVANCED",
+                "Reset the current knockout round before amending a result from a previous round.");
+        }
+
+        if (string.Equals(match.Phase, "group", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(state.Format, "group_knockout", StringComparison.OrdinalIgnoreCase) &&
+            state.Matches.Any(m => string.Equals(m.Phase, "knockout", StringComparison.OrdinalIgnoreCase)))
+        {
+            return FixtureGenerationResult.Fail(
+                "KNOCKOUT_ADVANCED",
+                "Reset the knockout stage before amending a group-stage result.");
+        }
 
         return null;
     }

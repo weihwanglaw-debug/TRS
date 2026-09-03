@@ -31,7 +31,7 @@ import {
   apiUpdatePayment,
   apiGetRefunds, apiGetPaymentAudit, apiCancelRegistration, apiCancelRegistrationGroup,
   apiCancelRegistrationParticipant, apiConfirmRegistration, apiInitiateRefunds,
-  apiSendCancellationNotification, apiExportRegistrations, assetUrl,
+  apiSendCancellationNotification, apiExportRegistrations, assetUrl, API_BASE,
 } from "@/lib/api";
 import type { CancellationRefundMode } from "@/lib/api/registrationsApi";
 import { formatRegistrationProgramsSummary } from "@/lib/exportCsv";
@@ -340,7 +340,6 @@ function PaymentLogModal({ reg, refunds, onClose }: PaymentLogModalProps) {
   const { cfg } = useLiveConfig();
   const payment = getPayment(reg);
   const [auditRows, setAuditRows] = useState<PaymentAuditEntry[]>([]);
-  const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
   const receiptUrl = `${API_BASE}/api/registrations/${reg.id}/receipt`;
   const detailsPdfUrl = `${API_BASE}/api/registrations/${reg.id}/details-pdf`;
   const hasReceipt = !!payment?.receiptNo;
@@ -904,7 +903,6 @@ export default function AdminRegistrations() {
     }).catch(() => {
       showApiError("Registrations could not be loaded. Please check your connection and try again.");
     }).finally(() => setLoadingRegs(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterEvent, filterProgram, filterReg, filterPay, filterSearch, page, perPage]);
 
   const handleMarkPaid = async () => {
@@ -1189,6 +1187,7 @@ export default function AdminRegistrations() {
     setSavingRefund(true);
     try {
       const actionErrors: string[] = [];
+      let hasPendingRefund = false;
 
       if (refundCancelAction === "refundOnly") {
         const refundItems = selectedItems
@@ -1210,6 +1209,7 @@ export default function AdminRegistrations() {
         if (result.data?.errors?.length) {
           actionErrors.push(...result.data.errors);
         }
+        hasPendingRefund = result.data?.refunds.some(refund => refund.refundStatus === "P") ?? false;
       } else if (refundCancelScope === "whole") {
         const result = await apiCancelRegistration(
           refundCancelModal.id,
@@ -1219,6 +1219,7 @@ export default function AdminRegistrations() {
         );
         if (result.error) actionErrors.push(result.error.message);
         if (result.data?.errors?.length) actionErrors.push(...result.data.errors);
+        hasPendingRefund = result.data?.refundPending ?? false;
       } else {
         let actionSucceeded = false;
         for (const item of selectedItems) {
@@ -1232,12 +1233,15 @@ export default function AdminRegistrations() {
             },
           );
           if (result.error) actionErrors.push(`${item.programName}: ${result.error.message}`);
-          else actionSucceeded = true;
+          else {
+            actionSucceeded = true;
+            hasPendingRefund ||= result.data?.refundPending ?? false;
+          }
           if (result.data?.errors?.length) {
             actionErrors.push(...result.data.errors.map(error => `${item.programName}: ${error}`));
           }
         }
-        if (actionSucceeded) {
+        if (actionSucceeded && !hasPendingRefund) {
           const notificationScope = selectedItems.length === 1
             ? selectedItems[0].participantId ? "participant" : "entry"
             : "registration";
@@ -1268,12 +1272,21 @@ export default function AdminRegistrations() {
       }
 
       const successTitle = refundCancelAction === "refundOnly"
-        ? "Refund processed"
+        ? hasPendingRefund ? "Refund pending" : "Refund processed"
         : refundCancelAction === "cancelWithRefund"
-          ? "Cancellation with refund processed"
+          ? hasPendingRefund ? "Refund pending" : "Cancellation with refund processed"
           : "Cancellation processed";
       resetRefundCancelState();
-      showSuccess(successTitle, "The registration record has been updated.");
+      if (hasPendingRefund) {
+        setFeedback({
+          open: true,
+          variant: "info",
+          title: successTitle,
+          description: "Stripe accepted the refund. Cancellation and payment statuses will update after Stripe confirms the final result.",
+        });
+      } else {
+        showSuccess(successTitle, "The registration record has been updated.");
+      }
     } catch {
       setApiError("Action could not be completed. Please check the latest payment and registration status before retrying.");
     } finally {

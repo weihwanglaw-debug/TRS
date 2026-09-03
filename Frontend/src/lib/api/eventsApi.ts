@@ -65,13 +65,23 @@ export interface ProgramImportConfirmResponse {
   participantCount: number;
 }
 
-function remapProgram<T extends { fields?: { customFields?: any[] } }>(p: T): T {
+interface ProgramCustomFieldPayload {
+  label: string;
+  type?: string;
+  fieldType?: string;
+  required?: boolean;
+  isRequired?: boolean;
+  options?: string;
+  sortOrder?: number;
+}
+
+function remapProgram<T extends { fields?: { customFields?: ProgramCustomFieldPayload[] } }>(p: T) {
   if (!p.fields?.customFields) return p;
   return {
     ...p,
     fields: {
       ...p.fields,
-      customFields: p.fields.customFields.map((cf: any, i: number) => ({
+      customFields: p.fields.customFields.map((cf, i) => ({
         label:      cf.label,
         fieldType:  cf.fieldType ?? cf.type ?? "text",
         isRequired: cf.isRequired ?? cf.required ?? false,
@@ -195,7 +205,7 @@ export async function apiUpdateProgram(
   const res = await apiFetch(`${API_BASE}/api/events/${eventId}/programs/${programId}`, {
     method: "PUT",
     headers: adminHeaders(),
-    body: JSON.stringify(remapProgram(patch as any)),
+    body: JSON.stringify(remapProgram(patch)),
   });
   if (!res.ok) return err("UPDATE_FAILED", (await parseError(res)).message);
   return ok(await res.json());

@@ -89,8 +89,9 @@ export const LiveConfigProvider = ({ children }: { children: ReactNode }) => {
 
   const update = async (key: keyof LiveConfig, value: string) => {
     const r = await apiUpdateConfig({ [key]: value });
-    if (r.data) setCfg({ ...EMPTY, ...r.data });
-    else setCfg(prev => ({ ...prev, [key]: value }));
+    if (r.error) throw new Error(r.error.message);
+    if (!r.data) throw new Error("The configuration server returned no saved value.");
+    setCfg({ ...EMPTY, ...r.data });
   };
 
   return (

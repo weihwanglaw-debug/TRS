@@ -121,6 +121,14 @@ namespace TRS_API.Controllers
                         await HandleChargeRefunded(refundedCharge!, eventId);
                         break;
 
+                    case "refund.created":
+                    case "refund.updated":
+                    case "refund.failed":
+                    case "charge.refund.updated":
+                        var updatedRefund = stripeEvent.Data.Object as Stripe.Refund;
+                        await HandleRefundUpdated(updatedRefund!, eventId, stripeEvent.Type);
+                        break;
+
                     default:
                         await UpsertWebhookLogAsync(eventId, stripeEvent.Type, json, "I");
                         break;
@@ -417,12 +425,39 @@ namespace TRS_API.Controllers
             var payment = await _db.Payments
                 .Include(p => p.Items)
                 .Include(p => p.Refunds)
+                .Include(p => p.Registration)
+                    .ThenInclude(r => r.ParticipantGroups)
+                        .ThenInclude(g => g.Participants)
                 .FirstOrDefaultAsync(p =>
                     p.GatewayPaymentId == charge.PaymentIntentId ||
                     p.GatewayChargeId  == charge.Id);
 
             if (payment == null)
             {
+                var matchedOrphanRefund = false;
+                foreach (var stripeRefund in charge.Refunds?.Data ?? Enumerable.Empty<Stripe.Refund>())
+                {
+                    var localRefund = await FindLocalRefundAsync(stripeRefund);
+                    if (localRefund?.PaymentId != null) continue;
+                    if (localRefund == null) continue;
+
+                    matchedOrphanRefund = true;
+                    ApplyRefundStatus(localRefund, stripeRefund.Status);
+                    if (localRefund.RefundStatus == StatusCodesEx.Refund.Success)
+                        await ResolveOrphanReconciliationAsync(localRefund, stripeRefund.Id);
+                }
+
+                if (matchedOrphanRefund)
+                {
+                    await _db.SaveChangesAsync();
+                    await UpsertWebhookLogAsync(
+                        eventId,
+                        "charge.refunded",
+                        System.Text.Json.JsonSerializer.Serialize(charge),
+                        StatusCodesEx.Processing.Success);
+                    return;
+                }
+
                 _logger.LogWarning(
                     "Refund webhook received for unknown charge/payment intent {ChargeId}/{PaymentIntentId}",
                     charge.Id, charge.PaymentIntentId);
@@ -434,11 +469,16 @@ namespace TRS_API.Controllers
             }
 
             var changed = false;
+            var successfulTransition = false;
+            var cancellationTransition = false;
+            var matchedLocalRefund = false;
+            var reconciliationFailure = false;
             foreach (var stripeRefund in charge.Refunds?.Data ?? Enumerable.Empty<Stripe.Refund>())
             {
-                var localRefund = await _db.Refunds.FirstOrDefaultAsync(r => r.GatewayRefundId == stripeRefund.Id);
-                if (localRefund == null)
+                var localRefund = await FindLocalRefundAsync(stripeRefund);
+                if (localRefund == null || localRefund.PaymentId != payment.PaymentId)
                 {
+                    reconciliationFailure = true;
                     _logger.LogWarning(
                         "Refund webhook {EventId} references Stripe refund {RefundId}, but no local refund row exists",
                         eventId,
@@ -449,38 +489,312 @@ namespace TRS_API.Controllers
                         $"Stripe refund {stripeRefund.Id} has no matching local refund row.");
                     continue;
                 }
+                matchedLocalRefund = true;
 
-                var newStatus = stripeRefund.Status switch
-                {
-                    "succeeded" => StatusCodesEx.Refund.Success,
-                    "failed"    => StatusCodesEx.Refund.Failed,
-                    _           => localRefund.RefundStatus
-                };
+                var newStatus = StripeRefundStatusMapper.MergeLocalStatus(
+                    localRefund.RefundStatus,
+                    StripeRefundStatusMapper.ToLocalStatus(stripeRefund.Status));
+                var statusChanged = localRefund.RefundStatus != newStatus;
 
-                if (localRefund.RefundStatus != newStatus)
+                if (statusChanged)
                 {
-                    localRefund.RefundStatus = newStatus;
-                    localRefund.ProcessedAt  = DateTime.UtcNow;
+                    ApplyRefundStatus(localRefund, stripeRefund.Status);
                     changed = true;
                 }
 
                 var item = payment.Items.FirstOrDefault(i => i.PaymentItemId == localRefund.PaymentItemId);
-                if (item != null && newStatus == StatusCodesEx.Refund.Success)
+                if (item != null && statusChanged && newStatus == StatusCodesEx.Refund.Success)
                 {
                     PaymentController.ApplyRefundItemOutcome(payment, item);
+                    ApplySuccessfulCancellation(payment, item, localRefund);
+                    successfulTransition = true;
+                    cancellationTransition |= IsCancellationRefund(localRefund);
                     changed = true;
+                }
+                else if (statusChanged && newStatus == StatusCodesEx.Refund.Failed)
+                {
+                    cancellationTransition |= IsCancellationRefund(localRefund);
                 }
             }
 
-            if (!changed) return;
+            if (!changed)
+            {
+                if (matchedLocalRefund && !reconciliationFailure)
+                {
+                    await UpsertWebhookLogAsync(
+                        eventId,
+                        "charge.refunded",
+                        System.Text.Json.JsonSerializer.Serialize(charge),
+                        StatusCodesEx.Processing.Ignored);
+                }
+                return;
+            }
 
             PaymentController.ApplyRefundOutcome(payment);
+            if (cancellationTransition)
+                ApplyCancellationRegistrationStatus(payment);
             await _db.SaveChangesAsync();
             await UpsertWebhookLogAsync(
                 eventId,
                 "charge.refunded",
                 System.Text.Json.JsonSerializer.Serialize(charge),
                 "S");
+            if (successfulTransition)
+                await QueueRefundNotificationAsync(payment.RegistrationId);
+        }
+
+        private async Task HandleRefundUpdated(Stripe.Refund stripeRefund, string eventId, string eventType)
+        {
+            var localRefund = await FindLocalRefundAsync(stripeRefund);
+            if (localRefund == null)
+            {
+                await UpsertWebhookLogAsync(
+                    eventId,
+                    eventType,
+                    System.Text.Json.JsonSerializer.Serialize(stripeRefund),
+                    StatusCodesEx.Processing.Failed,
+                    $"Stripe refund {stripeRefund.Id} has no matching local refund row.");
+                return;
+            }
+
+            var newStatus = StripeRefundStatusMapper.MergeLocalStatus(
+                localRefund.RefundStatus,
+                StripeRefundStatusMapper.ToLocalStatus(stripeRefund.Status));
+            var changed = localRefund.RefundStatus != newStatus;
+            ApplyRefundStatus(localRefund, stripeRefund.Status);
+
+            if (localRefund.PaymentId is int paymentId)
+            {
+                var payment = await _db.Payments
+                    .Include(p => p.Items)
+                    .Include(p => p.Refunds)
+                    .Include(p => p.Registration)
+                        .ThenInclude(r => r.ParticipantGroups)
+                            .ThenInclude(g => g.Participants)
+                    .FirstOrDefaultAsync(p => p.PaymentId == paymentId);
+                if (payment == null)
+                {
+                    await UpsertWebhookLogAsync(
+                        eventId,
+                        eventType,
+                        System.Text.Json.JsonSerializer.Serialize(stripeRefund),
+                        StatusCodesEx.Processing.Failed,
+                        $"Stripe refund {stripeRefund.Id} references missing payment {paymentId}.");
+                    return;
+                }
+                var item = payment.Items.FirstOrDefault(i => i.PaymentItemId == localRefund.PaymentItemId);
+
+                if (item != null && changed && newStatus == StatusCodesEx.Refund.Success)
+                {
+                    PaymentController.ApplyRefundItemOutcome(payment, item);
+                    PaymentController.ApplyRefundOutcome(payment);
+                    ApplySuccessfulCancellation(payment, item, localRefund);
+                }
+
+                if (changed && StripeRefundStatusMapper.IsTerminal(newStatus) && IsCancellationRefund(localRefund))
+                    ApplyCancellationRegistrationStatus(payment);
+
+                await _db.SaveChangesAsync();
+                await UpsertWebhookLogAsync(
+                    eventId,
+                    eventType,
+                    System.Text.Json.JsonSerializer.Serialize(stripeRefund),
+                    changed ? StatusCodesEx.Processing.Success : StatusCodesEx.Processing.Ignored);
+
+                if (changed && newStatus == StatusCodesEx.Refund.Success)
+                    await QueueRefundNotificationAsync(payment.RegistrationId);
+                return;
+            }
+
+            if (newStatus == StatusCodesEx.Refund.Success)
+                await ResolveOrphanReconciliationAsync(localRefund, stripeRefund.Id);
+
+            await _db.SaveChangesAsync();
+            await UpsertWebhookLogAsync(
+                eventId,
+                eventType,
+                System.Text.Json.JsonSerializer.Serialize(stripeRefund),
+                changed ? StatusCodesEx.Processing.Success : StatusCodesEx.Processing.Ignored);
+        }
+
+        private async Task<TRS_Data.Models.Refund?> FindLocalRefundAsync(Stripe.Refund stripeRefund)
+        {
+            var query = _db.Refunds.Include(refund => refund.WebhookLog);
+            var localRefund = await query.FirstOrDefaultAsync(refund => refund.GatewayRefundId == stripeRefund.Id);
+
+            if (localRefund == null &&
+                stripeRefund.Metadata?.TryGetValue("payment_item_id", out var paymentItemIdValue) == true &&
+                int.TryParse(paymentItemIdValue, out var paymentItemId))
+            {
+                localRefund = await query
+                    .OrderByDescending(refund => refund.CreatedAt)
+                    .FirstOrDefaultAsync(refund =>
+                        refund.PaymentItemId == paymentItemId &&
+                        refund.RefundStatus == StatusCodesEx.Refund.Pending);
+            }
+
+            if (localRefund == null &&
+                stripeRefund.Metadata?.TryGetValue("webhook_log_id", out var webhookLogIdValue) == true &&
+                int.TryParse(webhookLogIdValue, out var webhookLogId))
+            {
+                localRefund = await query
+                    .OrderByDescending(refund => refund.CreatedAt)
+                    .FirstOrDefaultAsync(refund =>
+                        refund.WebhookLogId == webhookLogId &&
+                        refund.RefundStatus == StatusCodesEx.Refund.Pending);
+            }
+
+            if (localRefund != null && string.IsNullOrWhiteSpace(localRefund.GatewayRefundId))
+                localRefund.GatewayRefundId = stripeRefund.Id;
+
+            return localRefund;
+        }
+
+        private static void ApplyRefundStatus(TRS_Data.Models.Refund localRefund, string? stripeStatus)
+        {
+            localRefund.RefundStatus = StripeRefundStatusMapper.MergeLocalStatus(
+                localRefund.RefundStatus,
+                StripeRefundStatusMapper.ToLocalStatus(stripeStatus));
+            localRefund.ProcessedAt = StripeRefundStatusMapper.IsTerminal(localRefund.RefundStatus)
+                ? DateTime.UtcNow
+                : null;
+        }
+
+        private async Task<bool> ResolveOrphanReconciliationAsync(
+            TRS_Data.Models.Refund localRefund,
+            string stripeRefundId)
+        {
+            var gatewaySessionId = localRefund.GatewaySessionId ?? localRefund.WebhookLog?.GatewaySessionId;
+            if (string.IsNullOrWhiteSpace(gatewaySessionId)) return false;
+
+            var changed = false;
+            var relatedLogs = await _db.WebhookLogs
+                .Where(log =>
+                    log.GatewaySessionId == gatewaySessionId &&
+                    log.ProcessingStatus == StatusCodesEx.Processing.Failed)
+                .ToListAsync();
+            foreach (var log in relatedLogs)
+            {
+                log.ProcessingStatus = StatusCodesEx.Processing.Success;
+                log.ProcessedAt = DateTime.UtcNow;
+                changed = true;
+            }
+
+            var attempt = await _db.PaymentAttempts.FirstOrDefaultAsync(candidate =>
+                candidate.GatewayPaymentIntentId == gatewaySessionId &&
+                candidate.Status == PaymentAttemptService.NeedsReconciliation &&
+                candidate.ResolvedAt == null);
+            if (attempt != null)
+            {
+                attempt.ResolvedAt = DateTime.UtcNow;
+                attempt.ResolvedBy = "stripe-webhook";
+                attempt.ResolutionNote = $"Resolved by completed orphan refund {stripeRefundId}.";
+                attempt.UpdatedAt = DateTime.UtcNow;
+                changed = true;
+            }
+
+            return changed;
+        }
+
+        private void ApplySuccessfulCancellation(Payment payment, PaymentItem item, TRS_Data.Models.Refund refund)
+        {
+            if (!IsCancellationRefund(refund)) return;
+
+            var registration = payment.Registration;
+            var group = registration.ParticipantGroups.FirstOrDefault(g => g.GroupId == item.GroupId);
+            if (group == null) return;
+
+            if (item.ParticipantId is int participantId)
+            {
+                var participant = group.Participants.FirstOrDefault(p => p.ParticipantId == participantId);
+                if (participant != null)
+                {
+                    participant.ParticipantStatus = StatusCodesEx.Participant.Cancelled;
+                    participant.UpdatedAt = DateTime.UtcNow;
+                }
+
+                if (group.Participants.All(p => p.ParticipantStatus == StatusCodesEx.Participant.Cancelled))
+                    CancelGroup(group);
+            }
+            else
+            {
+                CancelGroup(group);
+            }
+
+            _db.PaymentAuditLogs.Add(new PaymentAuditLog
+            {
+                EntityType = "Refund",
+                EntityId = refund.RefundId,
+                Action = "CancellationFinalizedByWebhook",
+                OldStatus = StatusCodesEx.Refund.Pending,
+                NewStatus = StatusCodesEx.Refund.Success,
+                Reason = refund.RefundReason,
+                PerformedBy = "stripe-webhook",
+                Notes = $"PaymentItemId={item.PaymentItemId}",
+                CreatedAt = DateTime.UtcNow,
+            });
+        }
+
+        private static bool IsCancellationRefund(TRS_Data.Models.Refund refund) =>
+            refund.RefundReason?.StartsWith("Cancelled ", StringComparison.OrdinalIgnoreCase) == true;
+
+        private static void ApplyCancellationRegistrationStatus(Payment payment)
+        {
+            var registration = payment.Registration;
+            var cancellationRefunds = payment.Refunds
+                .Where(IsCancellationRefund)
+                .ToList();
+            var effectiveRefundStatuses = cancellationRefunds
+                .GroupBy(refund => refund.PaymentItemId)
+                .Select(group => group
+                    .OrderByDescending(refund => refund.CreatedAt)
+                    .ThenByDescending(refund => refund.RefundId)
+                    .First()
+                    .RefundStatus);
+            var isWholeRegistrationCancellation = cancellationRefunds.Any(refund =>
+                refund.RefundReason?.StartsWith("Cancelled registration:", StringComparison.OrdinalIgnoreCase) == true);
+            var registrationStatus = StripeRefundStatusMapper.ResolveCancellationRegistrationStatus(
+                registration.RegStatus,
+                registration.ParticipantGroups.All(group => group.GroupStatus == StatusCodesEx.Registration.Cancelled),
+                isWholeRegistrationCancellation,
+                effectiveRefundStatuses);
+
+            registration.RegStatus = registrationStatus;
+            registration.RegistrationStatus = registrationStatus == StatusCodesEx.Registration.Cancelled
+                ? StatusCodesEx.Registration.Cancelled
+                : StatusCodesEx.Registration.Confirmed;
+            registration.UpdatedAt = DateTime.UtcNow;
+        }
+
+        private static void CancelGroup(ParticipantGroup group)
+        {
+            group.GroupStatus = StatusCodesEx.Registration.Cancelled;
+            group.UpdatedAt = DateTime.UtcNow;
+            foreach (var participant in group.Participants)
+            {
+                participant.ParticipantStatus = StatusCodesEx.Participant.Cancelled;
+                participant.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        private async Task QueueRefundNotificationAsync(int registrationId)
+        {
+            await _jobQueue.EnqueueAsync(async ct =>
+            {
+                using var scope = _serviceScopeFactory.CreateScope();
+                var receiptService = scope.ServiceProvider.GetRequiredService<ReceiptService>();
+                var emailService = scope.ServiceProvider.GetRequiredService<EmailService>();
+                var jobDb = scope.ServiceProvider.GetRequiredService<TRSDbContext>();
+                try
+                {
+                    var receipt = await receiptService.GenerateAsync(jobDb, registrationId);
+                    await emailService.SendRefundNotificationAsync(jobDb, registrationId, receipt, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to send refund notification for registration {RegistrationId}", registrationId);
+                }
+            });
         }
 
         private static bool IsRetryableFinalizationFailure(string? code) =>

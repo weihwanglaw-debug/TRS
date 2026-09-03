@@ -22,7 +22,7 @@ import { exportEventSummaryWorkbook } from "@/lib/exportEventSummaryWorkbook";
 import { exportUserAccessWorkbook } from "@/lib/exportUserAccessWorkbook";
 import { apiGetFixtureStatus } from "@/lib/fixtureApi";
 import { computeFixtureDashboardStats, FixtureDashboardStats } from "@/lib/fixtureStatus";
-import { singaporeDateKey } from "@/lib/eventUtils";
+import { getEventStatus } from "@/lib/eventUtils";
 import { ArchiveRestore, CalendarCheck, CalendarDays, CreditCard, Zap, ClipboardList, FileText, Loader2 } from "lucide-react";
 import { PageLoader } from "@/components/ui/LoadingSpinner";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -70,9 +70,8 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  const today        = singaporeDateKey();
-  const openCount    = events.filter(e => e.openDate <= today && today <= e.closeDate).length;
-  const upcomingCount = events.filter(e => e.openDate > today).length;
+  const openCount = events.filter(event => getEventStatus(event) === "O").length;
+  const upcomingCount = events.filter(event => getEventStatus(event) === "U").length;
   const selectedReportEvent = events.find(event => String(event.id) === reportFilters.eventId);
   const reportPrograms = useMemo(
     () => selectedReportEvent

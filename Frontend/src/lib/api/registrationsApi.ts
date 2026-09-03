@@ -36,7 +36,7 @@ import type { ApiResult, PageParams, PagedResult } from "./_base";
 import type {
   Registration, ParticipantGroup, Payment, PaymentItem,
   Refund, PaymentStatus, RefundMethod, RefundSource, RegistrationStats,
-  WebhookFailure, PaymentAuditEntry, OrphanRefundHistory,
+  WebhookFailure, PaymentAuditEntry, OrphanRefundHistory, PaymentReconciliationMismatch,
   EmbeddedPaymentAttempt, EmbeddedPaymentAttemptStatus,
 } from "@/types/registration";
 
@@ -437,6 +437,7 @@ export type CancellationRefundMode = "none" | "refundPaidItems";
 export interface CancellationResponse {
   registration: Registration;
   errors: string[];
+  refundPending?: boolean;
   fixtureImpact?: Array<{
     programId: number;
     isLocked: boolean;
@@ -682,6 +683,15 @@ export async function apiGetReconciliationStats(): Promise<
 > {
   const res = await apiFetch(
     `${API_BASE}/api/admin/payment-reconciliation/stats`,
+    { headers: adminHeaders() },
+  );
+  if (!res.ok) return err("FETCH_FAILED", (await parseError(res)).message);
+  return ok(await res.json());
+}
+
+export async function apiGetReconciliationMismatches(): Promise<ApiResult<PaymentReconciliationMismatch[]>> {
+  const res = await apiFetch(
+    `${API_BASE}/api/admin/payment-reconciliation/registration-mismatches`,
     { headers: adminHeaders() },
   );
   if (!res.ok) return err("FETCH_FAILED", (await parseError(res)).message);

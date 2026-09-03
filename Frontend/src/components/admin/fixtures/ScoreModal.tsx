@@ -93,11 +93,12 @@ function TeamPanel({
 //  Main modal
 
 export function ScoreModal({ open, draft, isLocked, onClose, onSave, onClear, onChangeDraft }: Props) {
+  const startTimeRef = useRef<HTMLInputElement>(null);
+  const endTimeRef = useRef<HTMLInputElement>(null);
+
   if (!draft) return null;
 
   const set = (patch: Partial<MatchEntry>) => onChangeDraft(patch);
-  const startTimeRef = useRef<HTMLInputElement>(null);
-  const endTimeRef = useRef<HTMLInputElement>(null);
   const updateStartTime = (value: string) => set({ startTime: value });
   const updateEndTime = (value: string) => set({ endTime: value });
   const saveWithCurrentTime = () => onSave({

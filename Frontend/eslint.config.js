@@ -23,4 +23,26 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": "off",
     },
   },
+  {
+    files: [
+      "src/components/ui/TableControls.tsx",
+      "src/components/ui/badge.tsx",
+      "src/components/ui/button.tsx",
+      "src/components/ui/form.tsx",
+      "src/components/ui/navigation-menu.tsx",
+      "src/components/ui/sidebar.tsx",
+      "src/components/ui/sonner.tsx",
+      "src/components/ui/toggle.tsx",
+      "src/contexts/AuthContext.tsx",
+      "src/contexts/LiveConfigContext.tsx",
+      "src/contexts/ThemeContext.tsx",
+      "src/components/events/StatusBadge.tsx",
+      "src/components/registration/ParticipantFieldsForm.tsx",
+    ],
+    rules: {
+      // These modules intentionally export a component together with closely related
+      // variants, hooks, constants, or form helpers used throughout the application.
+      "react-refresh/only-export-components": "off",
+    },
+  },
 );

@@ -7,7 +7,7 @@
  *  - Columns: Rank | Ranking Type | Player(s) | Club | SBA ID | Score | Tournaments | Updated
  */
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { FileUp, Loader2, Search, X, ChevronUp, ChevronDown, Users, User } from "lucide-react";
 import { apiGetSbaRankings, apiGetSbaRankingTypes, apiImportSbaRankings } from "@/lib/api";
 import type { SbaRanking, SbaRankingType } from "@/types/config";
@@ -59,12 +59,13 @@ export default function SbaRankings() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const showFeedback = (variant: ActionFeedbackVariant, title: string, description?: string) =>
+  const showFeedback = useCallback((variant: ActionFeedbackVariant, title: string, description?: string) => {
     setFeedback({ open: true, variant, title, description });
+  }, []);
 
   //  Data load
 
-  const loadRankings = async (type?: string) => {
+  const loadRankings = useCallback(async (type?: string) => {
     setLoading(true);
     try {
       const r = await apiGetSbaRankings(type ? { type } : undefined);
@@ -75,7 +76,7 @@ export default function SbaRankings() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showFeedback]);
 
   // Load ranking types once on mount - separate from rankings to avoid stale closure
   useEffect(() => {
@@ -88,13 +89,13 @@ export default function SbaRankings() {
       })
       .catch(() => showFeedback("error", "Failed to load SBA ranking types", "Please check your connection and try again."));
     loadRankings();
-  }, []);
+  }, [loadRankings, showFeedback]);
 
   // Reload rankings when type filter changes
   useEffect(() => {
     if (!typesLoaded.current) return; // skip the initial mount trigger
     loadRankings(filterType || undefined);
-  }, [filterType]);
+  }, [filterType, loadRankings]);
 
   //  Import
 

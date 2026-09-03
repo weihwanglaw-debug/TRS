@@ -9,6 +9,7 @@ namespace TRS_API.Services;
 public class RegistrationWorkflowService
 {
     private const string DefaultTshirtOptions = "XS,S,M,L,XL,XXL,3XL";
+    private const string SupportedPaymentCurrency = "SGD";
     private static readonly EmailAddressAttribute ContactEmailValidator = new();
 
     private readonly TRSDbContext _db;
@@ -193,7 +194,7 @@ public class RegistrationWorkflowService
         {
             EventId = eventEntity.EventId,
             EventName = eventEntity.Name,
-            Currency = string.IsNullOrWhiteSpace(req.Payment.Currency) ? "SGD" : req.Payment.Currency,
+            Currency = SupportedPaymentCurrency,
             TotalAmount = expectedTotal,
             Groups = quoteGroups,
         });

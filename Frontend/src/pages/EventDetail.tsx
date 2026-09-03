@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import type { TournamentEvent, Program, Participant, CartEntry } from "@/types/config";
 import { isTeamProgram } from "@/types/config";
-import { getEventStatus, formatDate } from "@/lib/eventUtils";
+import { getCartProgramCapacityUsage, getEventStatus, formatDate } from "@/lib/eventUtils";
 import { apiGetEvent, apiGetSbaMember, apiCreateRegistration, apiCreateEmbeddedPaymentAttempt, apiAbandonEmbeddedPaymentAttempt, apiConfirmRegistration, apiUploadFile, assetUrl } from "@/lib/api";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
 import StatusBadge, { getProgramCapacityStatus } from "@/components/events/StatusBadge";
@@ -350,8 +350,8 @@ export default function EventDetail() {
     const prog = event?.programs.find(p => p.id === e.programId);
     return prog?.paymentRequired && e.fee > 0;
   });
-  const getCartEntryCount = (programId: string, excludeIndex: number | null = null) =>
-    cart.filter((entry, index) => entry.programId === programId && index !== excludeIndex).length;
+  const getCartCapacityUsage = (program: Program, excludeIndex: number | null = null) =>
+    getCartProgramCapacityUsage(cart, program, excludeIndex);
   const isAdminPaymentBypass = isAuthenticated && cartRequiresPayment;
   const participantLimitKey = (participant: Participant) => {
     if (!participant.fullName.trim() || !participant.dobDay || !participant.dobMonth || !participant.dobYear) return null;
@@ -360,16 +360,16 @@ export default function EventDetail() {
   const participantLimitMessage = (name: string, limit: number) =>
     `${name || "This participant"} can take part in up to ${limit} program(s) for this event.`;
 
-  const scrollToCartSection = (behavior: ScrollBehavior = "smooth") => {
+  const scrollToCartSection = useCallback((behavior: ScrollBehavior = "smooth") => {
     const target = cartSectionRef.current;
     if (!target) return;
 
     const top = target.getBoundingClientRect().top + window.scrollY - 96;
     window.scrollTo({ top: Math.max(0, top), behavior });
     target.focus({ preventScroll: true });
-  };
+  }, []);
 
-  const scrollToContactSection = (behavior: ScrollBehavior = "smooth") => {
+  const scrollToContactSection = useCallback((behavior: ScrollBehavior = "smooth") => {
     const target = contactSectionRef.current;
     if (!target) {
       scrollToCartSection(behavior);
@@ -382,12 +382,12 @@ export default function EventDetail() {
     if (!contact.name.trim()) {
       window.setTimeout(() => contactNameRef.current?.focus({ preventScroll: true }), 180);
     }
-  };
+  }, [contact.name, scrollToCartSection]);
 
-  const focusNextRegistrationStep = (behavior: ScrollBehavior = "smooth") => {
+  const focusNextRegistrationStep = useCallback((behavior: ScrollBehavior = "smooth") => {
     if (isAdminPaymentBypass) scrollToCartSection(behavior);
     else scrollToContactSection(behavior);
-  };
+  }, [isAdminPaymentBypass, scrollToCartSection, scrollToContactSection]);
 
   useEffect(() => {
     if (step !== 3 || pendingCartFocusIndex === null) return;
@@ -403,7 +403,7 @@ export default function EventDetail() {
       window.clearTimeout(first);
       window.clearTimeout(second);
     };
-  }, [cart.length, pendingCartFocusIndex, step, isAdminPaymentBypass, contact.name]);
+  }, [cart.length, focusNextRegistrationStep, pendingCartFocusIndex, step]);
   const canSubmitCart = isAdminPaymentBypass || consentChecked;
   const registrationContact = isAdminPaymentBypass
     ? {
@@ -440,7 +440,7 @@ export default function EventDetail() {
       { id: "event-categories", label: event.sportType.toLowerCase() === "badminton" ? "Categories" : "Programs", icon: ListChecks },
       ...(canShowRegistration ? [{ id: "registration", label: isAdminRegistrationMode ? "Admin Register" : "Register", icon: ClipboardList }] : []),
     ];
-  }, [event, galleryImages.length, status, canShowRegistration, isAdminRegistrationMode]);
+  }, [event, galleryImages.length, canShowRegistration, isAdminRegistrationMode]);
 
   //  Program selection with scroll
   // Re-fetches the event before opening the form so that currentParticipants
@@ -622,8 +622,9 @@ export default function EventDetail() {
     if (!selectedProgram) return false;
 
   // Program-level checks first
-    const cartEntriesForProgram = getCartEntryCount(selectedProgram.id, editingCartIndex);
-    if (selectedProgram.currentParticipants + cartEntriesForProgram >= selectedProgram.maxParticipants) {
+    const existingCartUsage = getCartCapacityUsage(selectedProgram, editingCartIndex);
+    const newEntryUsage = selectedProgram.feeStructure === "per_player" ? participants.length : 1;
+    if (selectedProgram.currentParticipants + existingCartUsage + newEntryUsage > selectedProgram.maxParticipants) {
       setErrors({}); setFormError("This program is full."); return false;
     }
 
@@ -1182,10 +1183,10 @@ export default function EventDetail() {
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
             {event.programs.map((prog) => {
-              const cartEntryCount = getCartEntryCount(prog.id);
+              const cartCapacityUsage = getCartCapacityUsage(prog);
               const capStatus = getProgramCapacityStatus({
                 ...prog,
-                currentParticipants: prog.currentParticipants + cartEntryCount,
+                currentParticipants: prog.currentParticipants + cartCapacityUsage,
               });
               const isFull = capStatus === "F";
               const progClosed = prog.status === "CL";
@@ -1222,7 +1223,7 @@ export default function EventDetail() {
                     <div className="event-category-action">
                       <button disabled={!canRegister} onClick={() => handleSelectProgram(prog)}
                         className="btn-primary event-category-button disabled:opacity-40 disabled:cursor-not-allowed">
-                        {isFull ? (cartEntryCount > 0 ? "Limit Reached" : "Full") : progClosed ? "Closed" : isAdminRegistrationMode ? "Admin Register" : "Register"}
+                        {isFull ? (cartCapacityUsage > 0 ? "Limit Reached" : "Full") : progClosed ? "Closed" : isAdminRegistrationMode ? "Admin Register" : "Register"}
                       </button>
                     </div>
                   </div>

@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { LiveConfigProvider } from "@/contexts/LiveConfigContext";
+import { RouteIndexingControl } from "@/components/RouteIndexingControl";
 
 import Landing from "@/pages/Landing";
 import EventsArchive from "@/pages/EventsArchive";
@@ -40,6 +41,7 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+              <RouteIndexingControl />
               <Routes>
                 <Route path="/" element={<Landing />} />
                 <Route path="/events" element={<EventsArchive />} />

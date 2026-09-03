@@ -120,7 +120,7 @@ export async function exportTournamentSoftwareWorkbook(
   const writeExcelFile = (await import("write-excel-file/browser")).default;
   const registrationsById = new Map(registrations.map((registration) => [registration.id, registration]));
   const usedSheetNames = new Set<string>();
-  const sheets: Sheet[] = event.programs.map((program) => ({
+  const sheets: Sheet<File | Blob | ArrayBuffer>[] = event.programs.map((program) => ({
     sheet: safeSheetName(program.name, usedSheetNames),
     data: buildProgramRows(
       program,

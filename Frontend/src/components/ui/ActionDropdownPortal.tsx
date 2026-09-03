@@ -37,7 +37,7 @@ export default function ActionDropdownPortal({
 
     let left = baseLeft;
     let top = baseTop;
-    let translateX = "-100%";
+    const translateX = "-100%";
     let translateY = "0";
 
     if (menuW > 0) {

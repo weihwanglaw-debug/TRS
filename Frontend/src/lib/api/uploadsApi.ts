@@ -58,11 +58,10 @@ export async function apiUploadFile(
 
   const body = (await res.json()) as UploadResponse;
   if (typeof body === "string") return ok(body);
-  if (typeof (body as any)?.url === "string") return ok((body as any).url);
-  if (typeof (body as any)?.path === "string") return ok((body as any).path);
-  if (typeof (body as any)?.location === "string") return ok((body as any).location);
+  if ("url" in body && typeof body.url === "string") return ok(body.url);
+  if ("path" in body && typeof body.path === "string") return ok(body.path);
+  if ("location" in body && typeof body.location === "string") return ok(body.location);
   if (locationHeader) return ok(locationHeader);
 
   return err("UPLOAD_BAD_RESPONSE", "Upload succeeded but response was missing URL.");
 }
-

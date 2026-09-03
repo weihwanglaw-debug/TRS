@@ -1,73 +1,57 @@
-# Welcome to your Lovable project
+# TRS Frontend
 
-## Project info
+React 18, TypeScript, and Vite frontend for the Tournament Registration System.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Local development
 
-## How can I edit this code?
-
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```powershell
+npm.cmd install
+npm.cmd run dev
 ```
 
-**Edit a file directly in GitHub**
+Development uses the Vite proxy for `/api` and `/uploads`, targeting the local API configured in `vite.config.ts`.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Verification
 
-**Use GitHub Codespaces**
+```powershell
+npm.cmd run test
+npm.cmd run lint
+npm.cmd run build
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Production or UAT build
 
-## What technologies are used for this project?
+1. Run `npm.cmd ci` followed by `npm.cmd run build`.
+2. Deploy the contents of `dist` to the IIS frontend site.
+3. Replace `config.json` in the deployed portal folder with the environment-specific runtime config.
 
-This project is built with:
+The same frontend build can be used for local, UAT, and production. API routing is controlled by `/config.json` at runtime:
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+```json
+{
+  "apiBaseUrl": "https://uat-api-trs.example.com",
+  "mockDelayMs": 60
+}
+```
 
-## How can I deploy this project?
+Use an empty `apiBaseUrl` for local development so `/api` and `/uploads` go through the Vite proxy. Use the public HTTPS API origin for UAT and production, without `/api` at the end. Runtime config is public browser configuration and must never contain secrets.
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+## IIS requirements
 
-## Can I connect a custom domain to my Lovable project?
+- Install the IIS URL Rewrite module.
+- Host the frontend as a dedicated IIS site or application at the portal hostname.
+- Keep the generated `web.config` in the root of the deployed `dist` folder. It serves `index.html` for React routes while excluding existing files, `/api`, and `/uploads`.
+- Keep the correct environment `config.json` in the root of the deployed portal folder.
+- Add the exact frontend origin to `Cors:AllowedOrigins` in the API's production configuration.
+- Bind a valid HTTPS certificate to both frontend and API hostnames.
 
-Yes, you can!
+## Deployment smoke check
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+After deployment, verify:
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+1. `/` loads normally.
+2. Refreshing `/event/{id}`, `/login`, and `/admin` does not return an IIS 404.
+3. `/config.json` returns the expected API origin.
+4. Browser API requests target the configured API hostname and pass CORS.
+5. `/robots.txt` disallows admin, login, and payment-result routes.
+6. Admin and payment-result pages contain a `noindex` robots meta value after navigation.

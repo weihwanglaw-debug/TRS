@@ -118,9 +118,9 @@ function refundReference(refunds: Refund[]): string {
 }
 
 function refundDate(refunds: Refund[]): string {
-  const latest = [...refunds]
-    .sort((a, b) => String(b.processedAt ?? b.createdAt).localeCompare(String(a.processedAt ?? a.createdAt)))
-    [0];
+  const latest = [...refunds].sort(
+    (a, b) => String(b.processedAt ?? b.createdAt).localeCompare(String(a.processedAt ?? a.createdAt)),
+  )[0];
   return formatDate(latest?.processedAt ?? latest?.createdAt);
 }
 
@@ -283,7 +283,7 @@ export async function exportPaymentSummaryWorkbook(
     rows.push(totalRow);
   }
 
-  const grandTotalRow = Array(24).fill(null).map(() => borderedBlankCell());
+  const grandTotalRow: SheetData[number] = Array(24).fill(null).map(() => borderedBlankCell());
   const netSubtotalRefs = subtotalRows.map(row => `U${row}`).join(",");
   grandTotalRow[19] = {
     value: "Grand Total",

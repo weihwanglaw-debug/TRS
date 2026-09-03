@@ -107,6 +107,7 @@ payment_logs/
 # Never commit — contains secrets
 appsettings.Development.json
 appsettings.Production.json
+DeploymentPrivateConfigs/
 
 # Keep base config only
 !appsettings.json

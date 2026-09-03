@@ -15,6 +15,8 @@ var tests = new List<(string Name, Action Test)>
     ("group knockout allows advance count within smallest group", GroupKnockoutAllowsAdvanceWithinSmallestGroup),
     ("round robin knockout reseeds by final standings", RoundRobinKnockoutReseedsByFinalStandings),
     ("three-way standings use game difference after primary tie", ThreeWayStandingsUseGameDifference),
+    ("previous knockout round cannot be amended after next round exists", PreviousKnockoutRoundCannotBeAmended),
+    ("group result cannot be amended after knockout stage exists", GroupResultCannotBeAmendedAfterKnockout),
 };
 
 var failures = 0;
@@ -146,6 +148,47 @@ static void KnockoutDrawScoreIsRejected()
     var match = Match(Team("1"), Team("2"), "knockout", null, ("1", "1"));
     var result = (FixtureGenerationService.FixtureGenerationResult?)Invoke(service, "ValidateScoreRequest", match, ScoreRequest(null, ("1", "1")));
     AssertTrue(result?.Success == false && result.Code == "INVALID_WINNER", "Knockout draw score should be rejected.");
+}
+
+static void PreviousKnockoutRoundCannotBeAmended()
+{
+    var service = Service();
+    var previous = Match(Team("1"), Team("2"), "knockout", "team1", ("21", "10"));
+    previous.Round = 1;
+    var current = Match(Team("1"), Team("3"), "knockout", null, ("", ""));
+    current.Round = 2;
+    current.Status = StatusCodesEx.Match.Scheduled;
+    var state = new FixtureGenerationService.FixtureState
+    {
+        Format = "knockout",
+        Phase = "knockout",
+        Matches = new List<FixtureGenerationService.FixtureMatch> { previous, current },
+    };
+
+    var result = (FixtureGenerationService.FixtureGenerationResult?)Invoke(service, "ValidateScoreEditDependency", state, previous);
+    AssertTrue(result?.Success == false && result.Code == "ROUND_ADVANCED", "Previous round edit should require the current round to be reset.");
+}
+
+static void GroupResultCannotBeAmendedAfterKnockout()
+{
+    var service = Service();
+    var groupMatch = Match(Team("A"), Team("B"), "group", "team1", ("21", "10"));
+    var state = new FixtureGenerationService.FixtureState
+    {
+        Format = "group_knockout",
+        Phase = "knockout",
+        Groups = new List<FixtureGenerationService.FixtureGroup>
+        {
+            new() { Id = "G1", Matches = new List<FixtureGenerationService.FixtureMatch> { groupMatch } },
+        },
+        Matches = new List<FixtureGenerationService.FixtureMatch>
+        {
+            Match(Team("A"), Team("C"), "knockout", null, ("", "")),
+        },
+    };
+
+    var result = (FixtureGenerationService.FixtureGenerationResult?)Invoke(service, "ValidateScoreEditDependency", state, groupMatch);
+    AssertTrue(result?.Success == false && result.Code == "KNOCKOUT_ADVANCED", "Group edit should require knockout reset.");
 }
 
 static void GroupKnockoutUsesUniqueQualifiers()

@@ -11,6 +11,10 @@ import { API_BASE, adminHeaders, parseError, apiFetch } from "@/lib/api/_base";
 export interface ApiError { code: string; message: string }
 export type ApiResult<T> = { data: T; error: null } | { data: null; error: ApiError }
 
+interface StoredFixtureResponse {
+  bracketStateJson?: string | null;
+}
+
 function ok<T>(data: T): ApiResult<T>                     { return { data, error: null }; }
 function err(code: string, msg: string): ApiResult<never>  { return { data: null, error: { code, message: msg } }; }
 
@@ -42,8 +46,8 @@ export async function apiGetFixture(
   // .NET Ok(null) returns an empty body (not "null" JSON) - guard against that
   const text = await res.text();
   if (!text || text.trim() === "" || text.trim() === "null") return ok(null);
-  let data: any;
-  try { data = JSON.parse(text); } catch { return ok(null); }
+  let data: StoredFixtureResponse;
+  try { data = JSON.parse(text) as StoredFixtureResponse; } catch { return ok(null); }
   if (!data?.bracketStateJson) return ok(null);
   try {
     return ok(JSON.parse(data.bracketStateJson) as BracketState);

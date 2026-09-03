@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { AlertCircle, CheckCircle, Loader2, RefreshCw } from "lucide-react";
-import { apiGetWebhookFailures, apiGetOrphanRefundHistory, apiMarkWebhookFailureReviewed, apiRecordExternalOrphanRefund, apiRefundOrphanedPayment } from "@/lib/api";
-import type { OrphanRefundHistory, RefundMethod, RefundSource, WebhookFailure } from "@/types/registration";
+import { Link } from "react-router-dom";
+import { apiGetReconciliationMismatches, apiGetWebhookFailures, apiGetOrphanRefundHistory, apiMarkWebhookFailureReviewed, apiRecordExternalOrphanRefund, apiRefundOrphanedPayment } from "@/lib/api";
+import type { OrphanRefundHistory, PaymentReconciliationMismatch, RefundMethod, RefundSource, WebhookFailure } from "@/types/registration";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
 import { configuredDateKey, formatConfiguredDateTime } from "@/lib/dateTime";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -74,8 +75,10 @@ export default function PaymentReconciliation() {
   const { cfg } = useLiveConfig();
   const [activeTab,    setActiveTab]    = useState<"active" | "history">("active");
   const [failures,     setFailures]     = useState<WebhookFailure[]>([]);
+  const [mismatches,   setMismatches]   = useState<PaymentReconciliationMismatch[]>([]);
   const [history,      setHistory]      = useState<OrphanRefundHistory[]>([]);
   const [loadingC,     setLoadingC]     = useState(true);
+  const [loadingM,     setLoadingM]     = useState(true);
   const [loadingH,     setLoadingH]     = useState(true);
   const [apiError,     setApiError]     = useState("");
   const [historyPayer, setHistoryPayer] = useState("");
@@ -88,6 +91,7 @@ export default function PaymentReconciliation() {
     description?: string;
   }>({ open: false, variant: "info", title: "" });
   const [failuresLoadError, setFailuresLoadError] = useState("");
+  const [mismatchesLoadError, setMismatchesLoadError] = useState("");
   const showSuccess = (title: string, description?: string) =>
     setFeedback({ open: true, variant: "success", title, description });
 
@@ -106,23 +110,33 @@ export default function PaymentReconciliation() {
   const loadFailures = useCallback(() => {
     setLoadingC(true);
     setFailuresLoadError("");
+    setMismatchesLoadError("");
     setApiError("");
-    apiGetWebhookFailures()
-      .then(r => {
-        if (r.data) setFailures(r.data);
-        else if (r.error) {
+    setLoadingM(true);
+    Promise.allSettled([apiGetWebhookFailures(), apiGetReconciliationMismatches()])
+      .then(([failureLoad, mismatchLoad]) => {
+        if (failureLoad.status === "fulfilled" && failureLoad.value.data) {
+          setFailures(failureLoad.value.data);
+        } else {
           setFailures([]);
-          setFailuresLoadError(r.error.message);
-          setApiError(r.error.message);
+          setFailuresLoadError(
+            failureLoad.status === "fulfilled"
+              ? failureLoad.value.error?.message ?? "Couldn't load unmatched payments."
+              : "Couldn't load unmatched payments. Check your connection and retry.",
+          );
+        }
+        if (mismatchLoad.status === "fulfilled" && mismatchLoad.value.data) {
+          setMismatches(mismatchLoad.value.data);
+        } else {
+          setMismatches([]);
+          setMismatchesLoadError(
+            mismatchLoad.status === "fulfilled"
+              ? mismatchLoad.value.error?.message ?? "Couldn't load registration/payment mismatches."
+              : "Couldn't load registration/payment mismatches. Check your connection and retry.",
+          );
         }
       })
-      .catch(() => {
-        const message = "Couldn't load unmatched payments. Check your connection and retry.";
-        setFailures([]);
-        setFailuresLoadError(message);
-        setApiError(message);
-      })
-      .finally(() => setLoadingC(false));
+      .finally(() => { setLoadingC(false); setLoadingM(false); });
   }, []);
 
   const loadHistory = useCallback(() => {
@@ -189,6 +203,19 @@ export default function PaymentReconciliation() {
             refundNote,
           );
       if (r.error) { setApiError(r.error.message); return; }
+      if (r.data?.refundStatus === "P") {
+        loadHistory();
+        setRefundTarget(null);
+        setRefundReason("");
+        setRefundNote("");
+        setFeedback({
+          open: true,
+          variant: "info",
+          title: "Refund pending",
+          description: "Stripe accepted the refund. This row will remain active until Stripe confirms the final result.",
+        });
+        return;
+      }
       setFailures(prev => prev.filter(f => f.webhookLogId !== refundTarget.webhookLogId));
       loadHistory();
       setRefundTarget(null);
@@ -237,13 +264,13 @@ export default function PaymentReconciliation() {
       />
       <div className="flex items-center justify-between mb-8">
         <div className="admin-page-title" style={{ marginBottom: 0 }}><h1>Payment Reconciliation</h1></div>
-        {failuresLoadError && (
+        {(failuresLoadError || mismatchesLoadError) && (
           <button
             type="button"
             onClick={loadFailures}
             className="btn-outline flex items-center gap-1.5 px-4 py-2 text-xs font-semibold"
           >
-            <RefreshCw className="h-3.5 w-3.5" /> Retry unmatched payments
+          <RefreshCw className="h-3.5 w-3.5" /> Retry reconciliation
           </button>
         )}
       </div>
@@ -251,12 +278,12 @@ export default function PaymentReconciliation() {
 
 
       <p className="text-sm opacity-60 mb-4">
-        Payments where no registration was created
+        Payment and registration records that require administrator review
       </p>
 
       <AdminTabs<"active" | "history">
         tabs={[
-          { key: "active", label: `Active (${failures.length})` },
+          { key: "active", label: `Active (${failures.length + mismatches.length})` },
           { key: "history", label: `Refund History (${history.length})` },
         ]}
         activeKey={activeTab}
@@ -265,6 +292,45 @@ export default function PaymentReconciliation() {
 
       {activeTab === "active" && (
         <>
+      <div className="mb-7">
+        <div className="flex items-center justify-between gap-4 mb-3">
+          <div>
+            <h2 className="font-semibold">Registration/payment mismatches</h2>
+            <p className="text-xs opacity-55 mt-1">Review these records in Registrations before changing either status.</p>
+          </div>
+          <Link to="/admin/registrations" className="btn-outline px-3 py-1.5 text-xs whitespace-nowrap">Open Registrations</Link>
+        </div>
+        <div className="overflow-x-auto" style={{ border: "1px solid var(--color-table-border)" }}>
+          <table className="trs-table">
+            <thead><tr><th>Case</th><th>Registration</th><th>Event</th><th>Contact</th><th>Amount</th><th>Updated</th></tr></thead>
+            <tbody>
+              {loadingM && <tr><td colSpan={6} className="text-center py-6"><LoadingSpinner size="sm" label="Loading..." /></td></tr>}
+              {!loadingM && mismatchesLoadError && (
+                <tr><td colSpan={6} className="text-center py-8">
+                  <p className="text-sm">{mismatchesLoadError}</p>
+                  <button type="button" onClick={loadFailures} className="btn-outline mt-3 px-3 py-1.5 text-xs">Retry</button>
+                </td></tr>
+              )}
+              {!loadingM && !mismatchesLoadError && mismatches.length === 0 && (
+                <tr><td colSpan={6} className="text-center py-8 opacity-40"><CheckCircle className="h-4 w-4 inline mr-2" />No registration/payment mismatches.</td></tr>
+              )}
+              {!mismatchesLoadError && mismatches.map(row => (
+                <tr key={`${row.caseType}-${row.paymentId}`}>
+                  <td><span className="font-semibold">{row.caseType}</span><p className="text-xs opacity-50">{row.caseType === "A" ? "Confirmed / payment pending" : "Pending / payment successful"}</p></td>
+                  <td className="font-semibold">#{row.registrationId}</td>
+                  <td>{row.eventName}</td>
+                  <td><p>{row.contactName}</p><p className="text-xs opacity-50">{row.contactEmail}</p></td>
+                  <td className="whitespace-nowrap">{row.currency} {row.amount.toFixed(2)}</td>
+                  <td className="text-xs whitespace-nowrap">{formatDateTime(row.updatedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <h2 className="font-semibold mb-1">Unmatched Stripe payments</h2>
+      <p className="text-xs opacity-55 mb-3">Payments where no registration was created.</p>
       {failures.length > 0 && (
         <div
           className="mb-4 px-4 py-3 text-sm flex items-center gap-3"

@@ -12,6 +12,7 @@ namespace TRS_API.Controllers;
 /// <summary>
 /// Endpoints that serve the Payment Reconciliation page:
 ///   GET  /api/admin/payment-reconciliation/stats          - dashboard card count
+///   GET  /api/admin/payment-reconciliation/registration-mismatches - Case-A/B rows
 ///   GET  /api/admin/payment-reconciliation/webhook-failures - Case-C row list
 ///   POST /api/admin/payment-reconciliation/webhook-failures/{id}/refund - orphan refund
 /// </summary>
@@ -92,6 +93,42 @@ public class AdminPaymentReconciliationController : ControllerBase
             caseC,
             total = caseA + caseB + caseC,
         });
+    }
+
+    [HttpGet("registration-mismatches")]
+    public async Task<IActionResult> GetRegistrationMismatches()
+    {
+        var rows = await _db.EventRegistrations
+            .AsNoTracking()
+            .SelectMany(
+                registration => registration.Payments
+                    .Where(payment =>
+                        (registration.RegStatus == StatusCodesEx.Registration.Confirmed &&
+                         payment.PaymentStatus == StatusCodesEx.Payment.Pending) ||
+                        (registration.RegStatus == StatusCodesEx.Registration.Pending &&
+                         payment.PaymentStatus == StatusCodesEx.Payment.Success)),
+                (registration, payment) => new
+                {
+                    caseType = registration.RegStatus == StatusCodesEx.Registration.Confirmed ? "A" : "B",
+                    registrationId = registration.RegistrationId,
+                    paymentId = payment.PaymentId,
+                    registration.EventId,
+                    registration.EventName,
+                    registration.ContactName,
+                    registration.ContactEmail,
+                    registration.ContactPhone,
+                    registrationStatus = registration.RegStatus,
+                    paymentStatus = payment.PaymentStatus,
+                    payment.PaymentGateway,
+                    payment.PaymentMethod,
+                    payment.Amount,
+                    payment.Currency,
+                    updatedAt = payment.UpdatedAt ?? payment.CreatedAt,
+                })
+            .OrderByDescending(row => row.updatedAt)
+            .ToListAsync();
+
+        return Ok(rows);
     }
 
     // GET /api/admin/payment-reconciliation/webhook-failures
@@ -490,8 +527,10 @@ public class AdminPaymentReconciliationController : ControllerBase
             refund.GatewayRefundId = stripeRefund.Id;
             refund.RefundSource     = "System";
             refund.RefundMethod     = "Gateway";
-            refund.RefundStatus    = stripeRefund.Status == "failed" ? StatusCodesEx.Refund.Failed : StatusCodesEx.Refund.Success;
-            refund.ProcessedAt     = DateTime.UtcNow;
+            refund.RefundStatus    = StripeRefundStatusMapper.ToLocalStatus(stripeRefund.Status);
+            refund.ProcessedAt     = StripeRefundStatusMapper.IsTerminal(refund.RefundStatus)
+                ? DateTime.UtcNow
+                : null;
 
             if (refund.RefundStatus == StatusCodesEx.Refund.Success)
             {
@@ -521,7 +560,12 @@ public class AdminPaymentReconciliationController : ControllerBase
             {
                 EntityType  = "OrphanRefund",
                 EntityId    = refund.RefundId,
-                Action      = refund.RefundStatus == StatusCodesEx.Refund.Success ? "OrphanRefundIssued" : "OrphanRefundFailed",
+                Action      = refund.RefundStatus switch
+                {
+                    StatusCodesEx.Refund.Success => "OrphanRefundIssued",
+                    StatusCodesEx.Refund.Pending => "OrphanRefundPending",
+                    _ => "OrphanRefundFailed",
+                },
                 Reason      = req.Reason,
                 PerformedBy = User.Identity?.Name ?? "admin",
                 Notes       = $"WebhookLogId={webhookLogId} SessionId={log.GatewaySessionId} " +
@@ -530,6 +574,17 @@ public class AdminPaymentReconciliationController : ControllerBase
             });
 
             await _db.SaveChangesAsync();
+
+            if (refund.RefundStatus == StatusCodesEx.Refund.Pending)
+            {
+                return Accepted(new
+                {
+                    refundId = refund.RefundId,
+                    refundStatus = refund.RefundStatus,
+                    refundAmount = refund.RefundAmount,
+                    gatewayRefundId = refund.GatewayRefundId,
+                });
+            }
 
             if (refund.RefundStatus != StatusCodesEx.Refund.Success)
                 return StatusCode(502, new { code = "REFUND_FAILED", message = "Stripe accepted the request but the refund did not complete." });

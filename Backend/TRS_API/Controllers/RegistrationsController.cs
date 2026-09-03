@@ -305,6 +305,13 @@ public class RegistrationsController : ControllerBase
                 reg.RegStatus = StatusCodesEx.Registration.Confirmed;
                 reg.RegistrationStatus = StatusCodesEx.Registration.Confirmed;
                 reg.ConfirmedAt = DateTime.UtcNow;
+                reg.UpdatedAt = DateTime.UtcNow;
+                foreach (var group in reg.ParticipantGroups)
+                {
+                    if (group.GroupStatus == StatusCodesEx.Registration.Cancelled) continue;
+                    group.GroupStatus = StatusCodesEx.Registration.Confirmed;
+                    group.UpdatedAt = DateTime.UtcNow;
+                }
             }
         }
         payment.UpdatedAt = DateTime.UtcNow;
@@ -391,9 +398,9 @@ public class RegistrationsController : ControllerBase
         if (!result.Success)
             return BadRequest(new { code = result.Code, message = result.Message });
 
-        await SendRefundEmailSafeAsync(id);
-
         var refund = result.Refund!;
+        if (refund.RefundStatus == StatusCodesEx.Refund.Success)
+            await SendRefundEmailSafeAsync(id);
         return Ok(new
         {
             id = refund.RefundId.ToString(),
@@ -423,6 +430,7 @@ public class RegistrationsController : ControllerBase
 
         var refunds = new List<object>();
         var errors = new List<string>();
+        var successfulRefundCreated = false;
 
         foreach (var requestedItem in req.Items)
         {
@@ -449,6 +457,7 @@ public class RegistrationsController : ControllerBase
             }
 
             var refund = result.Refund!;
+            successfulRefundCreated |= refund.RefundStatus == StatusCodesEx.Refund.Success;
             refunds.Add(new
             {
                 id = refund.RefundId.ToString(),
@@ -462,7 +471,8 @@ public class RegistrationsController : ControllerBase
         if (refunds.Count == 0)
             return BadRequest(new { code = "REFUND_FAILED", message = string.Join(" | ", errors) });
 
-        await SendRefundEmailSafeAsync(id);
+        if (successfulRefundCreated)
+            await SendRefundEmailSafeAsync(id);
         return Ok(new { refunds, errors });
     }
 
@@ -787,6 +797,31 @@ public class RegistrationsController : ControllerBase
             }
         }
 
+        var activeParticipants = await _db.Participants
+            .Where(p => p.GroupId == participant.GroupId && p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
+            .OrderBy(p => p.ParticipantId)
+            .ToListAsync();
+        participant.Group.NamesDisplay = string.Join(" / ", activeParticipants.Select(p => p.FullName));
+        participant.Group.UpdatedAt = DateTime.UtcNow;
+
+        var paymentItems = await _db.PaymentItems
+            .Where(item => item.GroupId == participant.GroupId)
+            .ToListAsync();
+        foreach (var item in paymentItems)
+        {
+            if (item.ParticipantId == participant.ParticipantId)
+            {
+                item.PlayerName = participant.FullName;
+                item.Description = $"{item.ProgramName} - {participant.FullName}";
+            }
+            else if (item.ParticipantId == null)
+            {
+                item.Description = $"{item.ProgramName} - {participant.Group.NamesDisplay}";
+            }
+
+            item.UpdatedAt = DateTime.UtcNow;
+        }
+
         participant.UpdatedAt = DateTime.UtcNow;
 
         // TODO: write ParticipantAuditLog entries here (one per changed field)
@@ -1004,6 +1039,7 @@ public class RegistrationsController : ControllerBase
             participantCancelWillCancelGroup;
         var errors = new List<string>();
         var refundedAny = false;
+        var refundPending = false;
         var appliedAnyLocalCancellation = false;
 
         if (affectsEntireRegistration && shouldRefund && payment != null && affectedItems.Any(i => i.ItemStatus == StatusCodesEx.PaymentItem.Success))
@@ -1035,7 +1071,7 @@ public class RegistrationsController : ControllerBase
                     {
                         errors.Add($"{item.ProgramName}: {refund.Message}");
                     }
-                    else
+                    else if (refund.Refund!.RefundStatus == StatusCodesEx.Refund.Success)
                     {
                         refundedAny = true;
                         appliedAnyLocalCancellation |= ApplyItemCancellationScope(
@@ -1044,6 +1080,10 @@ public class RegistrationsController : ControllerBase
                             req.Reason,
                             scope,
                             "CancelledAfterRefund");
+                    }
+                    else
+                    {
+                        refundPending = true;
                     }
 
                     continue;
@@ -1117,7 +1157,7 @@ public class RegistrationsController : ControllerBase
                 appliedAnyLocalCancellation |= CancelGroupOnly(group, req.Reason, "CancelledWithoutRefund");
         }
 
-        ApplyPostCancellationRegistrationStatus(reg, errors.Count > 0, refundedAny, req.Reason, scope);
+        ApplyPostCancellationRegistrationStatus(reg, errors.Count > 0, refundedAny, refundPending, req.Reason, scope);
 
         await _db.SaveChangesAsync();
 
@@ -1125,7 +1165,7 @@ public class RegistrationsController : ControllerBase
             await SendCancellationEmailSafeAsync(reg.RegistrationId, scope, req.Reason, refundedAny);
 
         var updated = await LoadReg(reg.RegistrationId);
-        return Ok(new { registration = MapReg(updated!), errors, fixtureImpact = impact });
+        return Ok(new { registration = MapReg(updated!), errors, refundPending, fixtureImpact = impact });
     }
 
     private bool ApplyItemCancellationScope(
@@ -1221,6 +1261,7 @@ public class RegistrationsController : ControllerBase
         EventRegistration reg,
         bool hasRefundErrors,
         bool refundedAny,
+        bool refundPending,
         string reason,
         string scope)
     {
@@ -1234,6 +1275,12 @@ public class RegistrationsController : ControllerBase
         else if (hasRefundErrors)
         {
             ApplyRegistrationWorkflowStatus(reg, StatusCodesEx.Registration.RefundFailed);
+        }
+        else if (refundPending)
+        {
+            // A whole-registration cancellation is already CP. Partial cancellation
+            // requests leave the registration confirmed until Stripe succeeds.
+            reg.UpdatedAt = DateTime.UtcNow;
         }
         else if (refundedAny)
         {
@@ -1429,8 +1476,10 @@ public class RegistrationsController : ControllerBase
                 refund.GatewayRefundId = stripeRefund.Id;
                 refund.RefundSource = "System";
                 refund.RefundMethod = "Gateway";
-                refund.RefundStatus = stripeRefund.Status == "failed" ? StatusCodesEx.Refund.Failed : StatusCodesEx.Refund.Success;
-                refund.ProcessedAt = DateTime.UtcNow;
+                refund.RefundStatus = StripeRefundStatusMapper.ToLocalStatus(stripeRefund.Status);
+                refund.ProcessedAt = StripeRefundStatusMapper.IsTerminal(refund.RefundStatus)
+                    ? DateTime.UtcNow
+                    : null;
                 await _db.SaveChangesAsync();
             }
             else
@@ -1460,6 +1509,22 @@ public class RegistrationsController : ControllerBase
             return RefundOperationResult.Fail(
                 ex.StripeError?.Code ?? "REFUND_FAILED",
                 ex.StripeError?.Message ?? "Refund failed.");
+        }
+
+        if (refund.RefundStatus == StatusCodesEx.Refund.Pending)
+        {
+            _db.PaymentAuditLogs.Add(new PaymentAuditLog
+            {
+                EntityType = "Refund",
+                EntityId = refund.RefundId,
+                Action = refundOnly ? "RefundOnlyPending" : "RefundPending",
+                Reason = refundReason,
+                PerformedBy = User.Identity?.Name ?? "admin",
+                Notes = $"PaymentItemId={item.PaymentItemId}, Status={refund.RefundStatus}, Reference={refund.GatewayRefundId}",
+                CreatedAt = DateTime.UtcNow,
+            });
+            await _db.SaveChangesAsync();
+            return RefundOperationResult.Ok(refund);
         }
 
         if (refund.RefundStatus != StatusCodesEx.Refund.Success)

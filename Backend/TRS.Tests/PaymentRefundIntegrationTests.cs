@@ -53,9 +53,11 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(config);
         services.AddLogging(builder => builder.AddProvider(new TestLogProvider(_logs)));
+        services.AddHttpClient();
         services.AddDbContext<TRSDbContext>(options => options.UseSqlServer(ConnectionString));
         services.AddSingleton<IBackgroundJobQueue, NoopBackgroundJobQueue>();
         services.AddScoped<RegistrationWorkflowService>();
+        services.AddScoped<AdminPaymentOutcomeService>();
         services.AddScoped<PaymentFinalizationService>();
         services.AddScoped<PaymentAttemptService>();
         services.AddScoped<ReceiptService>();
@@ -109,7 +111,7 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
 
             Assert.Equal("S", payment.PaymentStatus);
             Assert.Equal(50m, payment.Amount);
-            Assert.Equal("Confirmed", payment.Registration.RegStatus);
+            Assert.Equal(StatusCodesEx.Registration.Confirmed, payment.Registration.RegStatus);
             Assert.Equal("C", payment.Registration.RegistrationStatus);
             Assert.Single(payment.Items);
             Assert.All(payment.Items, item => Assert.Equal("S", item.ItemStatus));
@@ -428,6 +430,127 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task Refund_updated_webhook_finalizes_pending_registration_cancellation()
+    {
+        var payment = await CreatePaidRegistrationAsync(50m, "refund-updated-cancellation");
+        var item = payment.Items.Single();
+        var refundId = $"{_runId}_re_updated";
+
+        await using (var db = CreateDb())
+        {
+            var registration = await db.EventRegistrations
+                .SingleAsync(r => r.RegistrationId == payment.RegistrationId);
+            registration.RegStatus = StatusCodesEx.Registration.CancelPending;
+            registration.RegistrationStatus = StatusCodesEx.Registration.Confirmed;
+            db.Refunds.Add(new TrsRefund
+            {
+                PaymentId = payment.PaymentId,
+                PaymentItemId = item.PaymentItemId,
+                PaymentGateway = "Stripe",
+                RefundAmount = item.Amount,
+                RefundReason = $"Cancelled registration: {_runId}",
+                RefundStatus = StatusCodesEx.Refund.Pending,
+                RequestedBy = "refund-admin",
+                CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await PostRefundUpdatedWebhookAsync(
+            payment.GatewayPaymentId!,
+            refundId,
+            item.PaymentItemId,
+            webhookLogId: null,
+            stripeStatus: "succeeded",
+            eventId: $"{_runId}_evt_refund_updated");
+
+        await using (var db = CreateDb())
+        {
+            var reconciled = await db.Payments
+                .Include(p => p.Items)
+                .Include(p => p.Refunds)
+                .Include(p => p.Registration)
+                    .ThenInclude(r => r.ParticipantGroups)
+                        .ThenInclude(g => g.Participants)
+                .SingleAsync(p => p.PaymentId == payment.PaymentId);
+            var refund = reconciled.Refunds.Single(r => r.GatewayRefundId == refundId);
+
+            Assert.Equal(StatusCodesEx.Refund.Success, refund.RefundStatus);
+            Assert.Equal(StatusCodesEx.Payment.FullyRefunded, reconciled.PaymentStatus);
+            Assert.Equal(StatusCodesEx.PaymentItem.Refunded, reconciled.Items.Single().ItemStatus);
+            Assert.Equal(StatusCodesEx.Registration.Cancelled, reconciled.Registration.RegStatus);
+            Assert.Equal(StatusCodesEx.Registration.Cancelled, reconciled.Registration.RegistrationStatus);
+            Assert.All(reconciled.Registration.ParticipantGroups, group =>
+            {
+                Assert.Equal(StatusCodesEx.Registration.Cancelled, group.GroupStatus);
+                Assert.All(group.Participants, participant =>
+                    Assert.Equal(StatusCodesEx.Participant.Cancelled, participant.ParticipantStatus));
+            });
+        }
+    }
+
+    [Fact]
+    public async Task Refund_updated_webhook_resolves_completed_orphan_refund_reconciliation()
+    {
+        var gatewaySessionId = $"pi_{_runId}_orphan_pending";
+        var refundId = $"{_runId}_re_orphan_updated";
+        int webhookLogId;
+
+        await using (var db = CreateDb())
+        {
+            var log = new WebhookLog
+            {
+                PaymentGateway = "Stripe",
+                GatewayEventId = $"{_runId}_evt_orphan_original",
+                GatewaySessionId = gatewaySessionId,
+                EventType = "payment_intent.succeeded",
+                PayloadJson = "{}",
+                ProcessingStatus = StatusCodesEx.Processing.Failed,
+                ErrorMessage = "Registration finalization failed.",
+                ReceivedAt = DateTime.UtcNow,
+            };
+            db.WebhookLogs.Add(log);
+            await db.SaveChangesAsync();
+            webhookLogId = log.WebhookLogId;
+
+            db.Refunds.Add(new TrsRefund
+            {
+                GatewaySessionId = gatewaySessionId,
+                WebhookLogId = webhookLogId,
+                PaymentGateway = "Stripe",
+                RefundSource = "System",
+                RefundMethod = "Gateway",
+                RefundAmount = 50m,
+                RefundReason = $"{_runId} orphan refund",
+                RefundStatus = StatusCodesEx.Refund.Pending,
+                RequestedBy = "refund-admin",
+                CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await PostRefundUpdatedWebhookAsync(
+            gatewaySessionId,
+            refundId,
+            paymentItemId: null,
+            webhookLogId,
+            stripeStatus: "succeeded",
+            eventId: $"{_runId}_evt_orphan_refund_updated");
+
+        await using (var db = CreateDb())
+        {
+            var refund = await db.Refunds.SingleAsync(r => r.GatewayRefundId == refundId);
+            var originalLog = await db.WebhookLogs.SingleAsync(w => w.WebhookLogId == webhookLogId);
+            var refundEventLog = await db.WebhookLogs.SingleAsync(w => w.GatewayEventId == $"{_runId}_evt_orphan_refund_updated");
+
+            Assert.Equal(StatusCodesEx.Refund.Success, refund.RefundStatus);
+            Assert.Equal(StatusCodesEx.Processing.Success, originalLog.ProcessingStatus);
+            Assert.NotNull(originalLog.ProcessedAt);
+            Assert.Equal(StatusCodesEx.Processing.Success, refundEventLog.ProcessingStatus);
+        }
+    }
+
     private async Task<Payment> CreatePaidRegistrationAsync(decimal amount, string suffix)
     {
         var seed = await SeedEventAsync(amount);
@@ -454,7 +577,6 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             EventEndDate = today.AddDays(31),
             OpenDate = today.AddDays(-1),
             CloseDate = today.AddDays(10),
-            MaxParticipants = 100,
             IsSports = true,
             SportType = "Badminton",
             FixtureMode = "internal",
@@ -479,7 +601,7 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             MaxPlayers = 1,
             MinParticipants = 1,
             MaxParticipants = 100,
-            Status = "open",
+            Status = StatusCodesEx.Program.Open,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
         };
@@ -676,6 +798,87 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
         }
     }
 
+    private async Task PostRefundUpdatedWebhookAsync(
+        string paymentIntentId,
+        string refundId,
+        int? paymentItemId,
+        int? webhookLogId,
+        string stripeStatus,
+        string eventId)
+    {
+        var payload = BuildRefundUpdatedEventJson(
+            paymentIntentId,
+            refundId,
+            paymentItemId,
+            webhookLogId,
+            stripeStatus,
+            eventId);
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+        var signature = EventUtility.ComputeSignature(WebhookSecret, timestamp, payload);
+        var fakeClient = StripeConfiguration.StripeClient;
+        StripeConfiguration.StripeClient = new StripeClient("sk_test_webhook_parse_only");
+        try
+        {
+            var parsedEvent = EventUtility.ConstructEvent(payload, $"t={timestamp},v1={signature}", WebhookSecret);
+            if (parsedEvent.Data.Object is not StripeRefund)
+                throw new Xunit.Sdk.XunitException("Test webhook payload did not deserialize as Refund.");
+
+            var controller = CreateStripeWebhookController();
+            var http = new DefaultHttpContext();
+            http.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(payload));
+            http.Request.Headers["Stripe-Signature"] = $"t={timestamp},v1={signature}";
+            controller.ControllerContext = new ControllerContext { HttpContext = http };
+
+            var result = await controller.Webhook();
+            Assert.IsType<OkResult>(result);
+        }
+        finally
+        {
+            StripeConfiguration.StripeClient = fakeClient;
+        }
+    }
+
+    private static string BuildRefundUpdatedEventJson(
+        string paymentIntentId,
+        string refundId,
+        int? paymentItemId,
+        int? webhookLogId,
+        string stripeStatus,
+        string eventId)
+    {
+        var metadata = new Dictionary<string, string>();
+        if (paymentItemId.HasValue) metadata["payment_item_id"] = paymentItemId.Value.ToString();
+        if (webhookLogId.HasValue) metadata["webhook_log_id"] = webhookLogId.Value.ToString();
+        var metadataJson = JsonSerializer.Serialize(metadata);
+
+        return $$"""
+        {
+          "id": "{{eventId}}",
+          "object": "event",
+          "api_version": "2025-12-15.clover",
+          "type": "refund.updated",
+          "created": {{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}},
+          "livemode": false,
+          "pending_webhooks": 1,
+          "request": {
+            "id": null,
+            "idempotency_key": null
+          },
+          "data": {
+            "object": {
+              "id": "{{refundId}}",
+              "object": "refund",
+              "amount": 5000,
+              "currency": "sgd",
+              "payment_intent": "{{paymentIntentId}}",
+              "status": "{{stripeStatus}}",
+              "metadata": {{metadataJson}}
+            }
+          }
+        }
+        """;
+    }
+
     private static string BuildChargeRefundedEventJson(
         string paymentIntentId,
         string refundId,
@@ -748,9 +951,11 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             scope.ServiceProvider.GetRequiredService<ILogger<RegistrationsController>>(),
             null!,
             null!,
+            null!,
             scope.ServiceProvider.GetRequiredService<IBackgroundJobQueue>(),
             _services.GetRequiredService<IServiceScopeFactory>(),
-            scope.ServiceProvider.GetRequiredService<RegistrationWorkflowService>());
+            scope.ServiceProvider.GetRequiredService<RegistrationWorkflowService>(),
+            scope.ServiceProvider.GetRequiredService<AdminPaymentOutcomeService>());
         controller.ControllerContext = ControllerContextFor("refund-admin");
         return controller;
     }
@@ -774,7 +979,8 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             db,
             _services.GetRequiredService<ILogger<RegistrationWorkflowService>>(),
             _services.GetRequiredService<IBackgroundJobQueue>(),
-            _services.GetRequiredService<IServiceScopeFactory>());
+            _services.GetRequiredService<IServiceScopeFactory>(),
+            _services.GetRequiredService<AdminPaymentOutcomeService>());
         var paymentFinalization = new PaymentFinalizationService(
             db,
             registrationWorkflow,

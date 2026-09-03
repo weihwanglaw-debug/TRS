@@ -256,6 +256,8 @@ public class EventsController : ControllerBase
     {
         if (!await _db.Events.AnyAsync(e => e.EventId == id))
             return NotFound(new { code = "NOT_FOUND", message = "Event not found." });
+        var programValidation = ValidateProgramSettings(req);
+        if (programValidation != null) return BadRequest(programValidation);
         var fieldValidation = ValidateProgramFieldOptions(req.Fields);
         if (fieldValidation != null) return BadRequest(fieldValidation);
         var prog = ApplyProgramFields(new TrsProgram { EventId = id, CreatedAt = DateTime.UtcNow, IsActive = true }, req);
@@ -279,6 +281,8 @@ public class EventsController : ControllerBase
         var prog = await _db.Programs.Include(p => p.Fields).Include(p => p.CustomFields)
             .FirstOrDefaultAsync(p => p.ProgramId == pid && p.EventId == eid);
         if (prog == null) return NotFound(new { code = "NOT_FOUND", message = "Program not found." });
+        var programValidation = ValidateProgramSettings(req);
+        if (programValidation != null) return BadRequest(programValidation);
         var fieldValidation = ValidateProgramFieldOptions(req.Fields);
         if (fieldValidation != null) return BadRequest(fieldValidation);
         if (!string.Equals(prog.Type, req.Type, StringComparison.Ordinal))
@@ -568,8 +572,6 @@ public class EventsController : ControllerBase
             return RegisteredProgramChangeBlockedMessage("payment or fee settings");
         if (current.MinPlayers != requested.MinPlayers || current.MaxPlayers != requested.MaxPlayers)
             return RegisteredProgramChangeBlockedMessage("players-per-entry limits");
-        if (requested.MinParticipants > activeSlotCount)
-            return $"This program already has {activeSlotCount} active filled slot(s). Minimum entries cannot be raised above the current filled count.";
         if (requested.MaxParticipants < activeSlotCount)
             return $"This program already has {activeSlotCount} active filled slot(s). Capacity cannot be reduced below the current filled count.";
         if (!ProgramFieldsMatch(current.Fields, requested.Fields) || !CustomFieldsMatch(current.CustomFields, requested.Fields.CustomFields))
@@ -583,6 +585,20 @@ public class EventsController : ControllerBase
 
     private static bool IsPerPlayer(string? feeStructure) =>
         string.Equals(feeStructure, "per_player", StringComparison.OrdinalIgnoreCase);
+
+    private static object? ValidateProgramSettings(UpsertProgramRequest request)
+    {
+        if (request.MinParticipants < 1 || request.MaxParticipants < 1)
+            return new { code = "INVALID_CAPACITY", message = "Minimum and maximum capacity must be at least 1." };
+        if (request.MinParticipants > request.MaxParticipants)
+            return new { code = "INVALID_CAPACITY", message = "Minimum capacity cannot exceed maximum capacity." };
+        if (request.MinPlayers < 1 || request.MaxPlayers < 1)
+            return new { code = "INVALID_PLAYERS_PER_ENTRY", message = "Minimum and maximum players per entry must be at least 1." };
+        if (request.MinPlayers > request.MaxPlayers)
+            return new { code = "INVALID_PLAYERS_PER_ENTRY", message = "Minimum players per entry cannot exceed maximum players per entry." };
+
+        return null;
+    }
 
     private static string? NormalizeNullable(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

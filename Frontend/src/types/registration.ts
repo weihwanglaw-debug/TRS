@@ -329,6 +329,24 @@ export interface WebhookFailure {
   contactPhone:     string | null;
 }
 
+export interface PaymentReconciliationMismatch {
+  caseType: "A" | "B";
+  registrationId: number;
+  paymentId: number;
+  eventId: number;
+  eventName: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string;
+  registrationStatus: RegStatus;
+  paymentStatus: PaymentStatus;
+  paymentGateway: string;
+  paymentMethod: string | null;
+  amount: number;
+  currency: string;
+  updatedAt: string;
+}
+
 export interface OrphanRefundHistory {
   refundId:         number;
   webhookLogId:     number | null;

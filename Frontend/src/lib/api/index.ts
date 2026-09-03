@@ -10,7 +10,7 @@
 
 // Shared types & helpers
 export type { ApiResult, ApiError, PageParams, PagedResult } from "./_base";
-export { ok, err, assetUrl } from "./_base";
+export { ok, err, assetUrl, API_BASE } from "./_base";
 
 // Auth
 export * from "./authApi";
@@ -73,6 +73,7 @@ export type {
   EmbeddedPaymentAttemptStatus,
   PaymentAttemptStatus,
   RegistrationStats,
+  PaymentReconciliationMismatch,
 } from "@/types/registration";
 
 export {
