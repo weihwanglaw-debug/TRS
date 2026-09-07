@@ -66,6 +66,8 @@ Participant fields always required:
 - Nationality
 - Club/school/company
 
+The nationality option `SG` covers both Singapore citizens and Singapore permanent residents. User-facing registration details and general participant exports display it as `Singapore/Singapore PR`; the stored/API value remains `SG`.
+
 Conditional fields:
 
 - T-shirt size is displayed when `ProgramField.EnableTshirt=true` and required only when `RequireTshirt=true`.
@@ -130,8 +132,14 @@ Paid embedded payment flow:
 - Stripe PaymentIntent is created and shown through the embedded modal.
 - Stripe webhook is the source of truth for payment outcome and registration finalization.
 - `PaymentAttemptService` is idempotent by Stripe PaymentIntent id.
+- Submit, status, and abandon operations require the opaque key belonging to that payment attempt.
 - Successful finalization creates registration, groups, participants, payment, and payment items.
 - Payment received after attempt expiry, missing attempt context, or finalization failure is marked for reconciliation instead of auto-registering.
+- If an uncertain processing attempt later becomes failed or cancelled at Stripe, webhook handling or the background sweep resolves the reconciliation as unpaid automatically; no admin refund action is required.
+- A definite failed, cancelled, or expired attempt may be retried normally and does not create a registration.
+- An uncertain or unresolved earlier attempt does not prevent the customer from creating a new payment attempt. The customer is warned to check with the event administrator and avoid another payment, but may choose to continue with the acknowledged duplicate-charge risk.
+- Before creating a retry, the backend checks submitted earlier attempts with Stripe. If an earlier payment has already succeeded and finalized, the existing confirmed registration is returned instead of creating another payment.
+- If more than one attempt ultimately succeeds, duplicate-registration validation must allow only one registration for the same participant/programme. Each additional paid intent that cannot create a registration remains in payment reconciliation for investigation and refund.
 
 Legacy hosted Checkout session-first code still exists for older return URLs and uses `PendingCheckouts` plus `PaymentFinalizationService`.
 
@@ -427,3 +435,4 @@ Admin program import:
 - Admin deactivation affects future `me` checks but does not revoke already-issued JWTs immediately by server-side blacklist.
 - Background jobs are in-memory and not durable.
 - Uploaded files are local to the API host.
+- Public payment traffic is rate-limited by an opaque browser-session token, and attempt submit/status/abandon traffic is independently rate-limited by the secret payment-attempt key. Payment limiting does not depend on client IP forwarding.

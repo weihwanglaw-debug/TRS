@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Stripe;
@@ -57,7 +56,16 @@ public sealed class PaymentAttemptService
         }, ct);
 
         if (!pricing.Success)
+        {
+            if (pricing.Code is StatusCodesEx.Validation.DuplicateRegistration or "DUPLICATE_TEAM")
+            {
+                var confirmedAttempt = await FindConfirmedAttemptForSameRegistrationAsync(payload, ct);
+                if (confirmedAttempt != null)
+                    return PaymentAttemptCreateResult.Confirmed(confirmedAttempt);
+            }
+
             return PaymentAttemptCreateResult.Fail(pricing.Code!, pricing.Message);
+        }
 
         var amount = pricing.Value!.TotalAmount;
         if (amount <= 0)
@@ -78,9 +86,12 @@ public sealed class PaymentAttemptService
 
         var now = DateTime.UtcNow;
         var expiresAt = now.AddMinutes(Math.Max(1, _config.GetValue("Stripe:EmbeddedAttemptMinutes", 2)));
-        var attemptKey = NormalizeAttemptKey(request.AttemptKey, payload, dbMethod, amount, payloadJson);
+        var attemptKey = PaymentAttemptAccessKey.NormalizeOrGenerate(request.AttemptKey);
         var existingForKey = await _db.PaymentAttempts
             .FirstOrDefaultAsync(a => a.AttemptKey == attemptKey, ct);
+
+        if (existingForKey is { Status: Succeeded, RegistrationId: not null })
+            return PaymentAttemptCreateResult.Confirmed(existingForKey);
 
         if (existingForKey is { GatewayPaymentIntentId: not null } &&
             existingForKey.Status == Created)
@@ -91,22 +102,41 @@ public sealed class PaymentAttemptService
         }
 
         if (existingForKey is { GatewayPaymentIntentId: not null } &&
-            existingForKey.Status == Submitted &&
-            existingForKey.ExpiresAt > now)
+            existingForKey.Status == Submitted)
         {
             var released = await ReleaseSubmittedAttemptIfSafeAsync(
                 existingForKey,
                 now,
                 "Payment attempt was abandoned before confirmation.",
                 ct);
-            if (!released)
-            {
-                return PaymentAttemptCreateResult.Fail(
-                    "PAYMENT_IN_PROGRESS",
-                    "A payment is already being processed. Please wait for confirmation before trying again.");
-            }
+            if (existingForKey.Status == Succeeded && existingForKey.RegistrationId.HasValue)
+                return PaymentAttemptCreateResult.Confirmed(existingForKey);
 
-            attemptKey = NormalizeAttemptKey(null, payload, dbMethod, amount, payloadJson);
+            if (!released)
+                _log.LogWarning(
+                    "Allowing a new payment attempt while attempt {AttemptId} remains in status {Status}",
+                    existingForKey.PaymentAttemptId,
+                    existingForKey.Status);
+
+            attemptKey = PaymentAttemptAccessKey.NormalizeOrGenerate(null);
+        }
+        else if (existingForKey != null && existingForKey.Status != Created)
+        {
+            // The browser may retry with a key that belongs to a terminal or
+            // reconciliation attempt. A fresh server key avoids the unique-key
+            // collision without blocking a new payment attempt.
+            attemptKey = PaymentAttemptAccessKey.NormalizeOrGenerate(null);
+        }
+        else if (existingForKey is { Status: Created, GatewayPaymentIntentId: null })
+        {
+            // A previous request may have stopped after the local row was saved
+            // but before a PaymentIntent was attached. No payment could have
+            // started from that row, so retire it and let the retry continue.
+            existingForKey.Status = Failed;
+            existingForKey.FailedAt = now;
+            existingForKey.UpdatedAt = now;
+            existingForKey.ErrorMessage = "Payment gateway setup did not complete.";
+            attemptKey = PaymentAttemptAccessKey.NormalizeOrGenerate(null);
         }
 
         var activeAttempts = await _db.PaymentAttempts
@@ -121,22 +151,29 @@ public sealed class PaymentAttemptService
         foreach (var active in activeAttempts)
         {
             if (active.Status == NeedsReconciliation && active.ResolvedAt == null)
-                return PaymentAttemptCreateResult.Fail(
-                    "PAYMENT_REVIEW_REQUIRED",
-                    "A previous payment for this registration needs organiser review. Please contact the organiser before trying again.");
+            {
+                _log.LogWarning(
+                    "Allowing a new payment attempt while attempt {AttemptId} needs reconciliation",
+                    active.PaymentAttemptId);
+                continue;
+            }
 
-            if (active.Status == Submitted && active.ExpiresAt > now)
+            if (active.Status == Submitted)
             {
                 var released = await ReleaseSubmittedAttemptIfSafeAsync(
                     active,
                     now,
                     "Superseded by a new payment attempt.",
                     ct);
-                if (released) continue;
+                if (active.Status == Succeeded && active.RegistrationId.HasValue)
+                    return PaymentAttemptCreateResult.Confirmed(active);
 
-                return PaymentAttemptCreateResult.Fail(
-                    "PAYMENT_IN_PROGRESS",
-                    "A payment is already being processed. Please wait for confirmation before trying again.");
+                if (!released)
+                    _log.LogWarning(
+                        "Allowing a concurrent payment attempt while attempt {AttemptId} remains in status {Status}",
+                        active.PaymentAttemptId,
+                        active.Status);
+                continue;
             }
 
             if (active.Status == Created && active.ExpiresAt > now)
@@ -187,7 +224,6 @@ public sealed class PaymentAttemptService
                     {
                         ["flow"] = "embedded_attempt",
                         ["attempt_id"] = attempt.PaymentAttemptId.ToString(),
-                        ["attempt_key"] = attempt.AttemptKey,
                         ["event_id"] = payload.EventId.ToString(),
                         ["payment_method"] = dbMethod,
                         ["contact_email"] = payload.ContactEmail ?? "",
@@ -195,7 +231,10 @@ public sealed class PaymentAttemptService
                         ["contact_phone"] = payload.ContactPhone ?? "",
                     },
                 },
-                new RequestOptions { IdempotencyKey = $"embedded_attempt_{attempt.AttemptKey}" },
+                new RequestOptions
+                {
+                    IdempotencyKey = $"embedded_attempt_{PaymentAttemptAccessKey.PartitionKey(attempt.AttemptKey, attempt.PaymentAttemptId.ToString())}"
+                },
                 ct);
 
             attempt.GatewayPaymentIntentId = intent.Id;
@@ -216,17 +255,25 @@ public sealed class PaymentAttemptService
         }
     }
 
-    public async Task<PaymentAttemptStatusResult?> GetStatusAsync(int attemptId, CancellationToken ct = default)
+    public async Task<PaymentAttemptStatusResult?> GetStatusAsync(
+        int attemptId,
+        string? attemptKey,
+        CancellationToken ct = default)
     {
         var attempt = await _db.PaymentAttempts.AsNoTracking()
             .FirstOrDefaultAsync(a => a.PaymentAttemptId == attemptId, ct);
-        return attempt == null ? null : PaymentAttemptStatusResult.From(attempt);
+        return attempt == null || !PaymentAttemptAccessKey.Matches(attempt.AttemptKey, attemptKey)
+            ? null
+            : PaymentAttemptStatusResult.From(attempt);
     }
 
-    public async Task<PaymentAttemptAbandonResult> AbandonAsync(int attemptId, CancellationToken ct = default)
+    public async Task<PaymentAttemptAbandonResult> AbandonAsync(
+        int attemptId,
+        string? attemptKey,
+        CancellationToken ct = default)
     {
         var attempt = await _db.PaymentAttempts.FirstOrDefaultAsync(a => a.PaymentAttemptId == attemptId, ct);
-        if (attempt == null)
+        if (attempt == null || !PaymentAttemptAccessKey.Matches(attempt.AttemptKey, attemptKey))
             return PaymentAttemptAbandonResult.Fail("NOT_FOUND", "Payment attempt was not found.");
 
         if (attempt.Status == Succeeded)
@@ -260,10 +307,13 @@ public sealed class PaymentAttemptService
         return PaymentAttemptAbandonResult.Ok(PaymentAttemptStatusResult.From(attempt));
     }
 
-    public async Task<bool> MarkSubmittedAsync(int attemptId, CancellationToken ct = default)
+    public async Task<bool> MarkSubmittedAsync(
+        int attemptId,
+        string? attemptKey,
+        CancellationToken ct = default)
     {
         var attempt = await _db.PaymentAttempts.FirstOrDefaultAsync(a => a.PaymentAttemptId == attemptId, ct);
-        if (attempt == null) return false;
+        if (attempt == null || !PaymentAttemptAccessKey.Matches(attempt.AttemptKey, attemptKey)) return false;
         if (attempt.Status == Created)
         {
             attempt.Status = Submitted;
@@ -412,7 +462,17 @@ public sealed class PaymentAttemptService
     {
         var attempt = await FindAttemptAsync(intent, ct);
         if (attempt == null) return;
-        if (attempt.Status is Succeeded or NeedsReconciliation) return;
+        if (attempt.Status == Succeeded) return;
+        if (attempt.Status == NeedsReconciliation)
+        {
+            await ResolveUnpaidReconciliationAsync(
+                attempt,
+                intent,
+                Failed,
+                message ?? "Stripe confirmed that payment failed.",
+                ct);
+            return;
+        }
         attempt.Status = Failed;
         attempt.FailedAt = DateTime.UtcNow;
         attempt.UpdatedAt = DateTime.UtcNow;
@@ -424,7 +484,17 @@ public sealed class PaymentAttemptService
     {
         var attempt = await FindAttemptAsync(intent, ct);
         if (attempt == null) return;
-        if (attempt.Status is Succeeded or NeedsReconciliation) return;
+        if (attempt.Status == Succeeded) return;
+        if (attempt.Status == NeedsReconciliation)
+        {
+            await ResolveUnpaidReconciliationAsync(
+                attempt,
+                intent,
+                Canceled,
+                "Stripe confirmed that payment was cancelled.",
+                ct);
+            return;
+        }
         attempt.Status = Canceled;
         attempt.CanceledAt = DateTime.UtcNow;
         attempt.UpdatedAt = DateTime.UtcNow;
@@ -499,12 +569,66 @@ public sealed class PaymentAttemptService
                 case "requires_capture":
                     if (attempt.ExpiresAt <= now)
                     {
+                        var canceled = await CancelPaymentIntentIfPossibleAsync(intent.Id, ct);
+                        if (!canceled)
+                        {
+                            _log.LogWarning(
+                                "Leaving expired payment attempt {AttemptId} submitted because PaymentIntent {PaymentIntentId} could not be cancelled safely",
+                                attempt.PaymentAttemptId,
+                                intent.Id);
+                            break;
+                        }
+
                         attempt.Status = Expired;
                         attempt.UpdatedAt = now;
                         attempt.ErrorMessage = "Payment attempt expired before payment was completed.";
                         await _db.SaveChangesAsync(ct);
                     }
                     break;
+            }
+        }
+
+        var unresolvedReconciliations = await _db.PaymentAttempts
+            .Where(attempt =>
+                attempt.Status == NeedsReconciliation &&
+                attempt.ResolvedAt == null &&
+                attempt.GatewayPaymentIntentId != null)
+            .OrderBy(attempt => attempt.UpdatedAt)
+            .Take(50)
+            .ToListAsync(ct);
+
+        foreach (var attempt in unresolvedReconciliations)
+        {
+            PaymentIntent intent;
+            try
+            {
+                intent = await new PaymentIntentService().GetAsync(
+                    attempt.GatewayPaymentIntentId,
+                    cancellationToken: ct);
+            }
+            catch (StripeException ex)
+            {
+                _log.LogWarning(ex, "Backstop could not reconcile PaymentIntent {PaymentIntentId}", attempt.GatewayPaymentIntentId);
+                continue;
+            }
+
+            if (intent.Status == "requires_payment_method")
+            {
+                await ResolveUnpaidReconciliationAsync(
+                    attempt,
+                    intent,
+                    Failed,
+                    intent.LastPaymentError?.Message ?? "Stripe confirmed that payment was not completed.",
+                    ct);
+            }
+            else if (intent.Status == "canceled")
+            {
+                await ResolveUnpaidReconciliationAsync(
+                    attempt,
+                    intent,
+                    Canceled,
+                    "Stripe confirmed that payment was cancelled.",
+                    ct);
             }
         }
     }
@@ -621,6 +745,39 @@ public sealed class PaymentAttemptService
             .FirstOrDefaultAsync(a => a.GatewayPaymentIntentId == intent.Id, ct);
     }
 
+    private async Task<PaymentAttempt?> FindConfirmedAttemptForSameRegistrationAsync(
+        CreateRegistrationRequest request,
+        CancellationToken ct)
+    {
+        var candidates = await _db.PaymentAttempts
+            .AsNoTracking()
+            .Where(attempt =>
+                attempt.EventId == request.EventId &&
+                attempt.ContactEmail == (request.ContactEmail ?? "") &&
+                attempt.Status == Succeeded &&
+                attempt.RegistrationId != null)
+            .OrderByDescending(attempt => attempt.SucceededAt)
+            .ToListAsync(ct);
+
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                var storedRequest = JsonSerializer.Deserialize<CreateRegistrationRequest>(
+                    candidate.PayloadJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (storedRequest != null && PaymentAttemptRegistrationIdentity.Matches(storedRequest, request))
+                    return candidate;
+            }
+            catch (JsonException ex)
+            {
+                _log.LogWarning(ex, "Could not compare registration identity for payment attempt {AttemptId}", candidate.PaymentAttemptId);
+            }
+        }
+
+        return null;
+    }
+
     private async Task MarkNeedsReconciliationAsync(
         PaymentAttempt attempt,
         string reason,
@@ -641,6 +798,50 @@ public sealed class PaymentAttemptService
             $"{reason}: {message}",
             ct,
             attempt);
+    }
+
+    private async Task ResolveUnpaidReconciliationAsync(
+        PaymentAttempt attempt,
+        PaymentIntent intent,
+        string terminalStatus,
+        string message,
+        CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        attempt.Status = terminalStatus;
+        attempt.ErrorMessage = message;
+        attempt.FailedAt = terminalStatus == Failed ? now : attempt.FailedAt;
+        attempt.CanceledAt = terminalStatus == Canceled ? now : attempt.CanceledAt;
+        attempt.ResolvedAt = now;
+        attempt.ResolvedBy = "stripe-webhook";
+        attempt.ResolutionNote = message;
+        attempt.UpdatedAt = now;
+
+        var reconciliationLogs = await _db.WebhookLogs
+            .Where(log =>
+                log.GatewaySessionId == intent.Id &&
+                log.ProcessingStatus == StatusCodesEx.Processing.Failed &&
+                (log.EventType == "payment_intent.succeeded" || log.EventType == "processing_error"))
+            .ToListAsync(ct);
+        foreach (var log in reconciliationLogs)
+        {
+            log.ProcessingStatus = StatusCodesEx.Processing.Ignored;
+            log.ProcessedAt = now;
+            log.ErrorMessage = $"Resolved without payment: {message}";
+        }
+
+        _db.PaymentAuditLogs.Add(new PaymentAuditLog
+        {
+            EntityType = "PaymentAttempt",
+            EntityId = attempt.PaymentAttemptId,
+            Action = "ReconciliationResolvedUnpaid",
+            Reason = message,
+            PerformedBy = "stripe-webhook",
+            Notes = $"PaymentIntent={intent.Id}; TerminalStatus={terminalStatus}",
+            CreatedAt = now,
+        });
+
+        await _db.SaveChangesAsync(ct);
     }
 
     private async Task LogEmbeddedReconciliationAsync(
@@ -691,21 +892,6 @@ public sealed class PaymentAttemptService
         }
     }
 
-    private static string NormalizeAttemptKey(
-        string? input,
-        CreateRegistrationRequest payload,
-        string paymentMethod,
-        decimal amount,
-        string payloadJson)
-    {
-        if (!string.IsNullOrWhiteSpace(input) && input.Length <= 100)
-            return input.Trim();
-
-        var seed = $"{payload.EventId}|{payload.ContactEmail}|{paymentMethod}|{amount}|{payloadJson}|{Guid.NewGuid():N}";
-        var bytes = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(seed));
-        return Convert.ToHexString(bytes)[..40].ToLowerInvariant();
-    }
-
     private static long ToMinorUnits(decimal amount) =>
         decimal.ToInt64(decimal.Round(amount * 100m, 0, MidpointRounding.AwayFromZero));
 
@@ -720,6 +906,7 @@ public sealed class PaymentAttemptCreateResult
     public PaymentAttempt? Attempt { get; private init; }
     public string? ClientSecret { get; private init; }
     public string? PublishableKey { get; private init; }
+    public bool AlreadyConfirmed { get; private init; }
 
     public static PaymentAttemptCreateResult Ok(PaymentAttempt attempt, string clientSecret, string publishableKey) => new()
     {
@@ -734,6 +921,13 @@ public sealed class PaymentAttemptCreateResult
         Success = false,
         Code = code,
         Message = message,
+    };
+
+    public static PaymentAttemptCreateResult Confirmed(PaymentAttempt attempt) => new()
+    {
+        Success = true,
+        Attempt = attempt,
+        AlreadyConfirmed = true,
     };
 }
 

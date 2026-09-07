@@ -57,6 +57,15 @@ const STRIPE_LOAD_TIMEOUT_MS = 10000;
 const PAYMENT_STATUS_POLL_FAILURE_LIMIT = 5;
 const SUCCESS_REDIRECT_DELAY_MS = 1200;
 
+function uncertainPaymentMessage(detail?: string) {
+  const explanation = detail ? `${detail} ` : "";
+  return `${explanation}We cannot confirm your payment status. We recommend that you do not make another payment until you have checked with the event administrator. If you choose to try again, the earlier payment may still complete and could require a refund.`;
+}
+
+function isDefiniteStripeFailure(errorType?: string) {
+  return errorType === "card_error" || errorType === "validation_error";
+}
+
 function readThemeColor(name: string) {
   if (typeof window === "undefined") return "currentColor";
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "currentColor";
@@ -244,7 +253,7 @@ function EmbeddedPaymentBody({
     const pollTimer = window.setInterval(async () => {
       let status;
       try {
-        status = await apiGetEmbeddedPaymentAttemptStatus(paymentAttemptId);
+        status = await apiGetEmbeddedPaymentAttemptStatus(paymentAttemptId, attempt.attemptKey);
       } catch {
         status = { error: { code: "NETWORK_ERROR", message: "Payment status check failed." }, data: undefined };
       }
@@ -259,7 +268,7 @@ function EmbeddedPaymentBody({
         if (pollFailureCountRef.current >= PAYMENT_STATUS_POLL_FAILURE_LIMIT) {
           setTerminalPhase(
             "review",
-            "We're having trouble checking your payment status. If you approved payment, please do not pay again. Contact the organiser with the reference below.",
+            uncertainPaymentMessage("We're having trouble checking with the payment provider."),
           );
           window.clearInterval(pollTimer);
         }
@@ -290,7 +299,7 @@ function EmbeddedPaymentBody({
       }
 
       if (status.data.status === "NR") {
-        setTerminalPhase("review", status.data.errorMessage || "Payment needs organiser review. Please do not pay again if payment was deducted.");
+        setTerminalPhase("review", uncertainPaymentMessage(status.data.errorMessage ?? undefined));
         window.clearInterval(pollTimer);
       }
     }, 3000);
@@ -298,7 +307,7 @@ function EmbeddedPaymentBody({
       window.clearTimeout(patienceTimer);
       window.clearInterval(pollTimer);
     };
-  }, [onConfirmedRegistrationChange, paymentAttemptId, phase]);
+  }, [attempt.attemptKey, onConfirmedRegistrationChange, paymentAttemptId, phase]);
 
   const completeSuccess = useCallback(() => {
     if (!confirmedRegistrationId || successHandledRef.current) return;
@@ -329,7 +338,7 @@ function EmbeddedPaymentBody({
         return;
       }
 
-      const submittedResult = await apiSubmitEmbeddedPaymentAttempt(attempt.paymentAttemptId);
+      const submittedResult = await apiSubmitEmbeddedPaymentAttempt(attempt.paymentAttemptId, attempt.attemptKey);
       if (settledRef.current) return;
       if (submittedResult.error) {
         setTerminalPhase("failed", submittedResult.error.message);
@@ -346,7 +355,11 @@ function EmbeddedPaymentBody({
 
       if (settledRef.current) return;
       if (result.error) {
-        setTerminalPhase("failed", result.error.message || "Payment was not completed. Your cart has been kept.");
+        if (isDefiniteStripeFailure(result.error.type)) {
+          setTerminalPhase("failed", result.error.message || "Payment was not completed. Your cart has been kept.");
+        } else {
+          setTerminalPhase("review", uncertainPaymentMessage(result.error.message));
+        }
         return;
       }
 
@@ -355,8 +368,8 @@ function EmbeddedPaymentBody({
         : "Finalising your registration...");
     } catch {
       setTerminalPhase(
-        "failed",
-        "We couldn't reach the payment server. Please check your connection and try again. Your cart has been kept.",
+        "review",
+        uncertainPaymentMessage("We couldn't reach the payment server."),
       );
     }
   };
@@ -394,7 +407,7 @@ function EmbeddedPaymentBody({
         <div className="p-4 flex gap-3" style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
           <AlertCircle className="h-5 w-5 flex-shrink-0" />
           <div>
-            <p className="font-semibold">Organiser review required.</p>
+            <p className="font-semibold">Payment status not confirmed.</p>
             <p className="text-sm opacity-80">{message}</p>
             <p className="text-xs mt-2 opacity-70">Reference: {attempt.paymentIntentId}</p>
           </div>
@@ -513,7 +526,7 @@ function EmbeddedPaymentBody({
         )}
         {(phase === "expired" || phase === "failed" || phase === "review" || ((phase === "submitting" || phase === "waiting") && patienceReached)) && (
           <button type="button" className="btn-outline w-full py-3 font-semibold" onClick={() => onClose(phase)}>
-            Close
+            {phase === "review" ? "Return to registration" : "Close"}
           </button>
         )}
       </section>

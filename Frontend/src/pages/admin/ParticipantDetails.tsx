@@ -26,6 +26,7 @@ import ParticipantFieldsForm, {
   validateParticipant, buildDobString, parseDobString,
 } from "@/components/registration/ParticipantFieldsForm";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import { toCountryCode, toCountryName } from "@/lib/countries";
 import { exportWorkbookSheet } from "@/lib/exportRegistrationPaymentsWorkbook";
 
 // Types
@@ -139,7 +140,7 @@ function toFormValues(p: RegistrationParticipant): ParticipantFormValues {
     fullName:          p.fullName,
     dobDay, dobMonth, dobYear,
     gender:            p.gender            ?? "",
-    nationality:       p.nationality       ?? "",
+    nationality:       toCountryName(p.nationality ?? ""),
     clubSchoolCompany: p.clubSchoolCompany  ?? "",
     email:             p.email             ?? "",
     contactNumber:     p.contactNumber     ?? "",
@@ -242,7 +243,7 @@ function DetailModal({ row, programFields, eventType, teamMode, readOnly, onClos
         fullName:          form.fullName          || undefined,
         dob:               dob                   || undefined,
         gender:            form.gender            || undefined,
-        nationality:       form.nationality       || undefined,
+        nationality:       toCountryCode(form.nationality) || undefined,
         clubSchoolCompany: form.clubSchoolCompany || undefined,
         email:             form.email             || undefined,
         contactNumber:     form.contactNumber     || undefined,

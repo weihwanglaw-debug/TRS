@@ -326,6 +326,19 @@ PayNow/embedded payment timing recommendation:
 "EmbeddedBackstopMinutes": 3
 ```
 
+Payment rate-limit defaults (under the `RateLimiting` section):
+
+```json
+"WindowMinutes": 1,
+"PublicPermitLimit": 30,
+"PaymentCreatePermitLimit": 10,
+"PaymentAttemptPermitLimit": 40
+```
+
+Public payment limits are partitioned by the browser's opaque client token, and
+attempt status/submit/abandon limits use the secret payment-attempt key. They do
+not depend on IIS or reverse-proxy client-IP forwarding.
+
 ## Stripe
 
 Stripe is used for embedded card and PayNow payments.

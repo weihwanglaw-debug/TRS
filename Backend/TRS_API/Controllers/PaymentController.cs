@@ -46,7 +46,7 @@ namespace TRS_API.Controllers
             StripeConfiguration.ApiKey = _config["Stripe:SecretKey"];
         }
 
-        [EnableRateLimiting("payment")]
+        [EnableRateLimiting("payment-create")]
         [HttpPost("embedded-attempt")]
         public async Task<IActionResult> CreateEmbeddedAttempt([FromBody] EmbeddedPaymentAttemptRequest request)
         {
@@ -55,7 +55,6 @@ namespace TRS_API.Controllers
             {
                 var status = result.Code switch
                 {
-                    "PAYMENT_IN_PROGRESS" or "PAYMENT_REVIEW_REQUIRED" => StatusCodes.Status409Conflict,
                     "STRIPE_PUBLISHABLE_KEY_MISSING" => StatusCodes.Status500InternalServerError,
                     _ => StatusCodes.Status400BadRequest,
                 };
@@ -63,6 +62,16 @@ namespace TRS_API.Controllers
             }
 
             var attempt = result.Attempt!;
+            if (result.AlreadyConfirmed)
+            {
+                return Ok(new
+                {
+                    alreadyConfirmed = true,
+                    registrationId = attempt.RegistrationId,
+                    status = StatusCodesEx.PaymentAttempt.Succeeded,
+                });
+            }
+
             return Ok(new
             {
                 paymentAttemptId = attempt.PaymentAttemptId,
@@ -78,19 +87,21 @@ namespace TRS_API.Controllers
             });
         }
 
-        [EnableRateLimiting("payment")]
+        [EnableRateLimiting("payment-attempt")]
         [HttpPost("embedded-attempt/{attemptId:int}/submit")]
         public async Task<IActionResult> MarkEmbeddedAttemptSubmitted(int attemptId)
         {
-            var ok = await _paymentAttempts.MarkSubmittedAsync(attemptId, HttpContext.RequestAborted);
+            var attemptKey = Request.Headers[PaymentAttemptAccessKey.HeaderName].ToString();
+            var ok = await _paymentAttempts.MarkSubmittedAsync(attemptId, attemptKey, HttpContext.RequestAborted);
             return ok ? Ok(new { status = StatusCodesEx.PaymentAttempt.Submitted }) : NotFound(new { code = "NOT_FOUND" });
         }
 
-        [EnableRateLimiting("payment")]
+        [EnableRateLimiting("payment-attempt")]
         [HttpPost("embedded-attempt/{attemptId:int}/abandon")]
         public async Task<IActionResult> AbandonEmbeddedAttempt(int attemptId)
         {
-            var result = await _paymentAttempts.AbandonAsync(attemptId, HttpContext.RequestAborted);
+            var attemptKey = Request.Headers[PaymentAttemptAccessKey.HeaderName].ToString();
+            var result = await _paymentAttempts.AbandonAsync(attemptId, attemptKey, HttpContext.RequestAborted);
             if (!result.Success)
             {
                 var status = result.Code switch
@@ -105,11 +116,12 @@ namespace TRS_API.Controllers
             return Ok(result.Status);
         }
 
-        [EnableRateLimiting("payment")]
+        [EnableRateLimiting("payment-attempt")]
         [HttpGet("embedded-attempt/{attemptId:int}/status")]
         public async Task<IActionResult> GetEmbeddedAttemptStatus(int attemptId)
         {
-            var status = await _paymentAttempts.GetStatusAsync(attemptId, HttpContext.RequestAborted);
+            var attemptKey = Request.Headers[PaymentAttemptAccessKey.HeaderName].ToString();
+            var status = await _paymentAttempts.GetStatusAsync(attemptId, attemptKey, HttpContext.RequestAborted);
             return status == null ? NotFound(new { code = "NOT_FOUND" }) : Ok(status);
         }
 
@@ -151,7 +163,7 @@ namespace TRS_API.Controllers
         }
 
         // -- POST /api/Payment/create-checkout-session -------------------------
-        [EnableRateLimiting("payment")]
+        [EnableRateLimiting("payment-create")]
         [HttpPost("create-checkout-session")]
         public async Task<IActionResult> CreateCheckoutSession([FromBody] PaymentRequest? request)
         {

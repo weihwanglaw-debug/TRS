@@ -98,6 +98,14 @@ public class RegistrationDetailsPdfService
             var clean = value?.Trim();
             if (string.IsNullOrWhiteSpace(clean)) return "-";
 
+            if (clean.Equals("SG", StringComparison.OrdinalIgnoreCase) ||
+                clean.Equals("Singapore", StringComparison.OrdinalIgnoreCase) ||
+                clean.Equals("Singapore/Singapore PR", StringComparison.OrdinalIgnoreCase) ||
+                clean.Equals("Singaporean/ Singapore PR", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Singapore/Singapore PR";
+            }
+
             if (clean.Length == 2 && clean.All(char.IsLetter))
             {
                 try

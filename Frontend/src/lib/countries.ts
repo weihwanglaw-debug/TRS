@@ -1,4 +1,7 @@
 const PRIORITY_COUNTRY_CODES = ["SG", "MY"];
+const NATIONALITY_LABEL_OVERRIDES: Record<string, string> = {
+  SG: "Singapore/Singapore PR",
+};
 
 const FALLBACK_COUNTRY_CODES = [
   "AF", "AX", "AL", "DZ", "AS", "AD", "AO", "AI", "AQ", "AG", "AR", "AM", "AW", "AU", "AT", "AZ",
@@ -35,7 +38,7 @@ const supportedRegionCodes = getSupportedRegionCodes();
 const countryCodes = supportedRegionCodes?.filter((code) => /^[A-Z]{2}$/.test(code)) ?? FALLBACK_COUNTRY_CODES;
 
 export const NATIONALITY_OPTIONS = Array.from(new Set([...PRIORITY_COUNTRY_CODES, ...countryCodes]))
-  .map((code) => ({ code, label: regionNames?.of(code) ?? code }))
+  .map((code) => ({ code, label: NATIONALITY_LABEL_OVERRIDES[code] ?? regionNames?.of(code) ?? code }))
   .sort((a, b) => {
     const pa = PRIORITY_COUNTRY_CODES.indexOf(a.code);
     const pb = PRIORITY_COUNTRY_CODES.indexOf(b.code);
@@ -43,7 +46,16 @@ export const NATIONALITY_OPTIONS = Array.from(new Set([...PRIORITY_COUNTRY_CODES
     return a.label.localeCompare(b.label);
   });
 
-const COUNTRY_NAME_TO_CODE = new Map(NATIONALITY_OPTIONS.map(({ code, label }) => [label.toLowerCase(), code]));
+const COUNTRY_NAME_TO_CODE = new Map<string, string>();
+
+NATIONALITY_OPTIONS.forEach(({ code, label }) => {
+  COUNTRY_NAME_TO_CODE.set(label.toLowerCase(), code);
+
+  const countryName = regionNames?.of(code);
+  if (countryName) COUNTRY_NAME_TO_CODE.set(countryName.toLowerCase(), code);
+});
+
+COUNTRY_NAME_TO_CODE.set("singaporean/ singapore pr", "SG");
 
 export function toCountryCode(value: string) {
   const clean = value.trim();
@@ -55,6 +67,7 @@ export function toCountryName(value: string) {
   const clean = value.trim();
   if (!clean) return "";
   const code = toCountryCode(clean);
+  if (NATIONALITY_LABEL_OVERRIDES[code]) return NATIONALITY_LABEL_OVERRIDES[code];
   if (/^[A-Z]{2}$/.test(code)) return regionNames?.of(code) ?? code;
   return clean;
 }

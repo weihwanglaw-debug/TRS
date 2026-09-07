@@ -90,6 +90,8 @@ Current order in `Program.cs`:
 
 Security headers include CSP, `X-Content-Type-Options`, `X-Frame-Options`, and `X-XSS-Protection`.
 
+Public payment rate limiting uses opaque browser-session partitions for general/create requests and the secret payment-attempt key for submit/status/abandon requests. It does not rely on client IP or forwarded proxy headers.
+
 ### Controller Pattern
 
 Controllers use attribute routing. Most admin mutations use `[Authorize(Roles = "superadmin,eventadmin")]`; user management and orphan refunds are superadmin-only.

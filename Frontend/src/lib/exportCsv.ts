@@ -10,6 +10,7 @@
  */
 
 import type { MatchEntry, Program, SeedEntry } from "@/types/config";
+import { toCountryName } from "@/lib/countries";
 import { getEntryDisplay } from "@/lib/entryDisplay";
 import type { Registration } from "@/types/registration";
 import { PAYMENT_STATUS_LABEL, REG_STATUS_LABEL, totalFee } from "@/types/registration";
@@ -116,7 +117,7 @@ export function exportRegistrationsCsv(
           p.fullName,
           p.dob,
           p.gender,
-          p.nationality,
+          toCountryName(p.nationality),
           p.clubSchoolCompany,
           p.sbaId ?? "",
           p.tshirtSize ?? "",

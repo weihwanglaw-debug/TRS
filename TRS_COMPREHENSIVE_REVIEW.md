@@ -71,7 +71,7 @@ An unauthenticated person can enumerate numeric registration or payment IDs and 
 
 This aligns with [OWASP API1:2023 Broken Object Level Authorization](https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/).
 
-### C-02: Anonymous users can take over another payment attempt
+### C-02: Anonymous users can take over another payment attempt - Remediated
 
 **Evidence**
 
@@ -89,7 +89,9 @@ An attacker can enumerate attempt IDs, observe another checkout, cancel or aband
 - Require and constant-time compare the opaque attempt key on every submit, abandon, and status operation.
 - Prefer the opaque token as the route identifier and avoid exposing a useful numeric identifier.
 - Scope returned status to the minimum needed by the browser.
-- Rate-limit per attempt token and client IP, and add takeover tests.
+- Rate-limit per attempt token and a separate client partition, and add takeover tests.
+
+**Implementation status:** submit, abandon, and status calls now require `X-Payment-Attempt-Key`; the backend validates it with a constant-time comparison and returns the same not-found response for missing, incorrect, and unknown attempts. The frontend sends the key on every attempt-specific call, rate limiting is partitioned by a hash of that key, and focused backend/frontend tests cover key validation and header propagation. The key is no longer copied into Stripe metadata.
 
 ### C-03: Public upload endpoint permits path escape and storage abuse
 
@@ -178,11 +180,13 @@ An unauthenticated caller can create unpaid pending registrations that consume p
 
 ## 4. High Findings
 
-### H-01: The payment rate limiter is one shared bucket for all users
+### H-01: The payment rate limiter is one shared bucket for all users - Remediated
 
 `Backend/TRS_API/Program.cs:121-126` registers a named fixed-window limiter without a partition key. Its default is only five requests per minute. A normal checkout uses create, submit, and status polling (`Frontend/src/components/payment/EmbeddedPaymentModal.tsx:240-243`), so a few customers or one attacker can throttle every customer.
 
 **Recommendation:** partition by client IP, authenticated identity, or attempt token; use different policies for expensive mutations and cheap status polling; return `429` with `Retry-After`; load-test the complete checkout. Microsoft documents the fairness benefits of [partitioned ASP.NET Core rate limiting](https://learn.microsoft.com/en-us/aspnet/core/performance/rate-limit?view=aspnetcore-10.0).
+
+**Implementation status:** public/create traffic is partitioned by a per-browser-session token and attempt submit/status/abandon traffic by the secret attempt key, so the limiter does not depend on IIS or forwarded client IPs. Creation and polling use separate limits, and rejected requests return structured `429` JSON plus `Retry-After`. The browser token is a fairness mechanism rather than a DDoS security boundary and can be supplemented with gateway-level protection or CAPTCHA if deliberate creation abuse is observed.
 
 ### H-02: Administrative authentication controls are below production practice
 

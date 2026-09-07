@@ -14,6 +14,7 @@ import {
   PAYMENT_STATUS_LABEL,
   REG_STATUS_LABEL,
 } from "@/types/registration";
+import { toCountryName } from "@/lib/countries";
 import { exportWorkbookSheet } from "@/lib/exportRegistrationPaymentsWorkbook";
 
 const PRIMARY_HEADERS = [
@@ -171,7 +172,7 @@ export async function exportParticipantDetailsWorkbook(
           participant.gender,
           participant.email ?? "",
           participant.contactNumber ?? "",
-          participant.nationality,
+          toCountryName(participant.nationality),
           participant.clubSchoolCompany || group.clubDisplay || "",
           REG_STATUS_LABEL[status as RegStatus] ?? status,
           paymentStatusForParticipant(reg, group, participant),

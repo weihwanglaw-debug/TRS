@@ -9,6 +9,7 @@ using TRS_Data.Models;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using Serilog.Events;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -118,12 +119,64 @@ builder.Services.AddCors(options =>
     );
 });
 
-// Rate Limiting
+// Public payment traffic is partitioned by an opaque browser token, while
+// attempt-specific traffic is partitioned by the secret payment-attempt key.
+// Neither policy depends on proxy/client-IP forwarding.
+var rateLimitWindow = TimeSpan.FromMinutes(
+    Math.Max(1, builder.Configuration.GetValue("RateLimiting:WindowMinutes", 1)));
 builder.Services.AddRateLimiter(options =>
-    options.AddFixedWindowLimiter("payment", opt => {
-        opt.Window = TimeSpan.FromMinutes(builder.Configuration.GetValue<int>("RateLimiting:WindowMinutes", 1));
-        opt.PermitLimit = builder.Configuration.GetValue<int>("RateLimiting:PermitLimit", 5);
-    }));
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+            context.HttpContext.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            new { code = "RATE_LIMITED", message = "Too many requests. Please wait a moment and try again." },
+            cancellationToken);
+    };
+
+    options.AddPolicy<string>("payment", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            PaymentAttemptAccessKey.PartitionKey(
+                context.Request.Headers[PaymentAttemptAccessKey.ClientTokenHeaderName].ToString(),
+                "missing-client-token"),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = Math.Max(1, builder.Configuration.GetValue("RateLimiting:PublicPermitLimit", 30)),
+                QueueLimit = 0,
+                Window = rateLimitWindow,
+            }));
+
+    options.AddPolicy<string>("payment-create", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            PaymentAttemptAccessKey.PartitionKey(
+                context.Request.Headers[PaymentAttemptAccessKey.ClientTokenHeaderName].ToString(),
+                "missing-client-token"),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = Math.Max(1, builder.Configuration.GetValue("RateLimiting:PaymentCreatePermitLimit", 10)),
+                QueueLimit = 0,
+                Window = rateLimitWindow,
+            }));
+
+    options.AddPolicy<string>("payment-attempt", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            PaymentAttemptAccessKey.PartitionKey(
+                context.Request.Headers[PaymentAttemptAccessKey.HeaderName].ToString(),
+                "missing-attempt-key"),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = Math.Max(1, builder.Configuration.GetValue("RateLimiting:PaymentAttemptPermitLimit", 40)),
+                QueueLimit = 0,
+                Window = rateLimitWindow,
+            }));
+});
 
 builder.Host.UseSerilog((context, services, loggerConfiguration) => loggerConfiguration
     .ReadFrom.Configuration(context.Configuration)

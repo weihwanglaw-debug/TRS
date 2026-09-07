@@ -36,8 +36,9 @@ import type { ApiResult, PageParams, PagedResult } from "./_base";
 import type {
   Registration, ParticipantGroup, Payment, PaymentItem,
   Refund, PaymentStatus, RefundMethod, RefundSource, RegistrationStats,
+  EmbeddedPaymentAttemptCreateResult,
   WebhookFailure, PaymentAuditEntry, OrphanRefundHistory, PaymentReconciliationMismatch,
-  EmbeddedPaymentAttempt, EmbeddedPaymentAttemptStatus,
+  EmbeddedPaymentAttemptStatus,
 } from "@/types/registration";
 
 //  Filter params
@@ -95,14 +96,15 @@ export async function apiConfirmSession(
     body: JSON.stringify({ gatewaySessionId, registrationPayload }),
   });
 
-  // 409 Conflict = backend returned CHECKOUT_CONTEXT_MISSING.
-  // The webhook beat the browser back and already finalised this session.
-  // The registration is in DB (or being written) - treat as PROCESSING, not failure.
   if (res.status === 409) {
-    return ok({ registrationId: "", alreadyProcessed: true });
+    const e = await parseError(res);
+    return err(e.code, e.message);
   }
 
-  if (!res.ok) return err("CONFIRM_FAILED", (await parseError(res)).message);
+  if (!res.ok) {
+    const e = await parseError(res);
+    return err(e.code, e.message);
+  }
   const data = await res.json();
   return ok({ registrationId: String(data.registrationId) });
 }
@@ -111,7 +113,7 @@ export async function apiCreateEmbeddedPaymentAttempt(
   registrationPayload: object,
   paymentMethod: "card" | "paynow",
   attemptKey: string,
-): Promise<ApiResult<EmbeddedPaymentAttempt>> {
+): Promise<ApiResult<EmbeddedPaymentAttemptCreateResult>> {
   await delay();
 
   const res = await apiFetch(`${API_BASE}/api/Payment/embedded-attempt`, {
@@ -128,12 +130,13 @@ export async function apiCreateEmbeddedPaymentAttempt(
 
 export async function apiSubmitEmbeddedPaymentAttempt(
   paymentAttemptId: number,
+  attemptKey: string,
 ): Promise<ApiResult<{ status: string }>> {
   await delay();
 
   const res = await apiFetch(`${API_BASE}/api/Payment/embedded-attempt/${paymentAttemptId}/submit`, {
     method: "POST",
-    headers: publicHeaders(),
+    headers: { ...publicHeaders(), "X-Payment-Attempt-Key": attemptKey },
   });
   if (!res.ok) {
     const e = await parseError(res);
@@ -144,11 +147,12 @@ export async function apiSubmitEmbeddedPaymentAttempt(
 
 export async function apiGetEmbeddedPaymentAttemptStatus(
   paymentAttemptId: number,
+  attemptKey: string,
 ): Promise<ApiResult<EmbeddedPaymentAttemptStatus>> {
   await delay();
 
   const res = await apiFetch(`${API_BASE}/api/Payment/embedded-attempt/${paymentAttemptId}/status`, {
-    headers: publicHeaders(),
+    headers: { ...publicHeaders(), "X-Payment-Attempt-Key": attemptKey },
   });
   if (!res.ok) {
     const e = await parseError(res);
@@ -159,12 +163,13 @@ export async function apiGetEmbeddedPaymentAttemptStatus(
 
 export async function apiAbandonEmbeddedPaymentAttempt(
   paymentAttemptId: number,
+  attemptKey: string,
 ): Promise<ApiResult<EmbeddedPaymentAttemptStatus>> {
   await delay();
 
   const res = await apiFetch(`${API_BASE}/api/Payment/embedded-attempt/${paymentAttemptId}/abandon`, {
     method: "POST",
-    headers: publicHeaders(),
+    headers: { ...publicHeaders(), "X-Payment-Attempt-Key": attemptKey },
   });
   if (!res.ok) {
     const e = await parseError(res);

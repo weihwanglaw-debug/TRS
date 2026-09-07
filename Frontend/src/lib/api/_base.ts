@@ -98,8 +98,35 @@ export function getToken(): string {
   return localStorage.getItem("trs_token") ?? "";
 }
 
+const PUBLIC_CLIENT_TOKEN_KEY = "trs_public_client_token";
+let memoryPublicClientToken: string | null = null;
+
+function createPublicClientToken(): string {
+  const randomPart = globalThis.crypto?.randomUUID?.()
+    ?? `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+  return `trs_client_${randomPart}`;
+}
+
+export function getPublicClientToken(): string {
+  try {
+    const existing = sessionStorage.getItem(PUBLIC_CLIENT_TOKEN_KEY);
+    if (existing && existing.length >= 32 && existing.length <= 120) return existing;
+
+    const token = memoryPublicClientToken ?? createPublicClientToken();
+    memoryPublicClientToken = token;
+    sessionStorage.setItem(PUBLIC_CLIENT_TOKEN_KEY, token);
+    return token;
+  } catch {
+    memoryPublicClientToken ??= createPublicClientToken();
+    return memoryPublicClientToken;
+  }
+}
+
 export function publicHeaders(): Record<string, string> {
-  return { "Content-Type": "application/json" };
+  return {
+    "Content-Type": "application/json",
+    "X-TRS-Client-Token": getPublicClientToken(),
+  };
 }
 
 export function adminHeaders(): Record<string, string> {

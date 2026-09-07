@@ -988,6 +988,11 @@ export default function EventDetail() {
       );
       if (attemptResult.error) { setSubmitError(attemptResult.error.message); return; }
 
+      if ("alreadyConfirmed" in attemptResult.data!) {
+        await handlePaymentConfirmed(String(attemptResult.data!.registrationId));
+        return;
+      }
+
       const didSaveSession = saveSession(
         cart,
         contact,
@@ -1555,7 +1560,7 @@ export default function EventDetail() {
           setPaymentAttempt(null);
           paymentAttemptKeyRef.current = null;
           if (attemptToAbandon) {
-            void apiAbandonEmbeddedPaymentAttempt(attemptToAbandon.paymentAttemptId);
+            void apiAbandonEmbeddedPaymentAttempt(attemptToAbandon.paymentAttemptId, attemptToAbandon.attemptKey);
           }
         }}
         onConfirmed={handlePaymentConfirmed}

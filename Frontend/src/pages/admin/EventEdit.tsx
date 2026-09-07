@@ -1029,8 +1029,8 @@ export default function EventEdit() {
               }
             }}>
               {openAction.prog.status === "CL"
-                ? <><Unlock className="h-4 w-4" /> Program Status</>
-                : <><Lock   className="h-4 w-4" /> Program Status</>}
+                ? <><Unlock className="h-4 w-4" /> Open Program</>
+                : <><Lock   className="h-4 w-4" /> Close Program</>}
             </button>
           )}
           {!isNew && (

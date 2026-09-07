@@ -439,6 +439,16 @@ export interface EmbeddedPaymentAttempt {
   expiresAt: string;
 }
 
+export interface ConfirmedEmbeddedPaymentAttempt {
+  alreadyConfirmed: true;
+  registrationId: number;
+  status: "S";
+}
+
+export type EmbeddedPaymentAttemptCreateResult =
+  | EmbeddedPaymentAttempt
+  | ConfirmedEmbeddedPaymentAttempt;
+
 export interface EmbeddedPaymentAttemptStatus {
   paymentAttemptId: number;
   status: PaymentAttemptStatus;

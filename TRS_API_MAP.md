@@ -92,14 +92,14 @@ EF maps this feature to SQL table `BadmintonClub`.
 |---|---|---|---|
 | GET | `/api/Payment/get-payment-info/{registrationId}` | Public, rate-limited | Return payment status for an existing registration. |
 | POST | `/api/Payment/embedded-attempt` | Public, rate-limited | Create embedded Stripe PaymentIntent attempt from registration payload. |
-| POST | `/api/Payment/embedded-attempt/{attemptId}/submit` | Public, rate-limited | Mark an embedded attempt submitted before frontend confirms payment. |
-| POST | `/api/Payment/embedded-attempt/{attemptId}/abandon` | Public, rate-limited | Mark an embedded attempt abandoned/cancelled. |
-| GET | `/api/Payment/embedded-attempt/{attemptId}/status` | Public, rate-limited | Return attempt status for modal polling. |
+| POST | `/api/Payment/embedded-attempt/{attemptId}/submit` | Public, secret attempt key required, rate-limited | Mark an embedded attempt submitted before frontend confirms payment. |
+| POST | `/api/Payment/embedded-attempt/{attemptId}/abandon` | Public, secret attempt key required, rate-limited | Mark an embedded attempt abandoned/cancelled. |
+| GET | `/api/Payment/embedded-attempt/{attemptId}/status` | Public, secret attempt key required, rate-limited | Return attempt status for modal polling. |
 | POST | `/api/Payment/create-checkout-session` | Public, rate-limited | Legacy hosted Stripe Checkout Session creation. |
 | POST | `/api/Payment/confirm-session` | Public, rate-limited | Legacy hosted Checkout session confirmation/finalization. |
 | GET | `/api/Payment/verify/{paymentId}` | Public | Return payment details by payment id. |
 
-Rate limiter policy name is `payment`. Embedded attempts use `PaymentAttempts`; legacy hosted Checkout finalization reads the stored payload from `PendingCheckouts`.
+Public payment traffic uses the browser-token-partitioned `payment` and `payment-create` policies. Attempt submit/status/abandon traffic uses the secret-key-partitioned `payment-attempt` policy and requires `X-Payment-Attempt-Key`. Embedded attempts use `PaymentAttempts`; legacy hosted Checkout finalization reads the stored payload from `PendingCheckouts`.
 
 ## Stripe Webhook: `/api/webhooks/stripe`
 

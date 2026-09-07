@@ -24,7 +24,7 @@ import { apiConfirmSession, apiGetRegistration } from "@/lib/api";
 import { API_BASE } from "@/lib/api/_base";
 import type { Registration } from "@/lib/api";
 
-type Phase = "confirming" | "polling" | "done" | "cancelled" | "error";
+type Phase = "confirming" | "polling" | "done" | "cancelled" | "error" | "review";
 type DirectMode = "admin" | "free" | "paid";
 type DirectResultState = {
   directMode?: DirectMode;
@@ -64,6 +64,7 @@ export default function PaymentResult() {
   const [phase,        setPhase]        = useState<Phase>(initialPhase);
   const [registration, setRegistration] = useState<Registration | null>(initialDirectRegistration);
   const [regId,        setRegId]        = useState<string | null>(initialDirectRegistration ? String(initialDirectRegistration.id) : null);
+  const [paymentReference, setPaymentReference] = useState<string | null>(null);
   const [errorMsg,     setErrorMsg]     = useState("");
   const [pollCount,    setPollCount]    = useState(0);
   // Stage A/B: tracks whether we've passed the 15-second processing threshold
@@ -110,7 +111,7 @@ export default function PaymentResult() {
     const SESSION_KEY = eventId ? `trs_cart_${eventId}` : null;
 
     if (!SESSION_KEY) {
-      setPhase("error");
+      setPhase("review");
       setErrorMsg("Missing event context. If your payment was successful you will receive a confirmation email. Otherwise please contact the organiser.");
       return;
     }
@@ -119,26 +120,28 @@ export default function PaymentResult() {
     try { raw = sessionStorage.getItem(SESSION_KEY); } catch { /* private mode */ }
 
     if (!raw) {
-  // Different browser/device or cleared storage - cannot confirm but payment
-  // may have been processed by the webhook. Show processing state, not error.
-      setPhase("done");
+  // Different browser/device or cleared storage - payment may have completed,
+  // so do not present it as a definite failure or encourage an immediate retry.
+      setPhase("review");
+      setErrorMsg("We cannot confirm your payment status because the checkout details are unavailable.");
       return;
     }
 
     let session: { gatewaySessionId?: string; payload?: object } = {};
     try { session = JSON.parse(raw); } catch {
-      setPhase("error");
+      setPhase("review");
       setErrorMsg("Session data could not be read. Please contact the organiser.");
       return;
     }
 
     if (!session.gatewaySessionId || !session.payload) {
-      setPhase("error");
+      setPhase("review");
       setErrorMsg("Incomplete session data. Please contact the organiser.");
       return;
     }
 
     const gatewaySessionId = session.gatewaySessionId;
+    setPaymentReference(gatewaySessionId);
 
   // Call backend to verify with Stripe and write to DB
     apiConfirmSession(gatewaySessionId, session.payload).then(r => {
@@ -147,20 +150,10 @@ export default function PaymentResult() {
       try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
 
       if (r.error) {
-  // Network timeouts and Stripe slow responses are NOT failures -
-  // the webhook will complete the registration.
-  // Only show hard error for CONFIRM_FAILED where we are certain
-  // the payment itself did not go through.
-        const isDefiniteFailure = r.error.code === "CONFIRM_FAILED"
-          && r.error.message.toLowerCase().includes("not been confirmed");
-        if (isDefiniteFailure) {
-          setPhase("error");
-          setErrorMsg(r.error.message);
-        } else {
-  // Treat all other errors (network timeout, Stripe slow, etc.)
-  // as "still processing" - webhook will complete shortly.
-          setPhase("done");
-        }
+  // Hosted Checkout can return before delayed payment state settles. Treat a
+  // failed confirmation call as uncertain; the webhook may still complete it.
+        setPhase("review");
+        setErrorMsg(r.error.message);
         return;
       }
 
@@ -173,6 +166,9 @@ export default function PaymentResult() {
 
       setRegId(r.data!.registrationId);
       setPhase("polling");
+    }).catch(() => {
+      setPhase("review");
+      setErrorMsg("We could not reach the payment server.");
     });
   // This flow intentionally uses the URL and navigation state captured on mount.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -325,6 +321,30 @@ export default function PaymentResult() {
                 {eventId && (
                   <button onClick={handleTryAgain} className="btn-primary px-6 py-2.5 text-sm font-semibold">
                     Try Again
+                  </button>
+                )}
+                <button onClick={() => navigate("/")} className="btn-outline px-6 py-2.5 text-sm font-medium">
+                  Back to Home
+                </button>
+              </div>
+            </>
+          )}
+
+  {/* Uncertain outcome - retry is allowed, but carries a duplicate-charge risk */}
+          {phase === "review" && (
+            <>
+              <AlertCircle className="h-16 w-16 mx-auto mb-5 opacity-70" style={{ color: "var(--badge-soon-text)" }} />
+              <h1 className="font-heading font-bold text-2xl mb-3">Payment Status Not Confirmed</h1>
+              <p className="text-sm opacity-70 mb-3">{errorMsg}</p>
+              <p className="text-sm opacity-70 mb-3">
+                We recommend that you do not make another payment until you have checked with the event administrator.
+                If you choose to try again, the earlier payment may still complete and could require a refund.
+              </p>
+              <p className="text-xs opacity-50 mb-8">Payment reference: {paymentReference ?? "Unavailable"}</p>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                {eventId && (
+                  <button onClick={handleTryAgain} className="btn-outline px-6 py-2.5 text-sm font-semibold">
+                    Return to Event
                   </button>
                 )}
                 <button onClick={() => navigate("/")} className="btn-outline px-6 py-2.5 text-sm font-medium">
