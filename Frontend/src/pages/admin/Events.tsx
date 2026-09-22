@@ -13,7 +13,6 @@ export default function AdminEvents() {
   const navigate = useNavigate();
   const [events,         setEvents]         = useState<TournamentEvent[]>([]);
   const [loading,        setLoading]        = useState(true);
-  const [filterStatus,   setFilterStatus]   = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo,   setFilterDateTo]   = useState("");
   const [filterRegStatus,setFilterRegStatus]= useState("");
@@ -44,15 +43,14 @@ export default function AdminEvents() {
 
   const filtered = useMemo(() => events.filter(ev => {
     const regStatus = getEventStatus(ev);
-    if (filterStatus && getEventStatus(ev) !== filterStatus) return false;
     if (filterRegStatus && regStatus !== filterRegStatus) return false;
     if (filterDateFrom) { const to = ev.eventEndDate || ev.eventStartDate; if (to < filterDateFrom) return false; }
     if (filterDateTo) { const from = ev.eventStartDate; if (from > filterDateTo) return false; }
     return true;
-  }), [events, filterStatus, filterRegStatus, filterDateFrom, filterDateTo]);
+  }), [events, filterRegStatus, filterDateFrom, filterDateTo]);
 
-  const clearFilters = () => { setFilterStatus(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterRegStatus(""); };
-  const hasFilter = filterStatus || filterDateFrom || filterDateTo || filterRegStatus;
+  const clearFilters = () => { setFilterDateFrom(""); setFilterDateTo(""); setFilterRegStatus(""); };
+  const hasFilter = filterDateFrom || filterDateTo || filterRegStatus;
 
   if (loading) return <PageLoader label="Loading events..." />;
 
@@ -76,12 +74,7 @@ export default function AdminEvents() {
   {/* Filters */}
       <div className="p-5 mb-6" style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
         <div className="grid grid-cols-2 md:flex md:flex-wrap items-end gap-4">
-          <FG label="Event Status">
-            <select className="field-input w-full md:w-36" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-              <option value="">All</option><option value="D">Draft</option><option value="O">Open</option><option value="PA">Paused</option><option value="U">Upcoming</option><option value="CL">Closed</option>
-            </select>
-          </FG>
-          <FG label="Reg. Status">
+          <FG label="Registration Status">
             <select className="field-input w-full md:w-36" value={filterRegStatus} onChange={e => setFilterRegStatus(e.target.value)}>
               <option value="">All</option><option value="D">Draft</option><option value="O">Open</option><option value="PA">Paused</option><option value="U">Upcoming</option><option value="CL">Closed</option>
             </select>
@@ -117,7 +110,11 @@ export default function AdminEvents() {
                   <td className="text-sm opacity-70">{event.isSports ? event.sportType || "Sports" : "Non-sports"}</td>
                   <td className="text-sm">{formatDate(event.eventStartDate)} - {formatDate(event.eventEndDate)}</td>
                   <td className="text-sm opacity-70">{formatDate(event.openDate)} - {formatDate(event.closeDate)}</td>
-                  <td><StatusBadge status={status} /></td>
+                  <td>
+                    {event.isActive === false
+                      ? <span className="inline-flex items-center px-2.5 py-1 text-xs font-semibold" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>Inactive</span>
+                      : <StatusBadge status={status} />}
+                  </td>
                   <td className="text-sm">{event.programs.length}</td>
                   <td>
                     <div className="relative">
@@ -154,7 +151,9 @@ export default function AdminEvents() {
                   <p className="text-xs opacity-50 mt-0.5">{event.isSports ? event.sportType : "Non-sports"} - {event.programs.length} programs</p>
                 </div>
                 <div className="flex items-center gap-2 ml-2">
-                  <StatusBadge status={status} />
+                  {event.isActive === false
+                    ? <span className="inline-flex items-center px-2.5 py-1 text-xs font-semibold" style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>Inactive</span>
+                    : <StatusBadge status={status} />}
                   <div className="relative">
                     <button
                       type="button"

@@ -115,6 +115,46 @@ public class SbaController : ControllerBase
         return Ok(rows.Select(MapRanking));
     }
 
+    [HttpGet("admin/members"), Authorize(Roles = "superadmin,eventadmin")]
+    public async Task<IActionResult> SearchAdminMembers([FromQuery] string? query)
+    {
+        var term = query?.Trim() ?? "";
+        if (term.Length < 2)
+            return Ok(new List<object>());
+
+        if (term.Length > 100)
+            return BadRequest(new { code = "INVALID_SEARCH", message = "SBA member search cannot exceed 100 characters." });
+
+        var normalizedIdTerm = term.ToUpperInvariant();
+        var player1Rows = await _db.SbaRankings
+            .AsNoTracking()
+            .Where(r => r.Player1SbaId.Contains(normalizedIdTerm) || r.Player1Name.Contains(term))
+            .OrderBy(r => r.Player1Name)
+            .Take(40)
+            .Select(r => new { sbaId = r.Player1SbaId, name = r.Player1Name, club = r.Player1Club })
+            .ToListAsync();
+
+        var player2Rows = await _db.SbaRankings
+            .AsNoTracking()
+            .Where(r => r.Player2SbaId != null && r.Player2Name != null &&
+                        (r.Player2SbaId.Contains(normalizedIdTerm) || r.Player2Name.Contains(term)))
+            .OrderBy(r => r.Player2Name)
+            .Take(40)
+            .Select(r => new { sbaId = r.Player2SbaId!, name = r.Player2Name!, club = r.Player2Club })
+            .ToListAsync();
+
+        var players = player1Rows
+            .Concat(player2Rows)
+            .GroupBy(player => player.sbaId.Trim().ToUpperInvariant(), StringComparer.Ordinal)
+            .Select(group => group.First())
+            .OrderBy(player => player.name)
+            .ThenBy(player => player.sbaId)
+            .Take(20)
+            .ToList();
+
+        return Ok(players);
+    }
+
     [HttpPost("import")]
     [Authorize(Roles = "superadmin,eventadmin")]
     [Consumes("multipart/form-data")]

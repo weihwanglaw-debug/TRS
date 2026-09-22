@@ -22,10 +22,11 @@ This document maps the current backend API from controller attributes. JSON resp
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/api/events?includeInactive=` | Public/admin-aware | List events. Public users only receive active events with at least one active program. |
+| GET | `/api/events?includeInactive=&publicArchive=` | Public/admin-aware | List events. Public users only receive active events with at least one active program; `publicArchive` is retained for compatibility and no longer excludes paused events. Event responses include `isActive` and computed registration status. |
 | GET | `/api/events/{id}` | Public/admin-aware | Load event detail with programs, fields, gallery, documents. Public users cannot load active events that have no active programs. |
-| POST | `/api/events` | `superadmin,eventadmin` | Create event and write admin audit log. |
-| PUT | `/api/events/{id}` | `superadmin,eventadmin` | Update event, replace gallery images, and write admin audit log. |
+| POST | `/api/events` | `superadmin,eventadmin` | Create event, including optional restricted SBA players, and write admin audit log. |
+| PUT | `/api/events/{id}` | `superadmin,eventadmin` | Atomically update event/restricted SBA players, replace gallery images, and write admin audit log; newly restricted players are checked against active registrations and payment contexts. |
+| GET | `/api/events/{id}/restricted-sba-players` | `superadmin,eventadmin` | Return the event's admin-only restricted SBA player list. |
 | PATCH | `/api/events/{id}/registration-status` | `superadmin,eventadmin` | Set stored registration status to short code `O`, `PA`, or `CL`; rejects draft events with `EVENT_DRAFT`; writes admin audit log. |
 | DELETE | `/api/events/{id}` | `superadmin,eventadmin` | Soft delete event and write admin audit log; blocked when registrations exist. |
 | GET | `/api/events/{id}/documents` | Public | List event documents for active event. |
@@ -34,7 +35,7 @@ This document maps the current backend API from controller attributes. JSON resp
 | DELETE | `/api/events/{id}/documents/{did}` | `superadmin,eventadmin` | Delete event document row. |
 | POST | `/api/events/{id}/programs` | `superadmin,eventadmin` | Add program and write admin audit log. |
 | PUT | `/api/events/{eid}/programs/{pid}` | `superadmin,eventadmin` | Update program and replace custom fields when safe; write admin audit log. |
-| PATCH | `/api/events/{eid}/programs/{pid}/status` | `superadmin,eventadmin` | Set program status to short code `O` or `CL` and write admin audit log. |
+| PATCH | `/api/events/{eid}/programs/{pid}/status` | `superadmin,eventadmin` | Set program status to short code `O` or `CL` and write admin audit log. Reopening returns `409 PROGRAM_FIXTURE_EXISTS` while a fixture exists. |
 | DELETE | `/api/events/{eid}/programs/{pid}` | `superadmin,eventadmin` | Soft delete program and write admin audit log; blocked when active participant groups exist. |
 
 ## Program Import: `/api/events/{eventId}/programs/{programId}/import`
@@ -136,7 +137,7 @@ All endpoints require `superadmin,eventadmin`.
 | PATCH | `/api/fixtures/{eventId}/{programId}/heats/result` | Save heats result. |
 | POST | `/api/fixtures/{eventId}/{programId}/heats/advance` | Advance heats participants. |
 | POST | `/api/fixtures/{eventId}/{programId}/heats/places` | Save heats final places. |
-| POST | `/api/fixtures/{eventId}/{programId}` | Save/upsert fixture state. |
+| POST | `/api/fixtures/{eventId}/{programId}` | Save/upsert fixture state and close the affected program. |
 | DELETE | `/api/fixtures/{eventId}/{programId}` | Delete fixture row. |
 
 ## SBA: `/api/sba`
@@ -147,6 +148,7 @@ All endpoints require `superadmin,eventadmin`.
 | GET | `/api/sba/rankings?type=` | Public | List rankings, optionally by type. |
 | GET | `/api/sba/members/{sbaId}?type=` | Public | Lookup member by SBA id. |
 | GET | `/api/sba/members?name=&type=` | Public | Search members by name. |
+| GET | `/api/sba/admin/members?query=` | `superadmin,eventadmin` | Search distinct SBA players by member ID or name for event restriction selection. |
 | POST | `/api/sba/import` | `superadmin,eventadmin` | Replace rankings from uploaded `.xlsx`, append new club names to `BadmintonClub`, and write admin audit logs. |
 
 `POST /api/sba/import` response includes `importedRows`, `categories`, `addedClubs`, `addedClubNames`, and `skippedSheets`.

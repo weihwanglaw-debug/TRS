@@ -56,6 +56,7 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
         services.AddHttpClient();
         services.AddDbContext<TRSDbContext>(options => options.UseSqlServer(ConnectionString));
         services.AddSingleton<IBackgroundJobQueue, NoopBackgroundJobQueue>();
+        services.AddScoped<EventSbaRestrictionService>();
         services.AddScoped<RegistrationWorkflowService>();
         services.AddScoped<AdminPaymentOutcomeService>();
         services.AddScoped<PaymentFinalizationService>();
@@ -938,7 +939,8 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             _services.GetRequiredService<IServiceScopeFactory>(),
             scope.ServiceProvider.GetRequiredService<RegistrationWorkflowService>(),
             scope.ServiceProvider.GetRequiredService<PaymentFinalizationService>(),
-            scope.ServiceProvider.GetRequiredService<PaymentAttemptService>());
+            scope.ServiceProvider.GetRequiredService<PaymentAttemptService>(),
+            scope.ServiceProvider.GetRequiredService<EventSbaRestrictionService>());
         controller.ControllerContext = ControllerContextFor("payment-admin");
         return controller;
     }
@@ -975,12 +977,16 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
 
     private StripeWebhookController CreateStripeWebhookController(TRSDbContext db)
     {
+        var sbaRestrictions = new EventSbaRestrictionService(
+            db,
+            _services.GetRequiredService<ILogger<EventSbaRestrictionService>>());
         var registrationWorkflow = new RegistrationWorkflowService(
             db,
             _services.GetRequiredService<ILogger<RegistrationWorkflowService>>(),
             _services.GetRequiredService<IBackgroundJobQueue>(),
             _services.GetRequiredService<IServiceScopeFactory>(),
-            _services.GetRequiredService<AdminPaymentOutcomeService>());
+            _services.GetRequiredService<AdminPaymentOutcomeService>(),
+            sbaRestrictions);
         var paymentFinalization = new PaymentFinalizationService(
             db,
             registrationWorkflow,
@@ -990,7 +996,8 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             registrationWorkflow,
             _services.GetRequiredService<EmailService>(),
             _services.GetRequiredService<IConfiguration>(),
-            _services.GetRequiredService<ILogger<PaymentAttemptService>>());
+            _services.GetRequiredService<ILogger<PaymentAttemptService>>(),
+            sbaRestrictions);
 
         return new StripeWebhookController(
             _services.GetRequiredService<ILogger<StripeWebhookController>>(),

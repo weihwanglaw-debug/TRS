@@ -17,6 +17,8 @@ function statusLabel(event: TournamentEvent) {
   const status = getEventStatus(event);
   if (status === "O") return "Open";
   if (status === "U") return "Upcoming";
+  if (status === "PA") return "Paused";
+  if (status === "D") return "Draft";
   return "Closed";
 }
 
@@ -55,10 +57,8 @@ export default function EventsArchive() {
       .sort((a, b) => {
         const statusA = getEventStatus(a);
         const statusB = getEventStatus(b);
-        if (statusA === "O" && statusB !== "O") return -1;
-        if (statusA !== "O" && statusB === "O") return 1;
-        if (statusA === "U" && statusB === "CL") return -1;
-        if (statusA === "CL" && statusB === "U") return 1;
+        const order = { O: 0, U: 1, PA: 2, CL: 3, D: 4 } as const;
+        if (order[statusA] !== order[statusB]) return order[statusA] - order[statusB];
         return new Date(b.eventStartDate).getTime() - new Date(a.eventStartDate).getTime();
       });
   }, [events, search, year]);

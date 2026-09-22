@@ -24,6 +24,7 @@ namespace TRS_API.Controllers
         private readonly RegistrationWorkflowService _registrationWorkflow;
         private readonly PaymentFinalizationService _paymentFinalization;
         private readonly PaymentAttemptService _paymentAttempts;
+        private readonly EventSbaRestrictionService _sbaRestrictions;
 
         public PaymentController(
             ILogger<PaymentController> logger,
@@ -33,7 +34,8 @@ namespace TRS_API.Controllers
             IServiceScopeFactory serviceScopeFactory,
             RegistrationWorkflowService registrationWorkflow,
             PaymentFinalizationService paymentFinalization,
-            PaymentAttemptService paymentAttempts)
+            PaymentAttemptService paymentAttempts,
+            EventSbaRestrictionService sbaRestrictions)
         {
             _logger = logger;
             _config = config;
@@ -43,6 +45,7 @@ namespace TRS_API.Controllers
             _registrationWorkflow = registrationWorkflow;
             _paymentFinalization = paymentFinalization;
             _paymentAttempts = paymentAttempts;
+            _sbaRestrictions = sbaRestrictions;
             StripeConfiguration.ApiKey = _config["Stripe:SecretKey"];
         }
 
@@ -359,6 +362,24 @@ namespace TRS_API.Controllers
 
             var newExpiresAt   = session.ExpiresAt;
 
+            await using var restrictionTx = await _db.Database.BeginTransactionAsync();
+            if (!await _sbaRestrictions.AcquireEventWriteLockAsync(payload.EventId, HttpContext.RequestAborted))
+            {
+                await restrictionTx.RollbackAsync();
+                await ExpireUnstartedSessionSafeAsync(session.Id);
+                return NotFound(new { code = "EVENT_NOT_FOUND", message = "Event not found." });
+            }
+
+            var restrictionValidation = await _sbaRestrictions.ValidatePublicRegistrationAsync(
+                payload,
+                HttpContext.RequestAborted);
+            if (!restrictionValidation.Success)
+            {
+                await restrictionTx.RollbackAsync();
+                await ExpireUnstartedSessionSafeAsync(session.Id);
+                return BadRequest(new { code = restrictionValidation.Code, message = restrictionValidation.Message });
+            }
+
             var existing = await _db.PendingCheckouts.FindAsync(session.Id);
 
             if (existing == null)
@@ -383,6 +404,7 @@ namespace TRS_API.Controllers
             }
 
             await _db.SaveChangesAsync();
+            await restrictionTx.CommitAsync();
 
             _logger.LogInformation(
                 "PendingCheckout {Action} for session {SessionId} event {EventId}",
@@ -395,6 +417,21 @@ namespace TRS_API.Controllers
                 paymentMethod    = dbMethod,
                 expiresAt        = session.ExpiresAt
             });
+        }
+
+        private async Task ExpireUnstartedSessionSafeAsync(string gatewaySessionId)
+        {
+            try
+            {
+                await new SessionService().ExpireAsync(gatewaySessionId);
+            }
+            catch (StripeException ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Could not expire Stripe session {SessionId} after SBA restriction validation failed",
+                    gatewaySessionId);
+            }
         }
 
         private async Task<IActionResult> CreateLegacyCheckout(PaymentRequest request)

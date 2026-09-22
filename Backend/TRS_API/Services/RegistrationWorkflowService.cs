@@ -17,19 +17,22 @@ public class RegistrationWorkflowService
     private readonly IBackgroundJobQueue _jobQueue;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly AdminPaymentOutcomeService _adminPaymentOutcome;
+    private readonly EventSbaRestrictionService _sbaRestrictions;
 
     public RegistrationWorkflowService(
         TRSDbContext db,
         ILogger<RegistrationWorkflowService> log,
         IBackgroundJobQueue jobQueue,
         IServiceScopeFactory serviceScopeFactory,
-        AdminPaymentOutcomeService adminPaymentOutcome)
+        AdminPaymentOutcomeService adminPaymentOutcome,
+        EventSbaRestrictionService sbaRestrictions)
     {
         _db = db;
         _log = log;
         _jobQueue = jobQueue;
         _serviceScopeFactory = serviceScopeFactory;
         _adminPaymentOutcome = adminPaymentOutcome;
+        _sbaRestrictions = sbaRestrictions;
     }
 
     public async Task<RegistrationWorkflowResult<PricingQuote>> ValidateAndPriceAsync(
@@ -62,6 +65,17 @@ public class RegistrationWorkflowService
         var gateFailure = ValidateEventGate(options.RegistrationGateMode, registrationStatus);
         if (gateFailure != null)
             return RegistrationWorkflowResult<PricingQuote>.Fail(gateFailure.Value.Code, gateFailure.Value.Message);
+
+        if (options.RegistrationGateMode == EventRegistrationGateMode.StrictPublic)
+        {
+            var restrictionValidation = await _sbaRestrictions.ValidatePublicRegistrationAsync(req, ct);
+            if (!restrictionValidation.Success)
+            {
+                return RegistrationWorkflowResult<PricingQuote>.Fail(
+                    restrictionValidation.Code!,
+                    restrictionValidation.Message);
+            }
+        }
 
         var programs = await _db.Programs
             .Include(p => p.Fields)
@@ -218,6 +232,21 @@ public class RegistrationWorkflowService
 
         try
         {
+            if (options.RegistrationGateMode == EventRegistrationGateMode.StrictPublic)
+            {
+                if (!await _sbaRestrictions.AcquireEventWriteLockAsync(req.EventId, ct))
+                    return await RollbackAndFail(tx, "EVENT_NOT_FOUND", "Event not found.");
+
+                var restrictionValidation = await _sbaRestrictions.ValidatePublicRegistrationAsync(req, ct);
+                if (!restrictionValidation.Success)
+                {
+                    return await RollbackAndFail(
+                        tx,
+                        restrictionValidation.Code!,
+                        restrictionValidation.Message);
+                }
+            }
+
             var programIds = req.Groups.Select(g => g.ProgramId).Distinct().ToList();
             var customFields = await _db.ProgramCustomFields
                 .Where(cf => programIds.Contains(cf.ProgramId))
@@ -326,7 +355,9 @@ public class RegistrationWorkflowService
                         Email = participantDto.Email,
                         ContactNumber = participantDto.ContactNumber,
                         TshirtSize = participantDto.TshirtSize,
-                        SbaId = participantDto.SbaId,
+                        SbaId = string.IsNullOrWhiteSpace(participantDto.SbaId)
+                            ? null
+                            : EventSbaRestrictionService.NormalizeSbaId(participantDto.SbaId),
                         GuardianName = participantDto.GuardianName,
                         GuardianContact = participantDto.GuardianContact,
                         DocumentUrl = participantDto.DocumentUrl,
@@ -664,23 +695,26 @@ public class RegistrationWorkflowService
             : null;
     }
 
-    public static string ComputeRegistrationStatus(Event eventEntity, int activeProgramCount)
+    public static string ComputeRegistrationStatus(
+        Event eventEntity,
+        int activeProgramCount,
+        DateOnly? todayOverride = null)
     {
         if (!eventEntity.IsActive)
             return StatusCodesEx.EventRegistration.Closed;
         if (activeProgramCount <= 0)
             return StatusCodesEx.EventRegistration.Draft;
 
-        if (eventEntity.RegistrationStatus == StatusCodesEx.EventRegistration.Paused)
-            return StatusCodesEx.EventRegistration.Paused;
-        if (eventEntity.RegistrationStatus == StatusCodesEx.EventRegistration.Closed)
-            return StatusCodesEx.EventRegistration.Closed;
-
-        var today = TodayInSingapore();
-        if (today < eventEntity.OpenDate)
-            return StatusCodesEx.EventRegistration.Upcoming;
+        var today = todayOverride ?? TodayInSingapore();
         if (today > eventEntity.CloseDate)
             return StatusCodesEx.EventRegistration.Closed;
+        if (eventEntity.RegistrationStatus == StatusCodesEx.EventRegistration.Closed)
+            return StatusCodesEx.EventRegistration.Closed;
+        if (eventEntity.RegistrationStatus == StatusCodesEx.EventRegistration.Paused)
+            return StatusCodesEx.EventRegistration.Paused;
+
+        if (today < eventEntity.OpenDate)
+            return StatusCodesEx.EventRegistration.Upcoming;
 
         return StatusCodesEx.EventRegistration.Open;
     }

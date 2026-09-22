@@ -2,7 +2,7 @@
  * sbaApi.ts - SBA rankings, member lookup, and ranking import.
  */
 
-import { ok, err, delay, API_BASE, publicHeaders, getToken, parseError, apiFetch } from "./_base";
+import { ok, err, delay, API_BASE, publicHeaders, adminHeaders, getToken, parseError, apiFetch } from "./_base";
 import type { ApiResult } from "./_base";
 import type { SbaRanking, SbaRankingType } from "@/types/config";
 
@@ -14,6 +14,12 @@ export interface SbaMember {
   rankingType?: string;
   ranking?: number;
   accumulatedScore?: number;
+}
+
+export interface AdminSbaMemberSearchResult {
+  sbaId: string;
+  name: string;
+  club?: string | null;
 }
 
 export interface SbaImportResult {
@@ -70,6 +76,20 @@ export async function apiSearchSbaMembers(name: string, type?: string): Promise<
   if (type) params.set("type", type);
   const res = await apiFetch(`${API_BASE}/api/sba/members?${params}`, { headers: publicHeaders() });
   if (!res.ok) return err("SEARCH_FAILED", "SBA member search failed.");
+  return ok(await res.json());
+}
+
+export async function apiSearchAdminSbaMembers(
+  query: string,
+): Promise<ApiResult<AdminSbaMemberSearchResult[]>> {
+  await delay();
+
+  const params = new URLSearchParams({ query });
+  const res = await apiFetch(`${API_BASE}/api/sba/admin/members?${params}`, { headers: adminHeaders() });
+  if (!res.ok) {
+    const parsed = await parseError(res, "SBA member search failed.");
+    return err(parsed.code, parsed.message);
+  }
   return ok(await res.json());
 }
 

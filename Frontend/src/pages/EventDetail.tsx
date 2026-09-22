@@ -10,7 +10,12 @@ import {
 } from "lucide-react";
 import type { TournamentEvent, Program, Participant, CartEntry } from "@/types/config";
 import { isTeamProgram } from "@/types/config";
-import { getCartProgramCapacityUsage, getEventStatus, formatDate } from "@/lib/eventUtils";
+import {
+  getCartProgramCapacityUsage,
+  getEventStatus,
+  getProgramRegistrationPresentation,
+  formatDate,
+} from "@/lib/eventUtils";
 import { apiGetEvent, apiGetSbaMember, apiCreateRegistration, apiCreateEmbeddedPaymentAttempt, apiAbandonEmbeddedPaymentAttempt, apiConfirmRegistration, apiUploadFile, assetUrl } from "@/lib/api";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
 import StatusBadge, { getProgramCapacityStatus } from "@/components/events/StatusBadge";
@@ -32,12 +37,6 @@ import type { EmbeddedPaymentAttempt } from "@/types/registration";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-
-import eventBanner1 from "@/assets/event-banner-1.jpg";
-import eventBanner2 from "@/assets/event-banner-2.jpg";
-import eventBanner3 from "@/assets/event-banner-3.jpg";
-
-const FALLBACK_BANNERS = [eventBanner1, eventBanner2, eventBanner3];
 
 type EventSectionNavItem = {
   id: string;
@@ -268,8 +267,6 @@ export default function EventDetail() {
 
   const [event,        setEvent]        = useState<TournamentEvent | null>(null);
   const [eventLoading, setEventLoading] = useState(true);
-  // eventIndex only used for fallback banner cycling - default 0 for async load
-  const [eventIndex,   setEventIndex]   = useState(0);
 
   useEffect(() => {
     if (!id) return;
@@ -277,8 +274,6 @@ export default function EventDetail() {
     apiGetEvent(id).then(r => {
       if (r.data) {
         setEvent(r.data);
-  // index used for fallback banner only - cycle by event id hash
-        setEventIndex(id.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 3);
       }
     }).finally(() => setEventLoading(false));
   }, [id]);
@@ -335,8 +330,8 @@ export default function EventDetail() {
   const [adminConfirmRef, setAdminConfirmRef] = useState("");
 
   const status = event ? getEventStatus(event) : "CL";
-  const isAdminRegistrationMode = isAuthenticated && status !== "O" && status !== "D";
-  const canShowRegistration = status === "O" || isAdminRegistrationMode;
+  const isAdminAssistedRegistration = isAuthenticated && status !== "D";
+  const canShowRegistration = status === "O" || isAdminAssistedRegistration;
   const currency = cfg.currency || "SGD";
   const totalPrice = cart.reduce((sum, e) => sum + e.fee, 0);
   // checkout submission state
@@ -417,13 +412,13 @@ export default function EventDetail() {
   const bannerImage =
     event?.bannerUrl && !event.bannerUrl.startsWith("blob:")
       ? assetUrl(event.bannerUrl)
-      : FALLBACK_BANNERS[eventIndex % FALLBACK_BANNERS.length];
+      : null;
 
-  const galleryImages = useMemo(() => {
-    const safe = (event?.galleryUrls ?? []).filter((u) => u && !u.startsWith("blob:")).map(assetUrl);
-    if (safe.length > 0) return safe;
-    return FALLBACK_BANNERS;
-  }, [event]);
+  const galleryImages = useMemo(
+    () => (event?.galleryUrls ?? []).filter((u) => u && !u.startsWith("blob:")).map(assetUrl),
+    [event],
+  );
+  const hasEventDocuments = Boolean(event?.documents?.length);
 
   const registrationNoticeStyle = {
     backgroundColor: "var(--color-row-hover)",
@@ -435,12 +430,12 @@ export default function EventDetail() {
     if (!event) return [];
     return [
       { id: "event-info", label: "Info", icon: BadgeInfo },
-      ...(event.documents?.length ? [{ id: "event-documents", label: "Docs", icon: FileText }] : []),
+      ...(hasEventDocuments ? [{ id: "event-documents", label: "Docs", icon: FileText }] : []),
       ...(galleryImages.length ? [{ id: "event-gallery", label: "Gallery", icon: Images }] : []),
       { id: "event-categories", label: event.sportType.toLowerCase() === "badminton" ? "Categories" : "Programs", icon: ListChecks },
-      ...(canShowRegistration ? [{ id: "registration", label: isAdminRegistrationMode ? "Admin Register" : "Register", icon: ClipboardList }] : []),
+      ...(canShowRegistration ? [{ id: "registration", label: isAuthenticated ? "Admin Register" : "Register", icon: ClipboardList }] : []),
     ];
-  }, [event, galleryImages.length, canShowRegistration, isAdminRegistrationMode]);
+  }, [event, hasEventDocuments, galleryImages.length, canShowRegistration, isAuthenticated]);
 
   //  Program selection with scroll
   // Re-fetches the event before opening the form so that currentParticipants
@@ -1062,7 +1057,10 @@ export default function EventDetail() {
 
   {/*  Banner Hero  */}
         <div className="event-detail-hero relative">
-          <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${bannerImage})` }} />
+          <div
+            className="absolute inset-0 bg-cover bg-center"
+            style={{ background: bannerImage ? `url(${bannerImage}) center / cover` : "var(--color-hero-bg)" }}
+          />
           <div className="event-detail-hero-overlay absolute inset-0" />
           <div className="event-detail-hero-inner relative z-10 mx-auto px-8 pt-24 pb-14">
             <button onClick={() => navigate("/")}
@@ -1085,7 +1083,10 @@ export default function EventDetail() {
         <div className="event-detail-body mx-auto py-12 px-8">
 
   {/*  Section 1: Event Info  */}
-          <div id="event-info" className="event-detail-info-grid section-anchor grid md:grid-cols-2 gap-10 mb-12">
+          <div
+            id="event-info"
+            className={`event-detail-info-grid section-anchor grid gap-10 mb-12 ${hasEventDocuments ? "md:grid-cols-2" : "grid-cols-1"}`}
+          >
 
             <div className="event-detail-panel space-y-5">
               <h2 className="event-detail-section-heading font-bold text-xl mb-6">Event Information</h2>
@@ -1102,8 +1103,8 @@ export default function EventDetail() {
                 </div>
               )}
             </div>
-            <div id="event-documents" className="event-detail-panel event-detail-documents section-anchor flex flex-col gap-4">
-             {event.documents && event.documents.length > 0 && (
+            {hasEventDocuments && (
+              <div id="event-documents" className="event-detail-panel event-detail-documents section-anchor flex flex-col gap-4">
                 <div className="flex flex-col gap-4">
                     <h2 className="event-detail-section-heading font-bold text-xl mb-6">Event Documents</h2>
 
@@ -1129,8 +1130,8 @@ export default function EventDetail() {
                           </a>
                         ))}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
   {/* Google Maps embed */}
@@ -1144,9 +1145,11 @@ export default function EventDetail() {
 
   {/*  Gallery Section  */}
    
-          <div id="event-gallery" className="section-anchor">
-            <EventGallery images={galleryImages} />
-          </div>
+          {galleryImages.length > 0 && (
+            <div id="event-gallery" className="section-anchor">
+              <EventGallery images={galleryImages} />
+            </div>
+          )}
 
   {/*  Additional Information  */}
           {event.additionalInfo && event.additionalInfo.trim() !== "" && event.additionalInfo !== "<p></p>" && (
@@ -1167,14 +1170,14 @@ export default function EventDetail() {
           </h2>
           {status === "U" && (
             <div className="p-4 mb-6 text-sm" style={registrationNoticeStyle}>
-              {isAdminRegistrationMode
+              {isAdminAssistedRegistration
                 ? `Admin registration mode (Registration opens on ${formatDate(event.openDate)})`
                 : `Registration opens on ${formatDate(event.openDate)}`}
             </div>
           )}
           {status === "PA" && (
             <div className="p-4 mb-6 text-sm" style={registrationNoticeStyle}>
-              {isAdminRegistrationMode ? "Admin registration mode (Registration Paused)" : "Registration Paused"}
+              {isAdminAssistedRegistration ? "Admin registration mode (Registration Paused)" : "Registration Paused"}
             </div>
           )}
           {status === "D" && (
@@ -1182,7 +1185,7 @@ export default function EventDetail() {
           )}
           {status === "CL" && (
             <div className="p-4 mb-6 text-sm" style={registrationNoticeStyle}>
-              {isAdminRegistrationMode ? "Admin registration mode (Registration Closed)" : "Registration Closed"}
+              {isAdminAssistedRegistration ? "Admin registration mode (Registration Closed)" : "Registration Closed"}
             </div>
           )}
           </div>
@@ -1193,9 +1196,12 @@ export default function EventDetail() {
                 ...prog,
                 currentParticipants: prog.currentParticipants + cartCapacityUsage,
               });
-              const isFull = capStatus === "F";
-              const progClosed = prog.status === "CL";
-              const canRegister = canShowRegistration && !isFull && !progClosed;
+              const presentation = getProgramRegistrationPresentation({
+                eventStatus: status,
+                programDisplayStatus: capStatus,
+                isAuthenticated,
+                cartCapacityUsage,
+              });
               return (
                 <div key={prog.id} className="event-detail-program-card flex flex-col"
                   style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-row-hover)" }}>
@@ -1203,7 +1209,7 @@ export default function EventDetail() {
                   <div className="p-6 flex flex-col flex-1">
                     <div className="flex items-start justify-between mb-3 gap-2">
                       <h3 className="event-category-title flex-1">{prog.name}</h3>
-                      <StatusBadge status={capStatus} />
+                      <StatusBadge status={presentation.badgeStatus} />
                     </div>
                     <div className="event-category-body">
                       <div className="event-category-price-block">
@@ -1226,9 +1232,9 @@ export default function EventDetail() {
                       </div>
                     </div>
                     <div className="event-category-action">
-                      <button disabled={!canRegister} onClick={() => handleSelectProgram(prog)}
+                      <button disabled={!presentation.canRegister} onClick={() => handleSelectProgram(prog)}
                         className="btn-primary event-category-button disabled:opacity-40 disabled:cursor-not-allowed">
-                        {isFull ? (cartCapacityUsage > 0 ? "Limit Reached" : "Full") : progClosed ? "Closed" : isAdminRegistrationMode ? "Admin Register" : "Register"}
+                        {presentation.buttonLabel}
                       </button>
                     </div>
                   </div>
@@ -1521,7 +1527,11 @@ export default function EventDetail() {
                         )}
                         {submitError && (
                           <div className="flex items-center gap-2 p-3 mb-3 text-sm"
-                            style={{ backgroundColor: "var(--badge-closed-bg)", color: "var(--badge-closed-text)" }}>
+                            style={{
+                              backgroundColor: "var(--feedback-error-bg)",
+                              border: "1px solid var(--feedback-error)",
+                              color: "var(--feedback-error)",
+                            }}>
                             <AlertCircle className="h-4 w-4 flex-shrink-0" /> {submitError}
                           </div>
                         )}

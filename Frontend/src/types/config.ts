@@ -146,6 +146,11 @@ export interface EventDocument {
   fileUrl:      string;
   displayOrder: number;
 }
+
+export interface EventRestrictedSbaPlayer {
+  sbaId: string;
+  name: string;
+}
  
 
 export interface TournamentEvent {
@@ -167,8 +172,10 @@ export interface TournamentEvent {
   sportType:        string;
   fixtureMode:      FixtureMode;
   maxProgramsPerParticipant?: number | null;
+  isActive?:        boolean;
   registrationStatus?: "O" | "PA" | "CL";
   computedRegistrationStatus?: EventStatus;
+  restrictedSbaPlayers?: EventRestrictedSbaPlayer[];
   programs:         Program[];
 }
 

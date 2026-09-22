@@ -1,4 +1,4 @@
-import type { CartEntry, TournamentEvent, EventStatus, Program } from "@/types/config";
+import type { CartEntry, TournamentEvent, EventStatus, Program, ProgramStatus } from "@/types/config";
 
 const SINGAPORE_TIME_ZONE = "Asia/Singapore";
 
@@ -21,15 +21,72 @@ function parseDateOnly(dateStr: string): Date {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
-export function getEventStatus(event: TournamentEvent): EventStatus {
+export function getEventStatus(event: TournamentEvent, today = singaporeDateKey()): EventStatus {
+  if (event.isActive === false) return "CL";
   if (event.computedRegistrationStatus) return event.computedRegistrationStatus;
   if (!event.programs?.length) return "D";
-  if (event.registrationStatus === "PA") return "PA";
-  if (event.registrationStatus === "CL") return "CL";
-  const today = singaporeDateKey();
-  if (today < event.openDate) return "U";
   if (today > event.closeDate) return "CL";
+  if (event.registrationStatus === "CL") return "CL";
+  if (event.registrationStatus === "PA") return "PA";
+  if (today < event.openDate) return "U";
   return "O";
+}
+
+export function isEventVisibleOnLanding(
+  event: TournamentEvent,
+  today = singaporeDateKey(),
+): boolean {
+  if (event.isActive === false || !event.programs?.length) return false;
+  const finalEventDate = event.eventEndDate || event.eventStartDate;
+  return Boolean(finalEventDate) && today <= finalEventDate;
+}
+
+export interface ProgramRegistrationPresentation {
+  badgeStatus: EventStatus | ProgramStatus;
+  buttonLabel: string;
+  canRegister: boolean;
+}
+
+export function getProgramRegistrationPresentation({
+  eventStatus,
+  programDisplayStatus,
+  isAuthenticated,
+  cartCapacityUsage = 0,
+}: {
+  eventStatus: EventStatus;
+  programDisplayStatus: ProgramStatus;
+  isAuthenticated: boolean;
+  cartCapacityUsage?: number;
+}): ProgramRegistrationPresentation {
+  if (eventStatus === "D") {
+    return { badgeStatus: "D", buttonLabel: "Registration Unavailable", canRegister: false };
+  }
+
+  if (!isAuthenticated && eventStatus !== "O") {
+    const buttonLabel = eventStatus === "U"
+      ? "Registration Not Open"
+      : eventStatus === "PA"
+        ? "Registration Paused"
+        : "Registration Closed";
+    return { badgeStatus: eventStatus, buttonLabel, canRegister: false };
+  }
+
+  if (programDisplayStatus === "F") {
+    return {
+      badgeStatus: "F",
+      buttonLabel: cartCapacityUsage > 0 ? "Limit Reached" : "Full",
+      canRegister: false,
+    };
+  }
+  if (programDisplayStatus === "CL") {
+    return { badgeStatus: "CL", buttonLabel: "Closed", canRegister: false };
+  }
+
+  return {
+    badgeStatus: programDisplayStatus,
+    buttonLabel: isAuthenticated ? "Admin Register" : "Register",
+    canRegister: true,
+  };
 }
 
 export function getCartProgramCapacityUsage(

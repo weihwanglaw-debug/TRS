@@ -12,6 +12,7 @@ public partial class TRSDbContext : DbContext
     public virtual DbSet<Event>                      Events                     { get; set; }
     public virtual DbSet<EventGalleryImage>          EventGalleryImages         { get; set; }
     public virtual DbSet<EventDocument>              EventDocuments             { get; set; }
+    public virtual DbSet<EventRestrictedSbaPlayer>   EventRestrictedSbaPlayers  { get; set; }
     public virtual DbSet<TrsProgram>                 Programs                   { get; set; }
     public virtual DbSet<ProgramField>               ProgramFields              { get; set; }
     public virtual DbSet<ProgramCustomField>         ProgramCustomFields        { get; set; }
@@ -107,6 +108,22 @@ public partial class TRSDbContext : DbContext
             e.HasOne(x => x.Event).WithMany(x => x.Documents)
             .HasForeignKey(x => x.EventId).OnDelete(DeleteBehavior.Cascade)
             .HasConstraintName("FK_EventDocuments_Events");
+        });
+
+        // EventRestrictedSbaPlayers
+        mb.Entity<EventRestrictedSbaPlayer>(e => {
+            e.ToTable("EventRestrictedSbaPlayers");
+            e.HasKey(x => x.EventRestrictedSbaPlayerId).HasName("PK_EventRestrictedSbaPlayers");
+            e.Property(x => x.EventRestrictedSbaPlayerId).HasColumnName("EventRestrictedSbaPlayerID");
+            e.Property(x => x.EventId).HasColumnName("EventID");
+            e.Property(x => x.SbaId).HasColumnName("SbaID").HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.PlayerNameSnapshot).HasMaxLength(200);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("(sysutcdatetime())");
+            e.HasIndex(x => new { x.EventId, x.SbaId }).IsUnique()
+             .HasDatabaseName("UQ_EventRestrictedSbaPlayers_Event_SbaID");
+            e.HasOne(x => x.Event).WithMany(x => x.RestrictedSbaPlayers)
+             .HasForeignKey(x => x.EventId).OnDelete(DeleteBehavior.Cascade)
+             .HasConstraintName("FK_EventRestrictedSbaPlayers_Event");
         });
 
         // Programs (TrsProgram → table name Programs)

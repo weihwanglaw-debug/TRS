@@ -21,19 +21,22 @@ public sealed class PaymentAttemptService
     private readonly EmailService _emailService;
     private readonly IConfiguration _config;
     private readonly ILogger<PaymentAttemptService> _log;
+    private readonly EventSbaRestrictionService _sbaRestrictions;
 
     public PaymentAttemptService(
         TRSDbContext db,
         RegistrationWorkflowService registrationWorkflow,
         EmailService emailService,
         IConfiguration config,
-        ILogger<PaymentAttemptService> log)
+        ILogger<PaymentAttemptService> log,
+        EventSbaRestrictionService sbaRestrictions)
     {
         _db = db;
         _registrationWorkflow = registrationWorkflow;
         _emailService = emailService;
         _config = config;
         _log = log;
+        _sbaRestrictions = sbaRestrictions;
         StripeConfiguration.ApiKey = _config["Stripe:SecretKey"];
     }
 
@@ -208,8 +211,23 @@ public sealed class PaymentAttemptService
             ExpiresAt = expiresAt,
         };
 
+        await using var restrictionTx = await _db.Database.BeginTransactionAsync(ct);
+        if (!await _sbaRestrictions.AcquireEventWriteLockAsync(payload.EventId, ct))
+        {
+            await restrictionTx.RollbackAsync(ct);
+            return PaymentAttemptCreateResult.Fail("EVENT_NOT_FOUND", "Event not found.");
+        }
+
+        var restrictionValidation = await _sbaRestrictions.ValidatePublicRegistrationAsync(payload, ct);
+        if (!restrictionValidation.Success)
+        {
+            await restrictionTx.RollbackAsync(ct);
+            return PaymentAttemptCreateResult.Fail(restrictionValidation.Code!, restrictionValidation.Message);
+        }
+
         _db.PaymentAttempts.Add(attempt);
         await _db.SaveChangesAsync(ct);
+        await restrictionTx.CommitAsync(ct);
 
         try
         {

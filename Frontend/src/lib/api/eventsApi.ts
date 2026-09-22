@@ -18,7 +18,18 @@
 
 import { ok, err, delay, API_BASE, publicHeaders, adminHeaders, parseError, apiFetch } from "./_base";
 import type { ApiResult } from "./_base";
-import type { TournamentEvent, Program, EventDocument } from "@/types/config";
+import type { TournamentEvent, Program, EventDocument, EventRestrictedSbaPlayer } from "@/types/config";
+
+export interface EventSbaRestrictionConflict {
+  sbaId: string;
+  conflictType: "registration" | "paymentAttempt" | "pendingCheckout";
+  registrationId?: number | null;
+  groupId?: number | null;
+  participantName?: string | null;
+  programName?: string | null;
+  paymentAttemptId?: number | null;
+  gatewaySessionId?: string | null;
+}
 
 export interface ProgramImportIssue {
   row: number | null;
@@ -135,7 +146,10 @@ export async function apiCreateEvent(
     headers: adminHeaders(),
     body: JSON.stringify(payload),
   });
-  if (!res.ok) return err("CREATE_FAILED", (await parseError(res)).message);
+  if (!res.ok) {
+    const parsed = await parseError(res);
+    return err(parsed.code, parsed.message, parsed.details);
+  }
   return ok(await res.json());
 }
 
@@ -149,7 +163,24 @@ export async function apiUpdateEvent(
     headers: adminHeaders(),
     body: JSON.stringify(patch),
   });
-  if (!res.ok) return err("UPDATE_FAILED", (await parseError(res)).message);
+  if (!res.ok) {
+    const parsed = await parseError(res);
+    return err(parsed.code, parsed.message, parsed.details);
+  }
+  return ok(await res.json());
+}
+
+export async function apiGetEventRestrictedSbaPlayers(
+  eventId: string,
+): Promise<ApiResult<EventRestrictedSbaPlayer[]>> {
+  await delay();
+  const res = await apiFetch(`${API_BASE}/api/events/${eventId}/restricted-sba-players`, {
+    headers: adminHeaders(),
+  });
+  if (!res.ok) {
+    const parsed = await parseError(res, "Failed to load restricted SBA players.");
+    return err(parsed.code, parsed.message);
+  }
   return ok(await res.json());
 }
 
@@ -222,7 +253,10 @@ export async function apiUpdateProgramStatus(
     headers: adminHeaders(),
     body: JSON.stringify({ status }),
   });
-  if (!res.ok) return err("UPDATE_FAILED", "Failed to update program status.");
+  if (!res.ok) {
+    const parsed = await parseError(res, "Failed to update program status.");
+    return err(parsed.code, parsed.message, parsed.details);
+  }
   return ok(await res.json());
 }
 

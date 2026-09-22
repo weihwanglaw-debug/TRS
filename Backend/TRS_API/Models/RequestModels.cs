@@ -69,6 +69,13 @@ public class UpsertEventRequest
     public string FixtureMode             { get; set; } = "internal";
     public int? MaxProgramsPerParticipant { get; set; }
     public List<string> GalleryUrls       { get; set; } = new();
+    [MaxLength(500)] public List<RestrictedSbaPlayerRequest>? RestrictedSbaPlayers { get; set; }
+}
+
+public class RestrictedSbaPlayerRequest
+{
+    [Required, MaxLength(20)] public string SbaId { get; set; } = null!;
+    public string? Name { get; set; }
 }
 
 public class UpsertProgramRequest

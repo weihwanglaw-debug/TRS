@@ -1,3 +1,4 @@
+using System.Data;
 using Ganss.Xss;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,11 +15,16 @@ public class EventsController : ControllerBase
     private const string DefaultTshirtOptions = "XS,S,M,L,XL,XXL,3XL";
     private readonly TRSDbContext _db;
     private readonly AdminAuditService _audit;
+    private readonly EventSbaRestrictionService _sbaRestrictions;
     // HtmlSanitizer (Ganss.Xss NuGet) strips dangerous tags from admin-authored HTML.
     // Install: dotnet add package HtmlSanitizer
     private static readonly HtmlSanitizer _sanitizer = new();
 
-    public EventsController(TRSDbContext db, AdminAuditService audit) => (_db, _audit) = (db, audit);
+    public EventsController(
+        TRSDbContext db,
+        AdminAuditService audit,
+        EventSbaRestrictionService sbaRestrictions)
+        => (_db, _audit, _sbaRestrictions) = (db, audit, sbaRestrictions);
 
     // ── Event CRUD ────────────────────────────────────────────────────────────
 
@@ -31,7 +37,9 @@ public class EventsController : ControllerBase
 
         var q = LoadEvents();
         if (!includeInactive) q = q.Where(e => e.IsActive && e.Programs.Any(p => p.IsActive));
-        if (publicArchive) q = q.Where(e => e.RegistrationStatus != StatusCodesEx.EventRegistration.Paused);
+        // Kept for API compatibility. The public archive now includes every active,
+        // non-draft event, including manually paused events.
+        _ = publicArchive;
         var events = await q.OrderByDescending(e => e.EventStartDate).ToListAsync();
         var counts = await GetParticipantCounts(events.SelectMany(e => e.Programs.Select(p => p.ProgramId)).ToList());
         return Ok(events.Select(e => MapEvent(e, counts)));
@@ -57,6 +65,12 @@ public class EventsController : ControllerBase
         var validation = ValidateEventSettings(req);
         if (validation != null) return BadRequest(validation);
         var ev = ApplyEventFields(new Event { CreatedAt = DateTime.UtcNow, IsActive = true }, req);
+        var requestedRestrictions = EventSbaRestrictionService.SupportsRestrictions(req.IsSports, req.SportType)
+            ? req.RestrictedSbaPlayers
+            : [];
+        var restrictionResult = await _sbaRestrictions.ReconcileAsync(ev, requestedRestrictions);
+        if (!restrictionResult.Success)
+            return BadRequest(new { code = restrictionResult.Code, message = restrictionResult.Message });
         _db.Events.Add(ev);
         await _db.SaveChangesAsync();
         await _audit.LogAsync(
@@ -75,13 +89,36 @@ public class EventsController : ControllerBase
     [HttpPut("{id:int}"), Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> Update(int id, [FromBody] UpsertEventRequest req)
     {
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        if (!await _sbaRestrictions.AcquireEventWriteLockAsync(id))
+            return NotFound(new { code = "NOT_FOUND", message = "Event not found." });
+
         var ev = await _db.Events
             .Include(e => e.GalleryImages)
+            .Include(e => e.RestrictedSbaPlayers)
             .FirstOrDefaultAsync(e => e.EventId == id);
         if (ev == null) return NotFound(new { code = "NOT_FOUND", message = "Event not found." });
         var validation = ValidateEventSettings(req);
         if (validation != null) return BadRequest(validation);
         var oldValue = AuditEventSnapshot(ev);
+        var requestedRestrictions = EventSbaRestrictionService.SupportsRestrictions(req.IsSports, req.SportType)
+            ? req.RestrictedSbaPlayers
+            : [];
+        var restrictionResult = await _sbaRestrictions.ReconcileAsync(ev, requestedRestrictions);
+        if (!restrictionResult.Success)
+        {
+            if (restrictionResult.Code == StatusCodesEx.Validation.RestrictedSbaPlayerConflict)
+            {
+                return Conflict(new
+                {
+                    code = restrictionResult.Code,
+                    message = restrictionResult.Message,
+                    conflicts = restrictionResult.Conflicts,
+                });
+            }
+
+            return BadRequest(new { code = restrictionResult.Code, message = restrictionResult.Message });
+        }
         ev.GalleryImages.Clear();
         ApplyEventFields(ev, req);
         ev.UpdatedAt = DateTime.UtcNow;
@@ -95,7 +132,29 @@ public class EventsController : ControllerBase
             oldValue,
             AuditEventSnapshot(ev),
             $"Updated event '{ev.Name}'.");
+        await tx.CommitAsync();
         return await GetById(id);
+    }
+
+    [HttpGet("{id:int}/restricted-sba-players"), Authorize(Roles = "superadmin,eventadmin")]
+    public async Task<IActionResult> GetRestrictedSbaPlayers(int id)
+    {
+        if (!await _db.Events.AsNoTracking().AnyAsync(e => e.EventId == id))
+            return NotFound(new { code = "NOT_FOUND", message = "Event not found." });
+
+        var players = await _db.EventRestrictedSbaPlayers
+            .AsNoTracking()
+            .Where(player => player.EventId == id)
+            .OrderBy(player => player.PlayerNameSnapshot)
+            .ThenBy(player => player.SbaId)
+            .Select(player => new
+            {
+                sbaId = player.SbaId,
+                name = player.PlayerNameSnapshot,
+            })
+            .ToListAsync();
+
+        return Ok(players);
     }
 
     // DELETE /api/events/:id
@@ -341,11 +400,24 @@ public class EventsController : ControllerBase
     [HttpPatch("{eid:int}/programs/{pid:int}/status"), Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> UpdateProgramStatus(int eid, int pid, [FromBody] UpdateProgramStatusRequest req)
     {
+        if (req.Status != StatusCodesEx.Program.Open && req.Status != StatusCodesEx.Program.Closed)
+            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be O or CL." });
+
+        await using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
         var prog = await _db.Programs.Include(p => p.Fields).Include(p => p.CustomFields)
             .FirstOrDefaultAsync(p => p.ProgramId == pid && p.EventId == eid);
         if (prog == null) return NotFound(new { code = "NOT_FOUND", message = "Program not found." });
-        if (req.Status != StatusCodesEx.Program.Open && req.Status != StatusCodesEx.Program.Closed)
-            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be O or CL." });
+
+        if (req.Status == StatusCodesEx.Program.Open &&
+            await _db.Fixtures.AnyAsync(f => f.EventId == eid && f.ProgramId == pid))
+        {
+            return Conflict(new
+            {
+                code = "PROGRAM_FIXTURE_EXISTS",
+                message = "This program cannot be reopened because a fixture has been generated. Reset the fixture first."
+            });
+        }
+
         var oldValue = AuditProgramSnapshot(prog);
         prog.Status    = req.Status;
         prog.UpdatedAt = DateTime.UtcNow;
@@ -359,6 +431,7 @@ public class EventsController : ControllerBase
             oldValue,
             AuditProgramSnapshot(prog),
             $"Changed program '{prog.Name}' status to {prog.Status} for event {eid}.");
+        await tx.CommitAsync();
         return Ok(new { programId = pid, status = prog.Status });
     }
 
@@ -754,6 +827,7 @@ public class EventsController : ControllerBase
         sportType       = ev.SportType ?? "",
         ev.FixtureMode,
         ev.MaxProgramsPerParticipant,
+        ev.IsActive,
         registrationStatus = ev.RegistrationStatus,
         computedRegistrationStatus = RegistrationWorkflowService.ComputeRegistrationStatus(ev, ev.Programs.Count(p => p.IsActive)),
         programs        = ev.Programs.Where(p => p.IsActive)
@@ -783,6 +857,10 @@ public class EventsController : ControllerBase
         ev.MaxProgramsPerParticipant,
         ev.RegistrationStatus,
         ev.IsActive,
+        RestrictedSbaPlayers = ev.RestrictedSbaPlayers
+            .OrderBy(player => player.SbaId)
+            .Select(player => new { player.SbaId, Name = player.PlayerNameSnapshot })
+            .ToList(),
         GalleryUrls = ev.GalleryImages.OrderBy(g => g.SortOrder).Select(g => g.ImageUrl).ToList(),
     };
 

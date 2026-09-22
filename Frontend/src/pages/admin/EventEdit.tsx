@@ -4,9 +4,9 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, Edit2, Users, Save, X, Image, Trash2,
   MoreVertical, ExternalLink, Lock, Unlock, FileText, GripVertical,
-  Loader2, Download, Upload,
+  Loader2, Download, Upload, Search,
 } from "lucide-react";
-import type { TournamentEvent, Program, EventDocument } from "@/types/config";
+import type { TournamentEvent, Program, EventDocument, EventRestrictedSbaPlayer } from "@/types/config";
 import { getEventStatus } from "@/lib/eventUtils";
 import StatusBadge from "@/components/events/StatusBadge";
 import ProgramModal from "@/components/admin/ProgramModal";
@@ -25,7 +25,9 @@ import {
   apiAddEventDocument, apiUpdateEventDocument, apiDeleteEventDocument,
   apiUploadFile, assetUrl,
   apiPreviewProgramImport, apiConfirmProgramImport,
-  type ProgramImportPreviewResponse,
+  apiGetEventRestrictedSbaPlayers, apiSearchAdminSbaMembers,
+  type ProgramImportPreviewResponse, type AdminSbaMemberSearchResult,
+  type EventSbaRestrictionConflict,
 } from "@/lib/api";
 import { exportProgramImportTemplate } from "@/lib/exportProgramImportTemplate";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
@@ -175,6 +177,15 @@ export default function EventEdit() {
   });
 
   const [registrationStatusDraft, setRegistrationStatusDraft] = useState<"O" | "PA" | "CL">("O");
+  const [restrictedPlayers, setRestrictedPlayers] = useState<EventRestrictedSbaPlayer[]>([]);
+  const [savedRestrictedPlayers, setSavedRestrictedPlayers] = useState<EventRestrictedSbaPlayer[]>([]);
+  const [restrictionLoading, setRestrictionLoading] = useState(!isNew);
+  const [restrictionQuery, setRestrictionQuery] = useState("");
+  const [restrictionResults, setRestrictionResults] = useState<AdminSbaMemberSearchResult[]>([]);
+  const [restrictionSearching, setRestrictionSearching] = useState(false);
+  const [restrictionSearchError, setRestrictionSearchError] = useState("");
+  const [restrictionConflicts, setRestrictionConflicts] = useState<EventSbaRestrictionConflict[]>([]);
+  const [restrictionConflictOpen, setRestrictionConflictOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) =>
     setForm(p => ({ ...p, [k]: v }));
@@ -254,6 +265,71 @@ export default function EventEdit() {
       });
     }).finally(() => setLoading(false));
   }, [eventId, isNew]);
+
+  useEffect(() => {
+    if (isNew || !eventId) return;
+    apiGetEventRestrictedSbaPlayers(eventId).then(r => {
+      if (r.data) {
+        setRestrictedPlayers(r.data);
+        setSavedRestrictedPlayers(r.data);
+      }
+      else if (r.error) showError("Restricted players could not be loaded", r.error.message);
+    }).catch(() => {
+      showError("Restricted players could not be loaded", "Please check your connection and reload the event.");
+    }).finally(() => setRestrictionLoading(false));
+  }, [eventId, isNew]);
+
+  useEffect(() => {
+    const query = restrictionQuery.trim();
+    if (query.length < 2) {
+      setRestrictionResults([]);
+      setRestrictionSearching(false);
+      setRestrictionSearchError("");
+      return;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setRestrictionSearching(true);
+      setRestrictionSearchError("");
+      apiSearchAdminSbaMembers(query).then(r => {
+        if (!active) return;
+        if (r.data) {
+          const selectedIds = new Set(restrictedPlayers.map(player => player.sbaId));
+          setRestrictionResults(r.data.filter(player => !selectedIds.has(player.sbaId)));
+        } else {
+          setRestrictionResults([]);
+          setRestrictionSearchError(r.error?.message ?? "SBA member search failed.");
+        }
+      }).catch(() => {
+        if (active) {
+          setRestrictionResults([]);
+          setRestrictionSearchError("SBA member search failed. Please check your connection.");
+        }
+      }).finally(() => {
+        if (active) setRestrictionSearching(false);
+      });
+    }, 300);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [restrictionQuery, restrictedPlayers]);
+
+  const addRestrictedPlayer = (player: AdminSbaMemberSearchResult) => {
+    setRestrictedPlayers(current => current.some(item => item.sbaId === player.sbaId)
+      ? current
+      : [...current, { sbaId: player.sbaId, name: player.name }]
+        .sort((a, b) => a.name.localeCompare(b.name) || a.sbaId.localeCompare(b.sbaId)));
+    setRestrictionQuery("");
+    setRestrictionResults([]);
+    setRestrictionSearchError("");
+  };
+
+  const removeRestrictedPlayer = (sbaId: string) => {
+    setRestrictedPlayers(current => current.filter(player => player.sbaId !== sbaId));
+  };
 
   //  Gallery upload
   const handleGalleryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -397,13 +473,23 @@ export default function EventEdit() {
     if (!validate()) return;
     setSaving(true);
     try {
+      const restrictedPlayersToSave = isBadminton ? restrictedPlayers : [];
       const payload: Omit<TournamentEvent, "id" | "programs" | "documents"> = {
         ...form,
         galleryUrls: gallery,
+        restrictedSbaPlayers: restrictedPlayersToSave,
       };
       if (isNew) {
         const r = await apiCreateEvent(payload);
-        if (r.error) { showError("Event could not be created", r.error.message); return; }
+        if (r.error) {
+          if (r.error.code === "RESTRICTED_SBA_PLAYER_CONFLICT" && Array.isArray(r.error.details)) {
+            setRestrictionConflicts(r.error.details as EventSbaRestrictionConflict[]);
+            setRestrictionConflictOpen(true);
+          } else {
+            showError("Event could not be created", r.error.message);
+          }
+          return;
+        }
         const newId = r.data!.id;
         for (const prog of programs) {
           const { id: _id, currentParticipants: _cp, participantSeeds: _ps, ...progPayload } = prog;
@@ -416,7 +502,17 @@ export default function EventEdit() {
         navigate("/admin/events");
       } else {
         const r = await apiUpdateEvent(eventId!, payload);
-        if (r.error) { showError("Event could not be saved", r.error.message); return; }
+        if (r.error) {
+          if (r.error.code === "RESTRICTED_SBA_PLAYER_CONFLICT" && Array.isArray(r.error.details)) {
+            setRestrictionConflicts(r.error.details as EventSbaRestrictionConflict[]);
+            setRestrictionConflictOpen(true);
+          } else {
+            showError("Event could not be saved", r.error.message);
+          }
+          return;
+        }
+        setRestrictedPlayers(restrictedPlayersToSave);
+        setSavedRestrictedPlayers(restrictedPlayersToSave);
         const documentError = await saveDocuments(eventId!, docs);
         if (documentError) { showError("Event partially saved", documentError); return; }
         let savedEvent = r.data!;
@@ -462,6 +558,15 @@ export default function EventEdit() {
     setImportError("");
   };
 
+  const refreshEventSummary = async () => {
+    if (!eventId || eventId === "new") return false;
+    const refreshed = await apiGetEvent(eventId, { admin: true });
+    if (!refreshed.data) return false;
+    setEvent(refreshed.data);
+    setPrograms(refreshed.data.programs);
+    return true;
+  };
+
   const handleImportPreview = async () => {
     if (!eventId || !importProgram || !importFile) return;
     setImportBusy(true);
@@ -497,11 +602,7 @@ export default function EventEdit() {
         setImportError(r.error.message);
         return;
       }
-      const refreshed = await apiGetEvent(eventId, { admin: true });
-      if (refreshed.data) {
-        setEvent(refreshed.data);
-        setPrograms(refreshed.data.programs);
-      }
+      await refreshEventSummary();
       resetImportDialog();
       setFeedback({
         open: true,
@@ -523,7 +624,7 @@ export default function EventEdit() {
     background: "linear-gradient(var(--color-row-hover), var(--color-row-hover)), var(--color-page-bg)",
   };
 
-  if (loading) return <PageLoader label="Loading event..." />;
+  if (loading || restrictionLoading) return <PageLoader label="Loading event..." />;
   if (!isNew && !event && !loading) return (
     <div className="py-20 text-center opacity-40 text-sm">Event not found.</div>
   );
@@ -537,6 +638,48 @@ export default function EventEdit() {
         description={feedback.description}
         onOpenChange={open => setFeedback(prev => ({ ...prev, open }))}
       />
+      <Dialog open={restrictionConflictOpen} onOpenChange={setRestrictionConflictOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Restricted player could not be added</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm opacity-70">
+            The system did not save any new player restrictions or event edits from this attempt.
+          </p>
+          <div className="max-h-72 overflow-y-auto space-y-2 mt-2">
+            {restrictionConflicts.map((conflict, index) => (
+              <div key={`${conflict.sbaId}-${conflict.conflictType}-${conflict.registrationId ?? conflict.paymentAttemptId ?? index}`}
+                className="p-3 text-sm" style={{ border: "1px solid var(--color-table-border)" }}>
+                <p className="font-semibold">{conflict.sbaId}</p>
+                {conflict.conflictType === "registration" ? (
+                  <p className="opacity-70 mt-1">
+                    Active registration #{conflict.registrationId}
+                    {conflict.participantName ? ` - ${conflict.participantName}` : ""}
+                    {conflict.programName ? ` (${conflict.programName})` : ""}.
+                    {" "}Cancel the affected participant or entry first, then save the event again.
+                  </p>
+                ) : (
+                  <p className="opacity-70 mt-1">
+                    Payment is still in progress or awaiting reconciliation. Wait for a final payment outcome, then save again.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end gap-3 mt-4">
+            {restrictionConflicts.some(conflict => conflict.registrationId) && !isNew && (
+              <button type="button" className="btn-outline px-4 py-2 text-sm font-medium"
+                onClick={() => navigate(`/admin/registrations?event=${eventId}`)}>
+                Open Event Registrations
+              </button>
+            )}
+            <button type="button" className="btn-primary px-4 py-2 text-sm font-semibold"
+              onClick={() => setRestrictionConflictOpen(false)}>
+              Close
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
   {/*  Sticky Header  */}
       <div className="sticky-header px-2 md:px-4" style={panelStyle}>
         <div className="flex items-center justify-between mb-6">
@@ -568,7 +711,13 @@ export default function EventEdit() {
             {editing && (
               <>
                 {!isNew && (
-                  <button onClick={() => { setRegistrationStatusDraft((event?.registrationStatus ?? "O") as "O" | "PA" | "CL"); setEditing(false); }}
+                  <button onClick={() => {
+                    setRegistrationStatusDraft((event?.registrationStatus ?? "O") as "O" | "PA" | "CL");
+                    setRestrictedPlayers(savedRestrictedPlayers);
+                    setRestrictionQuery("");
+                    setRestrictionResults([]);
+                    setEditing(false);
+                  }}
                     className="btn-outline flex items-center gap-2 px-5 py-2.5 text-sm font-medium">
                     <X className="h-4 w-4" /> Cancel
                   </button>
@@ -617,18 +766,21 @@ export default function EventEdit() {
             </FF>
             {!isNew && event && status && (
               <div>
-                <label className="block text-xs font-semibold mb-2 opacity-70">Registration Status</label>
+                <label className="block text-xs font-semibold mb-2 opacity-70">Manual Registration Setting</label>
                 <select
                   className="field-input"
                   value={registrationStatusDraft}
                   disabled={!editing || saving || !canChangeRegistrationStatus}
                   onChange={e => setRegistrationStatusDraft(e.target.value as "O" | "PA" | "CL")}
-                  title={canChangeRegistrationStatus ? "Registration status" : "Add at least one program before changing registration status"}
+                  title={canChangeRegistrationStatus ? "Manual registration setting" : "Add at least one program before changing registration status"}
                 >
                   <option value="O">Open registration</option>
                   <option value="PA">Pause registration</option>
                   <option value="CL">Close registration</option>
                 </select>
+                <p className="mt-2 text-xs opacity-60">
+                  The effective badge also considers event activity, active programs, and registration dates.
+                </p>
               </div>
             )}
             <FF label="Programs Per Participant" error={errors.maxProgramsPerParticipant}>
@@ -793,6 +945,74 @@ export default function EventEdit() {
           )}
         </div>
       </div>
+
+  {/*  Public Registration Restrictions  */}
+      {isBadminton && (
+      <div className="mb-8 p-8" style={panelStyle}>
+        <SectionTitle>Public Registration Restrictions</SectionTitle>
+        <p className="text-xs opacity-60 mb-5">
+          Selected SBA IDs cannot complete public registration for this event. Admin-assisted registration and imports remain allowed.
+          This is an exact SBA ID check; blank or false IDs cannot be detected.
+        </p>
+
+        {editing && (
+          <div className="relative max-w-2xl mb-5">
+            <input
+              className="field-input pr-10"
+              value={restrictionQuery}
+              maxLength={100}
+              placeholder="Search SBA player by name or member ID..."
+              onChange={e => setRestrictionQuery(e.target.value)}
+            />
+            {restrictionSearching
+              ? <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin opacity-50" />
+              : <Search className="absolute right-3 top-3 h-4 w-4 opacity-40 pointer-events-none" />}
+            {restrictionQuery.trim().length >= 2 && !restrictionSearching && (
+              <div className="absolute z-20 left-0 right-0 mt-1 max-h-64 overflow-y-auto"
+                style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-page-bg)" }}>
+                {restrictionResults.map(player => (
+                  <button key={player.sbaId} type="button" onClick={() => addRestrictedPlayer(player)}
+                    className="w-full text-left px-4 py-3 hover:opacity-80"
+                    style={{ borderBottom: "1px solid var(--color-table-border)" }}>
+                    <span className="font-semibold text-sm">{player.name}</span>
+                    <span className="block text-xs opacity-60">
+                      {player.sbaId}{player.club ? ` - ${player.club}` : ""}
+                    </span>
+                  </button>
+                ))}
+                {restrictionResults.length === 0 && (
+                  <p className="px-4 py-3 text-sm opacity-50">
+                    {restrictionSearchError || "No matching unselected SBA player found."}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {restrictedPlayers.length === 0 ? (
+          <p className="text-sm opacity-40">No SBA players are restricted for this event.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {restrictedPlayers.map(player => (
+              <div key={player.sbaId} className="inline-flex items-center gap-2 px-3 py-2 text-sm"
+                style={{ border: "1px solid var(--color-table-border)", backgroundColor: "var(--color-background-secondary)" }}>
+                <span>
+                  <span className="font-semibold">{player.name}</span>
+                  <span className="opacity-60"> ({player.sbaId})</span>
+                </span>
+                {editing && (
+                  <button type="button" onClick={() => removeRestrictedPlayer(player.sbaId)}
+                    className="opacity-50 hover:opacity-100" aria-label={`Remove ${player.name}`}>
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      )}
 
   {/*  Event Banner  */}
       <div className="mb-8 p-8" style={panelStyle}>
@@ -1021,7 +1241,10 @@ export default function EventEdit() {
                   showError("Program status could not be updated", r.error.message);
                   return;
                 }
-                if (r.data) setPrograms(prev => prev.map(p => p.id === prog.id ? { ...p, status: newStatus } : p));
+                if (!(await refreshEventSummary())) {
+                  setPrograms(prev => prev.map(p => p.id === prog.id ? { ...p, status: newStatus } : p));
+                  setEvent(prev => prev ? { ...prev, computedRegistrationStatus: undefined } : prev);
+                }
               } catch {
                 showError("Program status could not be updated", "Please check your connection and try again.");
               } finally {
@@ -1183,6 +1406,7 @@ export default function EventEdit() {
               if (r.error) return r.error.message;
               if (r.data) setPrograms(prev => [...prev, r.data!]);
             }
+            await refreshEventSummary();
           } else {
             if (editingProgram) {
               setPrograms(prev => prev.map(p => p.id === savedProgram.id ? savedProgram : p));

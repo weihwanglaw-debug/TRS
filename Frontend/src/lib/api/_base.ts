@@ -83,6 +83,7 @@ export function assetUrl(path: string | null | undefined): string {
 export interface ApiError {
   code: string;
   message: string;
+  details?: unknown;
 }
 
 export type ApiResult<T> =
@@ -90,7 +91,9 @@ export type ApiResult<T> =
   | { data: null; error: ApiError };
 
 export function ok<T>(data: T): ApiResult<T>               { return { data, error: null }; }
-export function err(code: string, message: string): ApiResult<never> { return { data: null, error: { code, message } }; }
+export function err(code: string, message: string, details?: unknown): ApiResult<never> {
+  return { data: null, error: { code, message, details } };
+}
 
 //  Auth helpers
 
@@ -182,7 +185,7 @@ export async function parseError(
     const body = await res.json();
     const message = body?.message ?? body?.title ?? body?.detail ?? fallback;
     const code    = body?.code ?? `HTTP_${res.status}`;
-    return { code, message };
+    return { code, message, details: body?.conflicts };
   } catch {
     return { code: `HTTP_${res.status}`, message: res.statusText || fallback };
   }

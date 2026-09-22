@@ -14,11 +14,19 @@ Business rules below are extracted from current controller/service/frontend code
 - Event registration status is a combination of stored event state and computed date/program state.
 - Stored `Events.RegistrationStatus` accepts short codes only: `O` open, `PA` paused, or `CL` closed.
 - Computed registration status returned by the API can be `D` draft, `U` upcoming, `O` open, `PA` paused, or `CL` closed.
-- Public all-events listing shows active events with active programs, including closed and past events, but excludes deleted/inactive events and paused events.
+- The landing event carousel is the same for public users and logged-in admins. It shows active non-draft events in `U`, `O`, `PA`, or `CL` through the event end date (inclusive, Singapore date), then hides them. If no end date exists, the start date is used. Deleted/inactive and draft events are hidden.
+- Public all-events listing shows every active event with at least one active program, including upcoming, open, paused, closed, and past events. Search and year filters do not change those visibility rules.
 - `D` draft is computed when an event has no active programs; admins cannot manually change a draft event's registration status until at least one active program exists.
-- `U` upcoming and date-based `CL` closed are computed from Singapore date.
+- Effective registration status is evaluated in this order: inactive is `CL`; no active programs is `D`; a passed close date is `CL`; manual `CL`; manual `PA`; before the open date is `U`; otherwise `O`. Singapore date is used and the close date remains open through that date.
+- The admin event list uses one Registration Status filter plus date filters. Inactive events are explicitly labelled `Inactive`, not displayed as an ordinary closed event.
+- The admin event editor calls the stored status selector `Manual Registration Setting`; its effective status badge is refreshed after saved program changes because dates, activity, and active programs also affect that badge.
 - Public registration is allowed only when the computed event registration status is `O`.
 - Logged-in admins can use admin-assisted registration when the event is `U`, `PA`, or `CL`, but not when it is `D`.
+- Admins can maintain an event-specific list of restricted SBA member IDs while creating or editing an event only when `IsSports=true` and `SportType='Badminton'`.
+- Changing an event to non-sports or a non-badminton sport clears its restricted SBA player list when the event is saved. Public validation also ignores restriction rows unless the event is currently a sports badminton event.
+- The restricted list and player-name snapshots are admin-only data and are not returned by public event APIs.
+- Adding multiple restricted players is atomic. If any newly added SBA ID has an active participant/entry or an active payment context for the event, none of the newly submitted restrictions or other event edits are saved.
+- Existing restrictions remain valid when SBA ranking data is replaced because restrictions store the normalized SBA ID and a player-name snapshot rather than an `SbaRankings` row ID.
 
 ## Program Rules
 
@@ -29,6 +37,7 @@ Business rules below are extracted from current controller/service/frontend code
 - Program-level status, capacity, and fixture restrictions apply to both public and admin-assisted registration.
 - Fixture generation closes the affected program by setting `Program.Status='CL'`.
 - Once a fixture exists for a program, new registrations for that program are blocked.
+- A program cannot be reopened while a fixture row exists. The fixture must be reset first; resetting does not reopen the program automatically, so the admin must reopen it separately.
 - Program deletion is soft delete: `IsActive=false`, `UpdatedAt=DateTime.UtcNow`.
 - Program custom fields are replaced on full program update.
 - Program create, update, delete, and status changes are written to `AdminAuditLog`/`AdminAuditLogDetail`.
@@ -43,9 +52,9 @@ Business rules below are extracted from current controller/service/frontend code
 
 Event registration gate modes:
 
-- `StrictPublic`: used by public direct registration and new payment attempts; requires computed event registration status `open`.
-- `AdminAssisted`: used when an authenticated admin creates a registration from the event detail page; bypasses event date/manual close status but still blocks `D` draft events, closed/full programs, and programs with fixtures.
-- `AlreadyPaidFinalization`: used only after money has already moved through embedded/legacy payment finalization; avoids retroactively blocking finalization because the event window changed after payment.
+- `StrictPublic`: used by public direct registration and new payment attempts; requires computed event registration status `open` and rejects any non-blank submitted SBA ID on the event restriction list.
+- `AdminAssisted`: used when an authenticated admin creates a registration from the event detail page; bypasses the event SBA restriction list and event date/manual close status but still blocks `D` draft events, closed/full programs, and programs with fixtures.
+- `AlreadyPaidFinalization`: used only after money has already moved through embedded/legacy payment finalization; bypasses the event SBA restriction list and avoids retroactively blocking finalization because the event window changed after payment.
 
 Required registration shape:
 
@@ -74,6 +83,8 @@ Conditional fields:
 - Guardian name/contact are displayed when `ProgramField.EnableGuardianInfo=true` and required only when `RequireGuardianInfo=true`.
 - SBA ID is optional when `ProgramField.EnableSbaId=true`; this setting only displays the SBA ID field/lookup.
 - SBA ID is required only when `ProgramField.EnableSbaId=true` and `RequireSbaId=true`.
+- Event SBA restrictions use an exact, case-insensitive, trim-normalized SBA ID match. Blank SBA IDs and false IDs that do not match a restricted value are an accepted limitation and are not detected.
+- A restricted public submission receives only the generic message `Unable to complete registration. Please contact the event administrator.`; the restricted list, player name, and reason are not disclosed publicly.
 - Document upload is displayed when `ProgramField.EnableDocumentUpload=true` and required only when `RequireDocumentUpload=true`.
 - Remark is displayed when `ProgramField.EnableRemark=true` and required only when `RequireRemark=true`.
 - Required custom fields must have non-blank values.
@@ -140,6 +151,8 @@ Paid embedded payment flow:
 - An uncertain or unresolved earlier attempt does not prevent the customer from creating a new payment attempt. The customer is warned to check with the event administrator and avoid another payment, but may choose to continue with the acknowledged duplicate-charge risk.
 - Before creating a retry, the backend checks submitted earlier attempts with Stripe. If an earlier payment has already succeeded and finalized, the existing confirmed registration is returned instead of creating another payment.
 - If more than one attempt ultimately succeeds, duplicate-registration validation must allow only one registration for the same participant/programme. Each additional paid intent that cannot create a registration remains in payment reconciliation for investigation and refund.
+- Creating a payment ledger row and saving event restrictions use the same event-level database lock. An admin cannot add a new SBA restriction while a matching embedded attempt, unresolved reconciliation attempt, or unexpired legacy pending checkout is active.
+- A payment already allowed before a restriction change is finalized through `AlreadyPaidFinalization`; the active payment-context check prevents the restriction from being added until that payment reaches a final outcome.
 
 Legacy hosted Checkout session-first code still exists for older return URLs and uses `PendingCheckouts` plus `PaymentFinalizationService`.
 
@@ -184,6 +197,8 @@ Participant/group status codes:
 - `P`: pending group/registration scope.
 - `C`: confirmed group/registration scope.
 - `X`: cancelled.
+
+For SBA restriction conflicts, a matching participant stops blocking only after the affected participant or entry is fully `X`. A pending or failed cancellation that leaves the affected participant/entry active continues to block. Admins should use participant cancellation when a player-level payment item exists, entry cancellation otherwise, and whole-registration cancellation only when intentionally cancelling every entry.
 
 Manual admin transitions:
 
@@ -302,6 +317,7 @@ Manual confirmation:
 - Successful/waived statuses stamp paid/receipt-related fields where applicable.
 - In the event registration cart, logged-in admins bypass online payment for paid carts.
 - Admin registration mode is available from the event detail page for `U`, `PA`, or `CL` events, but it cannot bypass `D` draft events, closed programs, full programs, or programs with fixtures.
+- On public event detail, an event-level `U`, `PA`, or `CL` state overrides each program's visible badge and button text so an open-looking program is not shown as registrable. Logged-in admins instead see the actual program/capacity badge and `Admin Register` for eligible programs, including when the event is `O`.
 - During admin bypass, cart-level payer/contact, public payment method, and consent fields are hidden; payer contact is recorded from the logged-in admin profile.
 - In the admin confirmation modal, payment method and payment reference are collected only when the selected payment status is `S` (Paid), not for `W` (Waived) or `PC` (Pending Collection).
 - Admin registration confirmation from the frontend event page and admin program import confirmation share the same backend payment outcome normalization: `S` requires a valid method, while `W` and `PC` force payment method/reference to `NULL`.
@@ -361,6 +377,7 @@ Admin program import:
 - Fixture generation requires at least two non-cancelled participant groups and the configured program minimum capacity. `per_entry` minimums count groups; `per_player` minimums count active participants.
 - Active fixture entries must still satisfy the program's players-per-entry limits after participant cancellations; cancelled participants are excluded from the persisted fixture roster.
 - Fixture generation prompts the admin because generating a fixture closes the affected program to stop further registrations.
+- Raw fixture creation/save also closes the affected program. Program reopening checks for a fixture inside a serializable transaction so a concurrent fixture creation cannot leave a fixture-backed program open.
 - One fixture exists per event/program pair.
 - Supported formats include knockout, group knockout, round robin, and heats.
 - Fixture seed count may be any non-negative whole number up to the number of registered entries in the program.

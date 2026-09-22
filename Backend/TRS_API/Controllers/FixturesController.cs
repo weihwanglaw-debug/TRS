@@ -286,6 +286,16 @@ public class FixturesController : ControllerBase
 
         var oldState = await LoadFixtureStateAsync(eventId, programId);
         await using var tx = await _db.Database.BeginTransactionAsync();
+        var program = await _db.Programs
+            .FromSqlInterpolated($@"
+                SELECT *
+                FROM dbo.Programs WITH (UPDLOCK, ROWLOCK)
+                WHERE EventID = {eventId} AND ProgramID = {programId}")
+            .AsTracking()
+            .FirstOrDefaultAsync();
+        if (program == null)
+            return NotFound(new { code = "PROGRAM_NOT_FOUND", message = "Program not found." });
+
         var f = await _db.Fixtures
             .FromSqlInterpolated($@"
                 SELECT *
@@ -313,6 +323,8 @@ public class FixturesController : ControllerBase
         f.Phase = req.Phase;
         f.IsLocked = req.IsLocked;
         f.UpdatedAt = DateTime.UtcNow;
+        program.Status = StatusCodesEx.Program.Closed;
+        program.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         await tx.CommitAsync();
 

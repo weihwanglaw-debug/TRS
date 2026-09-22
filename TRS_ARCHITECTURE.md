@@ -136,6 +136,7 @@ Events and programs:
 - `Event`
 - `EventGalleryImage`
 - `EventDocument`
+- `EventRestrictedSbaPlayer`
 - `TrsProgram` mapped to `Programs`
 - `ProgramField`
 - `ProgramCustomField`
@@ -177,6 +178,9 @@ Jobs:
 - Unique admin email: `UQ_AdminUsers_Email`.
 - Filtered unique orphan refund index on `Refunds.GatewaySessionId`.
 - SBA ranking filtered unique indexes for singles and doubles.
+- Unique event/SBA member restriction: `UQ_EventRestrictedSbaPlayers_Event_SbaID`.
+
+Event SBA restrictions are stored independently from `SbaRankings`, which is replaced during ranking imports. Public validation and payment-attempt creation read the event restriction table, while event updates and registration/payment persistence coordinate through an event-row update lock to prevent a restriction/payment race. Only admin endpoints return the restricted player list.
 
 ### Denormalized Fields
 

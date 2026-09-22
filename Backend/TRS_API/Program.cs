@@ -91,6 +91,7 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<AdminAuditService>();
 builder.Services.AddScoped<FixtureGenerationService>();
 builder.Services.AddScoped<RegistrationWorkflowService>();
+builder.Services.AddScoped<EventSbaRestrictionService>();
 builder.Services.AddScoped<AdminPaymentOutcomeService>();
 builder.Services.AddScoped<ProgramImportService>();
 builder.Services.AddScoped<PaymentFinalizationService>();

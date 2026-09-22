@@ -4,8 +4,7 @@ import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import type { TournamentEvent } from "@/types/config";
 import { apiGetEvents, assetUrl } from "@/lib/api";
-import { formatDate, getEventStatus } from "@/lib/eventUtils";
-import { useAuth } from "@/contexts/AuthContext";
+import { formatDate, getEventStatus, isEventVisibleOnLanding } from "@/lib/eventUtils";
 import {
   Carousel,
   CarouselContent,
@@ -22,7 +21,6 @@ const FALLBACK_BANNERS = [eventBanner1, eventBanner2, eventBanner3];
 
 export default function EventCarousel() {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
   const [visibleEvents, setVisibleEvents] = useState<TournamentEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [carouselApi, setCarouselApi] = useState<CarouselApi | null>(null);
@@ -35,11 +33,7 @@ export default function EventCarousel() {
         if (!r.data) return;
         setVisibleEvents(
           r.data
-            .filter((event) => {
-              const status = getEventStatus(event);
-              if (isAuthenticated) return status !== "D";
-              return status === "O" || status === "U";
-            })
+            .filter((event) => isEventVisibleOnLanding(event))
             .sort((a, b) => {
               const statusA = getEventStatus(a);
               const statusB = getEventStatus(b);
@@ -50,7 +44,7 @@ export default function EventCarousel() {
         );
       })
       .finally(() => setLoading(false));
-  }, [isAuthenticated]);
+  }, []);
 
   useEffect(() => {
     if (!carouselApi) return;
@@ -104,7 +98,7 @@ export default function EventCarousel() {
             </div>
             <p className="landing-display mb-2 text-xl font-bold uppercase">No Events Scheduled</p>
             <p className="max-w-sm text-sm opacity-60">
-              There are no open or upcoming events at the moment. Check back soon for new tournaments.
+              There are no current or upcoming events at the moment. Check back soon for new tournaments.
             </p>
           </motion.div>
         )}

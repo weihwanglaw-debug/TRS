@@ -986,6 +986,11 @@
   color: var(--landing-grey);
 }
 
+.trs-events-row-status.is-pa {
+  background: var(--feedback-warning-bg);
+  color: var(--feedback-warning);
+}
+
 .trs-events-row-action {
   align-items: center;
   color: var(--color-primary);

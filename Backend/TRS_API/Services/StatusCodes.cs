@@ -98,6 +98,8 @@ public static class StatusCodesEx
         public const string InvalidGender = "INVALID_GENDER";
         public const string InvalidTshirtSize = "INVALID_TSHIRT_SIZE";
         public const string ProgramParticipationLimitExceeded = "PROGRAM_PARTICIPATION_LIMIT_EXCEEDED";
+        public const string RestrictedSbaPlayer = "SBA_REGISTRATION_RESTRICTED";
+        public const string RestrictedSbaPlayerConflict = "RESTRICTED_SBA_PLAYER_CONFLICT";
         public const string ProgramFull = "PROGRAM_FULL";
         public const string SbaIdNotFound = "SBA_ID_NOT_FOUND";
         public const string SbaNameMismatch = "SBA_NAME_MISMATCH";

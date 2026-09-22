@@ -31,5 +31,6 @@ public partial class Event
     public virtual AdminUser?                       CreatedByUser { get; set; }
     public virtual ICollection<EventGalleryImage>   GalleryImages { get; set; } = new List<EventGalleryImage>();
     public virtual ICollection<EventDocument>       Documents     { get; set; } = new List<EventDocument>();
+    public virtual ICollection<EventRestrictedSbaPlayer> RestrictedSbaPlayers { get; set; } = new List<EventRestrictedSbaPlayer>();
     public virtual ICollection<TrsProgram>          Programs      { get; set; } = new List<TrsProgram>();
 }
