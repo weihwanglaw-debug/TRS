@@ -432,7 +432,7 @@ export default function EventDetail() {
       { id: "event-info", label: "Info", icon: BadgeInfo },
       ...(hasEventDocuments ? [{ id: "event-documents", label: "Docs", icon: FileText }] : []),
       ...(galleryImages.length ? [{ id: "event-gallery", label: "Gallery", icon: Images }] : []),
-      { id: "event-categories", label: event.sportType.toLowerCase() === "badminton" ? "Categories" : "Programs", icon: ListChecks },
+      { id: "event-categories", label: event.isSports ? "Categories" : "Programs", icon: ListChecks },
       ...(canShowRegistration ? [{ id: "registration", label: isAuthenticated ? "Admin Register" : "Register", icon: ClipboardList }] : []),
     ];
   }, [event, hasEventDocuments, galleryImages.length, canShowRegistration, isAuthenticated]);
@@ -1166,7 +1166,7 @@ export default function EventDetail() {
   {/*  Section 2: Program Cards  */}
           <div id="event-categories" className="section-anchor" ref={programsRef}>
           <h2 className="event-detail-section-heading font-bold text-xl mb-6">           
-            {event.sportType.toLowerCase() === "badminton" ? "Event Categories" : "Programs"}
+            {event.isSports ? "Event Categories" : "Programs"}
           </h2>
           {status === "U" && (
             <div className="p-4 mb-6 text-sm" style={registrationNoticeStyle}>

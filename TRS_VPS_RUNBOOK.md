@@ -631,6 +631,50 @@ Ctrl + F5
 - PayNow is asynchronous; even fast user approval may not immediately result in `payment_intent.succeeded`.
 - Hosts file workaround is acceptable for page/API browsing only, not Stripe webhook validation.
 
+## Production Pre-Launch Data Reset (2026-10-05)
+
+Approved scope: retain `dbo.AdminUsers`, `dbo.BadmintonClub`, `dbo.SbaRankings`,
+and `dbo.SystemConfig`. Clear events/programs and their configuration, participants,
+registrations, fixtures/results, payment/refund/checkout records, background jobs,
+and all application database log/audit tables. Participants are not login users.
+
+Script: `Backend/TRS_Data/Sql/20261005_reset_production_keep_master_users.sql`.
+The script defaults to `PREVIEW`, requires database `TRS`, and inspects actual
+foreign keys to determine deletion order. It stops on missing/unknown tables,
+unsafe inbound dependencies, cycles, or enabled triggers on deletion targets.
+Do not bypass a schema-check failure without reviewing the reported difference.
+
+Execution procedure:
+
+1. Reconcile the live SGD 1.00 test and all other outstanding Stripe payments/refunds.
+   Resolve pending payments and historical webhook retries before deleting local
+   payment records and webhook deduplication history. Do not change Rezerv settings.
+2. Stop the `TRS-PROD-API` IIS site AND application pool, and any other writers.
+   Keep the portal in maintenance during the reset. Stopping only the site may leave
+   background workers active. Do not restart the API until verification is complete.
+3. Take a full backup of `TRS`, verify it, and preferably test a restore separately.
+   Confirm sufficient transaction-log disk space for the deletion transaction.
+4. Connect to the production SQL instance, select `TRS` in a fresh SSMS query window,
+   and execute the entire script unchanged. Review retained/deleted table counts
+   and the reported `ServerName`. Preview does not delete application data.
+5. Set `@ExpectedServer` to the exact verified server name from preview,
+   `@Confirmation` to `RESET TRS KEEP MASTER AND USERS`, and `@Mode` to `EXECUTE`.
+   Execute the entire script again. Do not execute selected fragments.
+6. Confirm `COMMITTED`, zero rows for all DELETE tables, and unchanged KEEP counts.
+   Errors roll back the transaction. After commit, recovery requires the backup.
+7. Restart the PROD API pool/site and verify admin login, preserved settings/master
+   data, an empty event list, and creating a new event. New logs after restart are normal.
+
+This is a SQL data reset only. It preserves schema and identity counters and does
+not change Stripe balances/history, refund money, delete uploads, clear IIS/file logs,
+or truncate the SQL Server transaction log. Old uploaded files remain on disk.
+Retained configuration values are not rewritten, including any references they contain.
+
+Preparation validation: SQL Server ScriptDom syntax parsing passed, and the scope
+matches all 28 EF model tables (4 KEEP, 24 DELETE). No database execution was
+performed. Production schema, row counts, and runtime behavior must be checked
+on the VPS; preferably rehearse using a separately restored backup first.
+
 ## Information Intentionally Not Stored Here
 
 The following are intentionally excluded from this runbook:
