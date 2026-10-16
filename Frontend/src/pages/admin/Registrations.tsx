@@ -150,9 +150,9 @@ function calcRefunded(refunds: Refund[], items: PaymentItem[]): number {
   }, 0);
 }
 
-function refundableItems(payment: Payment | null | undefined, refunds: Refund[]): PaymentItem[] {
+export function refundableItems(payment: Payment | null | undefined, refunds: Refund[]): PaymentItem[] {
   if (!payment || !(payment.paymentStatus === "S" || payment.paymentStatus === "PR")) return [];
-  if (!["Stripe", "Manual", "PayNow"].includes(payment.gateway)) return [];
+  if (!["Stripe", "Manual", "PayNow", "Fiuu"].includes(payment.gateway)) return [];
   return payment.items.filter(item => {
     if (item.itemStatus !== "S" && item.itemStatus !== "X") return false;
     const refunded = refunds

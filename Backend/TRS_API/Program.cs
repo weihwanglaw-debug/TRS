@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using TRS_API.BackgroundJobs;
 using TRS_API.Services;
+using TRS_API.Services.Payments;
 using TRS_Data.Models;
 using Microsoft.OpenApi.Models;
 using Serilog;
@@ -96,6 +97,19 @@ builder.Services.AddScoped<AdminPaymentOutcomeService>();
 builder.Services.AddScoped<ProgramImportService>();
 builder.Services.AddScoped<PaymentFinalizationService>();
 builder.Services.AddScoped<PaymentAttemptService>();
+builder.Services.AddScoped(_ => new Stripe.PaymentIntentService());
+builder.Services.AddScoped(_ => new Stripe.RefundService());
+builder.Services.AddScoped(_ => new Stripe.Checkout.SessionService());
+builder.Services.AddScoped<IPaymentGateway, StripePaymentGateway>();
+builder.Services.AddScoped<IPaymentGateway, FiuuPaymentGateway>();
+builder.Services.AddScoped<PaymentGatewayResolver>();
+builder.Services.AddScoped<PaymentGatewayConfigurationService>();
+builder.Services.Configure<FiuuOptions>(builder.Configuration.GetSection("Fiuu"));
+builder.Services.AddScoped<FiuuSignatureValidator>();
+builder.Services.AddScoped<FiuuRefundService>();
+builder.Services.AddScoped<FiuuRefundOperationFilter>();
+builder.Services.AddHttpClient<FiuuApiClient>()
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<IBackgroundJobQueue, BackgroundJobQueue>();
 builder.Services.AddHostedService<BackgroundJobWorker>();
 builder.Services.AddHostedService<PaymentCleanupWorker>();
@@ -176,6 +190,14 @@ builder.Services.AddRateLimiter(options =>
                 PermitLimit = Math.Max(1, builder.Configuration.GetValue("RateLimiting:PaymentAttemptPermitLimit", 40)),
                 QueueLimit = 0,
                 Window = rateLimitWindow,
+            }));
+    options.AddPolicy<string>("payment-recover", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            PaymentAttemptAccessKey.PartitionKey(context.Request.Headers[PaymentAttemptAccessKey.HeaderName].ToString(),
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown"),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 2, Window = TimeSpan.FromMinutes(1), AutoReplenishment = true, QueueLimit = 0,
             }));
 });
 

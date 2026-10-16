@@ -48,3 +48,34 @@ export async function apiUpdateConfig(
   if (!res.ok) return err("UPDATE_FAILED", "Failed to save configuration.");
   return ok(await res.json());
 }
+export interface PaymentGatewayOption {
+  code: string;
+  displayName: string;
+  selectable: boolean;
+  unavailableReason: string | null;
+}
+export interface PaymentGatewayConfiguration {
+  activeGateway: string;
+  version: string;
+  gateways: PaymentGatewayOption[];
+}
+
+export async function apiGetPaymentGatewayConfig(): Promise<ApiResult<PaymentGatewayConfiguration>> {
+  const res = await apiFetch(`${API_BASE}/api/admin/payment-gateway-config`, { headers: adminHeaders() });
+  if (!res.ok) {
+    const problem = await res.json().catch(() => null);
+    return err(problem?.code ?? "FETCH_FAILED", problem?.message ?? "Could not load payment gateway settings.");
+  }
+  return ok(await res.json());
+}
+
+export async function apiUpdatePaymentGatewayConfig(gatewayCode: string, expectedVersion: string): Promise<ApiResult<PaymentGatewayConfiguration>> {
+  const res = await apiFetch(`${API_BASE}/api/admin/payment-gateway-config`, {
+    method: "PUT", headers: adminHeaders(), body: JSON.stringify({ gatewayCode, expectedVersion }),
+  });
+  if (!res.ok) {
+    const problem = await res.json().catch(() => null);
+    return err(problem?.code ?? "UPDATE_FAILED", problem?.message ?? "Could not save payment gateway settings.");
+  }
+  return ok(await res.json());
+}

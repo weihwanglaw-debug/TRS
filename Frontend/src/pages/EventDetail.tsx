@@ -1,4 +1,7 @@
+import type { CheckoutPaymentMethod } from "@/types/registration";
+import { HostedCheckoutError, submitHostedCheckout } from "@/lib/hostedCheckout";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -16,7 +19,7 @@ import {
   getProgramRegistrationPresentation,
   formatDate,
 } from "@/lib/eventUtils";
-import { apiGetEvent, apiGetSbaMember, apiCreateRegistration, apiCreateEmbeddedPaymentAttempt, apiAbandonEmbeddedPaymentAttempt, apiConfirmRegistration, apiUploadFile, assetUrl } from "@/lib/api";
+import { apiGetEvent, apiGetPaymentMethods, apiGetSbaMember, apiCreateRegistration, apiCreateEmbeddedPaymentAttempt, apiAbandonEmbeddedPaymentAttempt, apiConfirmRegistration, apiUploadFile, assetUrl } from "@/lib/api";
 import { useLiveConfig } from "@/contexts/LiveConfigContext";
 import StatusBadge, { getProgramCapacityStatus } from "@/components/events/StatusBadge";
 import { useAuth } from "@/contexts/AuthContext";
@@ -337,9 +340,23 @@ export default function EventDetail() {
   // checkout submission state
   const [submitting,    setSubmitting]    = useState(false);
   const [submitError,   setSubmitError]   = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"card" | "paynow">("card");
+  const [paymentMethod, setPaymentMethod] = useState<CheckoutPaymentMethod>("card");
   const [paymentAttempt, setPaymentAttempt] = useState<EmbeddedPaymentAttempt | null>(null);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const checkoutInFlight = useRef(false);
+  const hostedInFlight = useRef(false);
+  const [hostedRecoveryId, setHostedRecoveryId] = useState<number | null>(null);
+  useEffect(() => {
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted && hostedInFlight.current) {
+        setSubmitting(false);
+        setSubmitError("Check your payment status before trying another payment.");
+      }
+    };
+    window.addEventListener("pageshow", restore);
+    return () => window.removeEventListener("pageshow", restore);
+  }, []);
+
   const paymentAttemptKeyRef = useRef<{ signature: string; key: string } | null>(null);
   const cartRequiresPayment = cart.some(e => {
     const prog = event?.programs.find(p => p.id === e.programId);
@@ -348,6 +365,25 @@ export default function EventDetail() {
   const getCartCapacityUsage = (program: Program, excludeIndex: number | null = null) =>
     getCartProgramCapacityUsage(cart, program, excludeIndex);
   const isAdminPaymentBypass = isAuthenticated && cartRequiresPayment;
+  const paymentMethodsQuery = useQuery({
+    queryKey: ["paymentMethods", currency],
+    queryFn: async () => {
+      const result = await apiGetPaymentMethods(currency);
+      if (result.error || !result.data) throw new Error(result.error?.message ?? "Unable to load payment methods.");
+      return result.data;
+    },
+    enabled: cartRequiresPayment && !isAuthenticated && !paymentModalOpen,
+    staleTime: 0,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: "always",
+    retry: false,
+  });
+  const availablePaymentMethods = paymentMethodsQuery.isError ? [] : paymentMethodsQuery.data?.methods ?? [];
+  useEffect(() => {
+    if (!paymentModalOpen && availablePaymentMethods.length && !availablePaymentMethods.includes(paymentMethod))
+      setPaymentMethod(availablePaymentMethods[0]);
+  }, [paymentMethodsQuery.data, paymentMethodsQuery.isError, paymentModalOpen, paymentMethod]);
+
   const participantLimitKey = (participant: Participant) => {
     if (!participant.fullName.trim() || !participant.dobDay || !participant.dobMonth || !participant.dobYear) return null;
     return `${participant.fullName.trim()}|${participant.dobYear}-${participant.dobMonth}-${participant.dobDay}`.toLowerCase();
@@ -894,11 +930,11 @@ export default function EventDetail() {
   };
 
   // Checkout
-  // Paid registrations use embedded Stripe PaymentIntents. The backend validates
+  // Paid registrations use embedded Stripe or a direct hosted handoff. The backend validates
   // pricing before creating an attempt, and the webhook is the source of truth
   // for final registration creation.
   const handleCheckout = async () => {
-    if (!event || !canSubmitCart) return;
+    if (!event || !canSubmitCart || checkoutInFlight.current || hostedRecoveryId !== null) return;
 
     const maxPrograms = event.maxProgramsPerParticipant;
     if (maxPrograms) {
@@ -932,6 +968,7 @@ export default function EventDetail() {
     }
     setContactErrors({});
 
+    checkoutInFlight.current = true;
     setSubmitting(true);
     setSubmitError("");
     try {
@@ -974,14 +1011,25 @@ export default function EventDetail() {
         return;
       }
 
-  // Ask backend to create a Stripe session only - no DB write yet
+      // Refresh before submission; the backend also validates the current gateway.
+      const currentMethods = await paymentMethodsQuery.refetch();
+      if (currentMethods.isError || !currentMethods.data?.methods.includes(paymentMethod)) {
+        setSubmitError(currentMethods.isError ? "Unable to load payment methods. Please try again." : "Payment options changed. Please review your selection and try again.");
+        return;
+      }
+  // Create a payment attempt with the selected provider.
       const attemptSignature = buildAttemptSignature();
       const attemptResult = await apiCreateEmbeddedPaymentAttempt(
         registrationPayload,
         paymentMethod,
         createAttemptKey(attemptSignature),
       );
-      if (attemptResult.error) { setSubmitError(attemptResult.error.message); return; }
+      if (attemptResult.error) {
+        setSubmitError(attemptResult.error.message);
+        if (attemptResult.error.code === "PAYMENT_METHOD_UNAVAILABLE" || attemptResult.error.code === "GATEWAY_UNAVAILABLE")
+          void paymentMethodsQuery.refetch();
+        return;
+      }
 
       if ("alreadyConfirmed" in attemptResult.data!) {
         await handlePaymentConfirmed(String(attemptResult.data!.registrationId));
@@ -998,11 +1046,28 @@ export default function EventDetail() {
         return;
       }
 
-      setPaymentAttempt(attemptResult.data!);
+      const attempt = attemptResult.data!;
+      if (attempt.checkoutMode === "hosted") {
+        hostedInFlight.current = true;
+        setHostedRecoveryId(attempt.paymentAttemptId);
+        try {
+          await submitHostedCheckout(attempt);
+        } catch (error) {
+          hostedInFlight.current = false;
+          if (!(error instanceof HostedCheckoutError) || !error.uncertain)
+            setHostedRecoveryId(null);
+          setSubmitError(error instanceof Error ? error.message : "Unable to open the payment page.");
+        }
+        return;
+      }
+      setPaymentAttempt(attempt);
       setPaymentModalOpen(true);
 
     } finally {
-      setSubmitting(false);
+      if (!hostedInFlight.current) {
+        checkoutInFlight.current = false;
+        setSubmitting(false);
+      }
     }
   };
 
@@ -1490,11 +1555,13 @@ export default function EventDetail() {
                         )}
 
   {/* Payment method selector - only shown when payment is required */}
-                        {cartRequiresPayment && !isAdminPaymentBypass && (
+                        {cartRequiresPayment && !isAdminPaymentBypass && !availablePaymentMethods.includes("hosted") && (
                           <div className="event-detail-panel mb-5 p-5" style={{ border: "1px solid var(--color-table-border)" }}>
                             <p className="text-base font-bold mb-3" style={{ color: "var(--color-heading)" }}>
                               Payment Method
                             </p>
+                            {paymentMethodsQuery.isPending && <p className="text-sm mb-3">Loading payment methods...</p>}
+                            {paymentMethodsQuery.isError && <p role="alert" className="text-sm mb-3">Unable to load payment methods. <button type="button" className="underline" onClick={() => void paymentMethodsQuery.refetch()}>Retry</button></p>}
                             <div className="flex gap-3">
                               {([
                                 { value: "card",   label: "Credit / Debit Card", sub: "Visa, Mastercard, Amex" },
@@ -1504,13 +1571,15 @@ export default function EventDetail() {
                                   key={opt.value}
                                   type="button"
                                   onClick={() => setPaymentMethod(opt.value)}
-                                  className="event-detail-choice-card flex-1 p-4 text-left transition-all"
+                                  disabled={!availablePaymentMethods.includes(opt.value) || submitting}
+                                  aria-pressed={paymentMethod === opt.value}
+                                  className="event-detail-choice-card flex-1 p-4 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                                   style={{
                                     border: `2px solid ${paymentMethod === opt.value ? "var(--color-primary)" : "var(--color-table-border)"}`,
                                     backgroundColor: paymentMethod === opt.value ? "var(--color-row-hover)" : "transparent",
                                   }}>
                                   <p className="text-sm font-semibold">{opt.label}</p>
-                                  <p className="text-xs opacity-50 mt-0.5">{opt.sub}</p>
+                                  <p className="text-xs opacity-50 mt-0.5">{availablePaymentMethods.includes(opt.value) ? opt.sub : "Currently unavailable"}</p>
                                 </button>
                               ))}
                             </div>
@@ -1525,6 +1594,11 @@ export default function EventDetail() {
                           </label>
                         </div>
                         )}
+                        {hostedRecoveryId !== null && (
+                          <a className="block underline text-sm" href={`/payment/result?gatewayReturn=1&attempt=${hostedRecoveryId}`}>
+                            Check payment status if the payment page does not open or you returned without confirmation
+                          </a>
+                        )}
                         {submitError && (
                           <div className="flex items-center gap-2 p-3 mb-3 text-sm"
                             style={{
@@ -1538,7 +1612,7 @@ export default function EventDetail() {
                         <div className="flex flex-wrap gap-3">
                           <button onClick={scrollToPrograms} className="btn-outline px-6 py-2.5 text-sm font-medium">Add More</button>
                           <button
-                            disabled={!canSubmitCart || submitting}
+                            disabled={!canSubmitCart || submitting || hostedRecoveryId !== null || (cartRequiresPayment && !isAuthenticated && !availablePaymentMethods.includes(paymentMethod))}
                             onClick={handleCheckout}
                             className="btn-primary px-8 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2">
                             {submitting
@@ -1562,7 +1636,7 @@ export default function EventDetail() {
       <EmbeddedPaymentModal
         open={paymentModalOpen}
         attempt={paymentAttempt}
-        paymentMethod={paymentMethod}
+        paymentMethod={paymentMethod === "paynow" ? "paynow" : "card"}
         summaryItems={buildPaymentSummaryItems()}
         onClose={(phase) => {
           const attemptToAbandon = phase === "success" ? null : paymentAttempt;

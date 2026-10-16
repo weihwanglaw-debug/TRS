@@ -87,7 +87,7 @@ export default function EmbeddedPaymentModal(props: EmbeddedPaymentModalProps) {
   );
 
   const options = useMemo<StripeElementsOptions | undefined>(() => {
-    if (!attempt) return undefined;
+    if (!attempt?.clientSecret || attempt.checkoutMode === "hosted") return undefined;
     return {
       clientSecret: attempt.clientSecret,
       appearance: {

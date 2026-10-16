@@ -5,6 +5,7 @@ using Stripe;
 using Stripe.Checkout;
 using TRS_API.Models;
 using TRS_API.Services;
+using TRS_API.Services.Payments;
 using TRS_Data;
 using TRS_Data.Models;
 
@@ -60,7 +61,7 @@ namespace TRS_API.Controllers
                 eventId = stripeEvent.Id;
 
                 var alreadyHandled = await _db.WebhookLogs
-                    .AnyAsync(e => e.GatewayEventId == eventId
+                    .AnyAsync(e => e.PaymentGateway.ToLower() == "stripe" && e.GatewayEventId == eventId
                         && (e.ProcessingStatus == StatusCodesEx.Processing.Success ||
                             e.ProcessingStatus == StatusCodesEx.Processing.Ignored));
                 if (alreadyHandled)
@@ -83,14 +84,14 @@ namespace TRS_API.Controllers
 
                     case "payment_intent.processing":
                         var processingIntent = stripeEvent.Data.Object as PaymentIntent;
-                        await _paymentAttempts.MarkProcessingAsync(processingIntent!, HttpContext.RequestAborted);
+                        await _paymentAttempts.MarkProcessingAsync(StripePaymentGateway.NormalizePayment(processingIntent!), HttpContext.RequestAborted);
                         await UpsertWebhookLogAsync(eventId, stripeEvent.Type, json, StatusCodesEx.Processing.Ignored);
                         break;
 
                     case "payment_intent.succeeded":
                         var succeededIntent = stripeEvent.Data.Object as PaymentIntent;
-                        var result = await _paymentAttempts.FinalizePaymentIntentAsync(
-                            succeededIntent!,
+                        var result = await _paymentAttempts.FinalizePaymentAsync(
+                            succeededIntent == null ? null : StripePaymentGateway.NormalizePayment(succeededIntent),
                             eventId,
                             HttpContext.RequestAborted);
                         await UpsertWebhookLogAsync(
@@ -105,7 +106,7 @@ namespace TRS_API.Controllers
                     case "payment_intent.payment_failed":
                         var failedIntent = stripeEvent.Data.Object as PaymentIntent;
                         await _paymentAttempts.MarkFailedAsync(
-                            failedIntent!,
+                            StripePaymentGateway.NormalizePayment(failedIntent!),
                             failedIntent?.LastPaymentError?.Message,
                             HttpContext.RequestAborted);
                         await UpsertWebhookLogAsync(eventId, stripeEvent.Type, json, "I", intent: failedIntent);
@@ -113,7 +114,7 @@ namespace TRS_API.Controllers
 
                     case "payment_intent.canceled":
                         var canceledIntent = stripeEvent.Data.Object as PaymentIntent;
-                        await _paymentAttempts.MarkCanceledAsync(canceledIntent!, HttpContext.RequestAborted);
+                        await _paymentAttempts.MarkCanceledAsync(StripePaymentGateway.NormalizePayment(canceledIntent!), HttpContext.RequestAborted);
                         await UpsertWebhookLogAsync(eventId, stripeEvent.Type, json, "I", intent: canceledIntent);
                         break;
 
@@ -208,7 +209,7 @@ namespace TRS_API.Controllers
 
             // ── Legacy flow ───────────────────────────────────────────────────
             var existingLog = await _db.WebhookLogs
-                .FirstOrDefaultAsync(e => e.GatewayEventId == eventId && e.ProcessingStatus == StatusCodesEx.Processing.Success);
+                .FirstOrDefaultAsync(e => e.PaymentGateway.ToLower() == "stripe" && e.GatewayEventId == eventId && e.ProcessingStatus == StatusCodesEx.Processing.Success);
 
             if (existingLog != null)
             {
@@ -243,7 +244,7 @@ namespace TRS_API.Controllers
                     }
 
                     var existingPayment = await _db.Payments
-                        .FirstOrDefaultAsync(p => p.GatewaySessionId == session.Id);
+                        .FirstOrDefaultAsync(p => p.PaymentGateway.ToLower() == "stripe" && p.GatewaySessionId == session.Id);
 
                     if (existingPayment != null)
                     {
@@ -404,7 +405,7 @@ namespace TRS_API.Controllers
 
             try
             {
-                var payment = await _db.Payments.FirstOrDefaultAsync(p => p.GatewaySessionId == session.Id);
+                var payment = await _db.Payments.FirstOrDefaultAsync(p => p.PaymentGateway.ToLower() == "stripe" && p.GatewaySessionId == session.Id);
                 if (payment != null && payment.PaymentStatus == StatusCodesEx.Payment.Pending)
                 {
                     payment.PaymentStatus = StatusCodesEx.Payment.Cancelled;
@@ -430,8 +431,8 @@ namespace TRS_API.Controllers
                     .ThenInclude(r => r.ParticipantGroups)
                         .ThenInclude(g => g.Participants)
                 .FirstOrDefaultAsync(p =>
-                    p.GatewayPaymentId == charge.PaymentIntentId ||
-                    p.GatewayChargeId  == charge.Id);
+                    p.PaymentGateway.ToLower() == "stripe" &&
+                    (p.GatewayPaymentId == charge.PaymentIntentId || p.GatewayChargeId == charge.Id));
 
             if (payment == null)
             {
@@ -620,7 +621,8 @@ namespace TRS_API.Controllers
 
         private async Task<TRS_Data.Models.Refund?> FindLocalRefundAsync(Stripe.Refund stripeRefund)
         {
-            var query = _db.Refunds.Include(refund => refund.WebhookLog);
+            var query = _db.Refunds.Include(refund => refund.WebhookLog)
+                .Where(refund => refund.PaymentGateway.ToLower() == "stripe");
             var localRefund = await query.FirstOrDefaultAsync(refund => refund.GatewayRefundId == stripeRefund.Id);
 
             if (localRefund == null &&
@@ -671,6 +673,7 @@ namespace TRS_API.Controllers
             var changed = false;
             var relatedLogs = await _db.WebhookLogs
                 .Where(log =>
+                    log.PaymentGateway.ToLower() == "stripe" &&
                     log.GatewaySessionId == gatewaySessionId &&
                     log.ProcessingStatus == StatusCodesEx.Processing.Failed)
                 .ToListAsync();
@@ -842,7 +845,7 @@ namespace TRS_API.Controllers
         {
             var now = DateTime.UtcNow;
             var log = await _db.WebhookLogs
-                .FirstOrDefaultAsync(e => e.GatewayEventId == eventId);
+                .FirstOrDefaultAsync(e => e.PaymentGateway.ToLower() == "stripe" && e.GatewayEventId == eventId);
 
             if (log == null)
             {
@@ -904,7 +907,7 @@ namespace TRS_API.Controllers
             if (!string.IsNullOrWhiteSpace(eventId))
             {
                 var existing = await _db.WebhookLogs
-                    .FirstOrDefaultAsync(e => e.GatewayEventId == eventId);
+                    .FirstOrDefaultAsync(e => e.PaymentGateway.ToLower() == "stripe" && e.GatewayEventId == eventId);
 
                 if (existing != null)
                 {

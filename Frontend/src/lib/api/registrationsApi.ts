@@ -1,3 +1,4 @@
+import type { CheckoutPaymentMethod } from "@/types/registration";
 /**
  * registrationsApi.ts - Registration, Payment & Refund management.
  *
@@ -109,9 +110,19 @@ export async function apiConfirmSession(
   return ok({ registrationId: String(data.registrationId) });
 }
 
+export type PaymentMethods = { paymentGateway: string; methods: CheckoutPaymentMethod[] };
+
+export async function apiGetPaymentMethods(currency: string): Promise<ApiResult<PaymentMethods>> {
+  const res = await apiFetch(`${API_BASE}/api/Payment/methods?currency=${encodeURIComponent(currency)}`, {
+    headers: publicHeaders(), cache: "no-store",
+  });
+  if (!res.ok) { const e = await parseError(res); return err(e.code, e.message); }
+  return ok(await res.json());
+}
+
 export async function apiCreateEmbeddedPaymentAttempt(
   registrationPayload: object,
-  paymentMethod: "card" | "paynow",
+  paymentMethod: CheckoutPaymentMethod,
   attemptKey: string,
 ): Promise<ApiResult<EmbeddedPaymentAttemptCreateResult>> {
   await delay();
@@ -152,6 +163,21 @@ export async function apiGetEmbeddedPaymentAttemptStatus(
   await delay();
 
   const res = await apiFetch(`${API_BASE}/api/Payment/embedded-attempt/${paymentAttemptId}/status`, {
+    headers: { ...publicHeaders(), "X-Payment-Attempt-Key": attemptKey },
+  });
+  if (!res.ok) {
+    const e = await parseError(res);
+    return err(e.code, e.message);
+  }
+  return ok(await res.json());
+}
+
+export async function apiRecoverHostedPaymentAttempt(
+  paymentAttemptId: number,
+  attemptKey: string,
+): Promise<ApiResult<EmbeddedPaymentAttemptStatus>> {
+  const res = await apiFetch(`${API_BASE}/api/Payment/embedded-attempt/${paymentAttemptId}/recover`, {
+    method: "POST",
     headers: { ...publicHeaders(), "X-Payment-Attempt-Key": attemptKey },
   });
   if (!res.ok) {

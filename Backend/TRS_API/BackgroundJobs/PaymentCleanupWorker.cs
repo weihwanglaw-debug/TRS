@@ -15,6 +15,7 @@ public class PaymentCleanupWorker : BackgroundService
         {
             await Task.WhenAll(
                 RunPaymentAttemptSweepLoop(stoppingToken),
+                RunFiuuRefundSweepLoop(stoppingToken),
                 RunPendingCheckoutPruneLoop(stoppingToken));
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -45,6 +46,21 @@ public class PaymentCleanupWorker : BackgroundService
             }
 
             await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken);
+        }
+    }
+
+    private async Task RunFiuuRefundSweepLoop(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                using var scope = _services.CreateScope();
+                await scope.ServiceProvider.GetRequiredService<TRS_API.Services.Payments.FiuuRefundService>().SweepAsync(ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { _logger.LogError(ex, "Fiuu refund recovery failed; pending outcomes remain unconfirmed"); }
+            await Task.Delay(TimeSpan.FromMinutes(2), ct);
         }
     }
 

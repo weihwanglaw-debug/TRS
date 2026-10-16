@@ -24,7 +24,7 @@ export default function StatusBadge({ status }: { status: BadgeStatus }) {
   );
 }
 
-export function getProgramCapacityStatus(program: Program): BadgeStatus {
+export function getProgramCapacityStatus(program: Program): ProgramStatus {
   // Respect the program's explicit status field first
   if (program.status === "CL") return "CL";
 

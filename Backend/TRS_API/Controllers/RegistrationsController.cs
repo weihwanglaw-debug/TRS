@@ -4,13 +4,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using Stripe;
+using TRS_API.Services.Payments;
 using TRS_API.Models;
 using TRS_Data.Models;
 
 namespace TRS_API.Controllers;
 
 [ApiController, Route("api/registrations")]
+[ServiceFilter(typeof(FiuuRefundOperationFilter))]
 public class RegistrationsController : ControllerBase
 {
     private static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
@@ -37,6 +38,7 @@ public class RegistrationsController : ControllerBase
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly RegistrationWorkflowService _registrationWorkflow;
     private readonly AdminPaymentOutcomeService _adminPaymentOutcome;
+    private readonly PaymentGatewayResolver _gateways;
     public RegistrationsController(
         TRSDbContext db,
         ILogger<RegistrationsController> log,
@@ -46,9 +48,10 @@ public class RegistrationsController : ControllerBase
         IBackgroundJobQueue jobQueue,
         IServiceScopeFactory serviceScopeFactory,
         RegistrationWorkflowService registrationWorkflow,
-        AdminPaymentOutcomeService adminPaymentOutcome)
-        => (_db, _log, _receipt, _registrationDetailsPdf, _email, _jobQueue, _serviceScopeFactory, _registrationWorkflow, _adminPaymentOutcome) =
-            (db, log, receipt, registrationDetailsPdf, email, jobQueue, serviceScopeFactory, registrationWorkflow, adminPaymentOutcome);
+        AdminPaymentOutcomeService adminPaymentOutcome,
+        PaymentGatewayResolver gateways)
+        => (_db, _log, _receipt, _registrationDetailsPdf, _email, _jobQueue, _serviceScopeFactory, _registrationWorkflow, _adminPaymentOutcome, _gateways) =
+            (db, log, receipt, registrationDetailsPdf, email, jobQueue, serviceScopeFactory, registrationWorkflow, adminPaymentOutcome, gateways);
 
     // -- GET /api/registrations  -- admin, paged + filtered -----------------
     [HttpGet, Authorize(Roles = "superadmin,eventadmin")]
@@ -1401,6 +1404,10 @@ public class RegistrationsController : ControllerBase
         if (refundAmount > remainingAmount)
             return RefundOperationResult.Fail("OVER_REFUND", $"Maximum refundable is {remainingAmount}.");
 
+        if (externalRefund == null && !payment.PaymentGateway.Equals("Manual", StringComparison.OrdinalIgnoreCase)
+            && _gateways.Find(payment.PaymentGateway) == null)
+            return RefundOperationResult.Fail("UNSUPPORTED_GATEWAY", "The payment's original gateway is not available. No refund was submitted.");
+
         var refund = await _db.Refunds
             .FirstOrDefaultAsync(r => r.PaymentItemId == item.PaymentItemId && r.RefundStatus == StatusCodesEx.Refund.Pending);
         if (refund != null)
@@ -1455,29 +1462,30 @@ public class RegistrationsController : ControllerBase
             return RefundOperationResult.Ok(refund);
         }
 
+        string? gatewayFailureDetails = null;
         try
         {
-            if (payment.PaymentGateway == "Stripe")
+            if (!payment.PaymentGateway.Equals("Manual", StringComparison.OrdinalIgnoreCase))
             {
-                var stripeRefund = await new RefundService().CreateAsync(
-                    new RefundCreateOptions
+                var gatewayRefund = await _gateways.Resolve(refund.PaymentGateway).CreateRefundAsync(new GatewayRefundRequest(
+                    payment.GatewayPaymentId!,
+                    refundAmount,
+                    new Dictionary<string, string>
                     {
-                        PaymentIntent = payment.GatewayPaymentId,
-                        Amount = (long)(refundAmount * 100),
-                        Reason = "requested_by_customer",
-                        Metadata = new Dictionary<string, string>
-                        {
-                            ["registration_id"] = registrationId.ToString(),
-                            ["payment_item_id"] = item.PaymentItemId.ToString(),
-                        }
+                        ["registration_id"] = registrationId.ToString(),
+                        ["payment_item_id"] = item.PaymentItemId.ToString(),
                     },
-                    new RequestOptions { IdempotencyKey = $"trs_refund_{refund.RefundId}" });
+                    $"trs_refund_{refund.RefundId}", LocalRefundId: refund.RefundId));
 
-                refund.GatewayRefundId = stripeRefund.Id;
+                if (gatewayRefund.RefundStatus == StatusCodesEx.Refund.Failed)
+                    gatewayFailureDetails = new PaymentGatewayException("REFUND_FAILED", "Refund did not complete successfully.",
+                        new InvalidOperationException("Refund failed"), gatewayRefund.ProviderErrorCode, gatewayRefund.ProviderErrorMessage)
+                        .RefundFailureDetails(payment.PaymentGateway);
+                refund.GatewayRefundId = gatewayRefund.RefundReference;
                 refund.RefundSource = "System";
                 refund.RefundMethod = "Gateway";
-                refund.RefundStatus = StripeRefundStatusMapper.ToLocalStatus(stripeRefund.Status);
-                refund.ProcessedAt = StripeRefundStatusMapper.IsTerminal(refund.RefundStatus)
+                refund.RefundStatus = gatewayRefund.RefundStatus;
+                refund.ProcessedAt = gatewayRefund.IsTerminal
                     ? DateTime.UtcNow
                     : null;
                 await _db.SaveChangesAsync();
@@ -1491,7 +1499,7 @@ public class RegistrationsController : ControllerBase
                 await _db.SaveChangesAsync();
             }
         }
-        catch (StripeException ex)
+        catch (PaymentGatewayException ex)
         {
             refund.RefundStatus = StatusCodesEx.Refund.Failed;
             refund.ProcessedAt = DateTime.UtcNow;
@@ -1502,13 +1510,13 @@ public class RegistrationsController : ControllerBase
                 Action = refundOnly ? "RefundOnlyFailed" : "RefundFailed",
                 Reason = refundReason,
                 PerformedBy = User.Identity?.Name ?? "admin",
-                Notes = ex.StripeError?.Message ?? ex.Message,
+                Notes = ex.RefundFailureDetails(payment.PaymentGateway),
                 CreatedAt = DateTime.UtcNow,
             });
             await _db.SaveChangesAsync();
             return RefundOperationResult.Fail(
-                ex.StripeError?.Code ?? "REFUND_FAILED",
-                ex.StripeError?.Message ?? "Refund failed.");
+                ex.ProviderErrorCode ?? ex.Code,
+                ex.RefundFailureDetails(payment.PaymentGateway));
         }
 
         if (refund.RefundStatus == StatusCodesEx.Refund.Pending)
@@ -1536,11 +1544,11 @@ public class RegistrationsController : ControllerBase
                 Action = refundOnly ? "RefundOnlyFailed" : "RefundFailed",
                 Reason = refundReason,
                 PerformedBy = User.Identity?.Name ?? "admin",
-                Notes = $"PaymentItemId={item.PaymentItemId}, Status={refund.RefundStatus}",
+                Notes = gatewayFailureDetails ?? $"PaymentItemId={item.PaymentItemId}, Status={refund.RefundStatus}",
                 CreatedAt = DateTime.UtcNow,
             });
             await _db.SaveChangesAsync();
-            return RefundOperationResult.Fail("REFUND_FAILED", "Refund did not complete successfully.");
+            return RefundOperationResult.Fail("REFUND_FAILED", gatewayFailureDetails ?? "Refund did not complete successfully.");
         }
 
         await ReconcileSuccessfulRefundAsync(payment, item, refund, refundReason, refundOnly: refundOnly);

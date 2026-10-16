@@ -453,3 +453,57 @@ Admin program import:
 - Background jobs are in-memory and not durable.
 - Uploaded files are local to the API host.
 - Public payment traffic is rate-limited by an opaque browser-session token, and attempt submit/status/abandon traffic is independently rate-limited by the secret payment-attempt key. Payment limiting does not depend on client IP forwarding.
+
+## System-wide payment gateway selection (2026-10-08)
+
+Only superadmin can change the online gateway in Master Config. Selection applies across all events and is audited with actor, old value, new value, and time. New attempts snapshot the chosen provider; reusing an attempt, recovering payment, processing its callback, or refunding it uses the original provider. A switch does not move charges, cancel attempts, or resubmit payment. Manual payment/refund workflows retain their explicit Manual handling.
+
+A provider must exist in the catalog, be enabled for new payments, have an implemented adapter, and have locally valid configuration before selection. Disabled-for-new does not disable servicing existing records. Unknown providers fail without fallback. Fiuu is unavailable until its separate integration is complete. Current rollout keeps Stripe active and requires the additive schema script before startup.
+
+## Hosted Fiuu payment rules (2026-10-08)
+
+The approved Fiuu experience redirects customers from the TRS summary to Fiuu for card or PayNow payment and returns them to TRS confirmation. Stripe remains embedded. This phase supports SGD amounts above 1.00 with the merchant's enabled card channel. Fiuu remains unavailable for selection until refund/reconciliation integration and sandbox acceptance checks are complete.
+
+A return URL, closing a browser, a network error, or a card authorization is never proof that payment succeeded or failed. Only verified captured/settled provider data with matching merchant/order/amount/currency can finalize a hosted registration. Closed/expired attempts receiving money and additional transactions on the same order require reconciliation. Duplicate notifications cannot create duplicate registrations. Original-provider routing survives a gateway switch.
+
+
+## Fiuu refund rules (2026-10-08)
+
+Fiuu refunds use the original captured/settled transaction, independent of the currently selected checkout gateway. Existing amount limits, roles and refund-only versus cancellation rules remain. Refund-only never cancels a participant; cancellation takes effect after a successful refund. Pending/failed refunds do not contribute to refunded totals. Repeated verified outcomes do not double-count money.
+
+An uncertain submission remains P and retains its merchant request ID for inquiry; timeout or inquiry-not-found is not permission to submit a second refund. Conflicting terminal outcomes require reconciliation review, not an automatic replacement refund. Orphan refunds use the original captured transaction and resolve the matching failed payment/attempt only after success.
+
+Fiuu can require bank details for non-card refunds (PR014). No new bank-detail collection is included; the existing error flow explains this requirement. Card and PayNow full/partial refunds must pass merchant sandbox acceptance before Fiuu can be enabled. User workflow parity is the target, not a verified claim for all merchant channels yet.
+
+
+## Available online payment methods (2026-10-08)
+
+Registration offers only methods configured for the selected provider and currency. An unconfigured Fiuu card channel disables Credit / Debit Card without blocking SGD PayNow. The API also rejects unsupported method requests. A third provider can report its supported card/paynow methods through the same capability interface. Capabilities are not inferred from a successful portal payment or probed remotely.
+
+Gateway selection remains global and superadmin-only under Master Config's existing Save workflow. During local Fiuu sandbox testing, new paid registrations use Fiuu; existing Stripe payments and refunds stay with Stripe. Fiuu testing requires explicit Development opt-in; production remains unavailable. The earlier portal TRAN_NOT_FOUND error is unresolved and may recur in a TRS-originated sandbox payment; only verified success can confirm registration.
+
+### Direct hosted checkout (2026-10-08)
+
+Public registration now hands hosted Fiuu attempts directly to the provider when Proceed Payment is clicked, without a second confirmation modal. The existing attempt key is saved before submission; destination validation, expiry checks and server submission precede the form POST. Checkout is locked during handoff. Ambiguous submission/navigation failures or a back-forward-cache return show a payment-status recovery link and prevent another submission. Pre-submission failures allow retry. Stripe retains its embedded modal. No database or API contract changes.
+
+Verification: frontend build passed; focused hosted handoff/return and registration tests cover direct navigation, duplicate clicks, browser Back, expiry, submission/navigation failures and retained Stripe modal. Actual sandbox payment acceptance remains a manual test.
+
+## Fiuu hosted method selection (2026-10-09)
+
+Admin registration refund eligibility includes the Fiuu gateway for both card and PayNow payments. The existing paid/partially refunded status, eligible item status, remaining amount and pending-refund checks still apply. Enabling the action does not confirm a refund: the backend submits through the original payment gateway and records the provider outcome.
+
+New Fiuu SGD checkouts default to provider-hosted method selection. TRS sends no `channel`; Fiuu offers the methods enabled for the merchant, including Visa/Mastercard where available. This does not activate channels in the merchant account. Stripe retains its embedded card/PayNow choices.
+
+A new hosted attempt uses the existing `Others` method until independently verified captured/settled payment identifies the method. Recognized card channels (including CIL_Visa/CIL_Mastercard) become CreditCard, PayNow becomes PayNow, and other valid provider channels remain Others. The provider response retains the channel. Missing channels cannot finalize. Existing explicit card/PayNow attempts retain their method restriction. Signature, amount, currency, expiry, duplicate transaction and capture checks remain required. No database schema change.
+
+## Refund gateway error wording (2026-10-09)
+
+Registration refund failures display and audit the original gateway error code and message. Fiuu error_code/error_desc and rejected refund reason are preserved without translation, trimming or code-description lookup. Stripe error code/message use the same display convention. Labels distinguish gateway fields from TRS fallback text when a message is absent. The dialog renders plain text with preserved whitespace; it never interprets provider text as HTML or displays the whole raw response. Refund eligibility, status verification and retry/idempotency rules are unchanged.
+
+This applies to newly received responses. Previously discarded gateway descriptions cannot be reconstructed; historical audit rows are not rewritten. No database schema change or automatic refund retry is involved.
+
+## Hosted checkout registration UI (2026-10-16)
+
+For gateways advertising the hosted payment-method capability, the entire Payment Method panel is hidden on public registration. Proceed to Payment still creates and submits the hosted attempt. Local method choices remain visible for gateways advertising card/paynow (including Stripe). Capability loading and errors remain visible before a hosted capability is confirmed. No pricing, payment validation, API or database changes.
+
+Fiuu checkout may be enabled in UAT sandbox or LIVE production with mode-matched credentials and environment. Catalog enablement does not switch the active gateway; missing credentials keep Fiuu unselectable. A superadmin can select it after setup; Stripe remains the release default.

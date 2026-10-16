@@ -687,3 +687,107 @@ The following are intentionally excluded from this runbook:
 - JWT signing secret
 
 Store these only in private password storage or the actual server `appsettings.json` files.
+
+## Gateway configuration deployment prerequisite (2026-10-08)
+
+The gateway configuration implementation includes a PREPARED, NOT APPLIED script at `Backend/TRS_Data/Sql/20261008_payment_gateway_configuration.sql`. Database execution requires separate approval. Do not deploy/restart this code against the old schema: PaymentAttempts reads now require PaymentGateway.
+
+For the approved deployment, back up the database, stop the API during the schema/code transition, verify the selected database/connection, apply the additive SQL, and deploy the matching application. The script creates PaymentGateways, adds/backfills PaymentAttempts.PaymentGateway as Stripe with default/foreign key, and seeds SystemConfig.activePaymentGateway only if absent. Existing selections/enable flags are not overwritten on rerun. No financial rows are deleted. Keep Stripe credentials unchanged; do not put VerifyKey/SecretKey or other secrets into SystemConfig/catalog/frontend assets.
+
+After deployment, verify superadmin sees Stripe active and Fiuu unavailable; eventadmin/anonymous update attempts fail; generic config writes cannot bypass the gateway endpoint. Validate stale-version rejection and transactional audit behavior in a controlled database test. Repeat a Stripe payment/full/partial refund and reconciliation regression check. SQL-backed tests and this operational verification are not implied by unit-test/build success.
+
+Rollback restores the previous application version while leaving the additive objects in place. If another provider is introduced later, its pending transactions/refunds must remain serviceable; do not roll back to code that cannot process those records.
+
+## Hosted Fiuu sandbox phase prerequisites (2026-10-08)
+
+The user applied the earlier gateway configuration script locally. Production application of that script is not implied. A NEW script, Backend/TRS_Data/Sql/20261008_hosted_gateway_references.sql, is PREPARED, NOT APPLIED. Before starting the updated API, apply the reviewed script to the intended database during an approved schema/code transition. It adds two nullable PaymentAttempts columns and provider-scoped unique indexes; no data is removed and no gateway is enabled. Keep the additive schema on rollback.
+
+Private Fiuu settings now also require PublicApiBaseUrl and FrontendBaseUrl (public HTTPS origins, no paths/query), CardChannel (merchant-confirmed creditT, creditAI, or creditAN), and ExtendedVcode matching the merchant setting. PayNow uses channel PayNow. No origin/channel was guessed or configured by this phase. Ask Fiuu to register the development domains and configure return /api/webhooks/fiuu/return plus notification/callback /api/webhooks/fiuu. Do not point sandbox development callbacks at an unreviewed production API. Verify IPN and channel settings in the portal with Fiuu support.
+
+Do not enable Fiuu by editing the database: the application release gate intentionally still rejects selection. Refund/reconciliation code is now implemented; apply its schema prerequisite below, then verify SGD card/3DS and PayNow, return/cancel/back/refresh, delayed and duplicate notifications, amount/signature tampering, extra transactions, missing browser storage, full/partial/pending refunds, and original-provider routing. Confirm Stripe payment/refund/reconciliation regressions. Automated fake-HTTP tests do not establish merchant connectivity or SQL concurrency correctness.
+
+For rollout/rollback after any Fiuu transactions exist, retain code, credentials and endpoints capable of servicing those obligations even when Stripe is selected for new payments. No deployment, portal changes, actual Fiuu charge/refund, or SQL execution was performed in this implementation phase.
+
+
+## Fiuu refund schema and acceptance prerequisite (2026-10-08)
+
+Local update: the user subsequently reported applying `20261008_gateway_refund_tracking.sql`. This is user-confirmed local execution, not an independent schema check or VPS execution. The preparation status below records the implementation phase.
+
+The user applied the earlier gateway configuration and hosted-reference scripts to the LOCAL database. This does not establish VPS schema readiness. The new Backend/TRS_Data/Sql/20261008_gateway_refund_tracking.sql is PREPARED, NOT EXECUTED. It adds nullable GatewayRequestId varchar(100), GatewaySubmittedAt datetime2, and unique filtered (PaymentGateway, GatewayRequestId) on Refunds. It does not rewrite financial data or enable Fiuu. Apply it to the approved target database before restarting this code; ordinary refund entity reads now expect these columns.
+
+Rollback before Fiuu use: revert the application change and leave the additive nullable columns/index. After submitting any Fiuu refunds, keep compatible callbacks and recovery running until obligations settle; switching new checkout to Stripe does not remove those obligations.
+
+Configure/verify a public HTTPS /api/webhooks/fiuu/refund endpoint in addition to payment callbacks. Submission supplies notify_url. Keep the existing merchant keys private and confirm the card channel/public origins. Pending refunds query their saved RefID every two minutes; do not edit GatewaySubmittedAt/GatewayRequestId or manually resubmit to clear a pending state. Review persistent uncertainty with Fiuu using the saved RefID. PR014 requires merchant guidance on beneficiary bank details before PayNow workflow acceptance.
+
+Required controlled sandbox checks: full and partial card/PayNow refunds; refund-only leaves participation active; cancellation waits for verified success; rejected refunds show RF where applicable; callbacks before/after HTTP response; duplicate/out-of-order callbacks; concurrent clicks; timeout/restart recovery with one provider submission; late/additional-payment orphan refunds; conflicting outcomes appear as Mark Reviewed; original-provider refund after gateway switch. Verify receipt/email output and SQL locking/uniqueness. Existing Stripe payment/refund/reconciliation smoke tests are still required before release. 218 non-database backend tests passed; they do not prove merchant connectivity or SQL concurrency. No deployment, gateway activation, new SQL execution or real Fiuu transaction occurred in this phase.
+
+## Local ngrok setup for Fiuu sandbox (2026-10-08)
+
+Approved development domain: `rudder-ragweed-divinity.ngrok-free.dev`. Vite allows this exact hostname, with the existing `/api` and `/uploads` proxy to `http://127.0.0.1:5020`. The ignored `Backend/TRS_API/appsettings.Development.json` sets both `Fiuu:PublicApiBaseUrl` and `Fiuu:FrontendBaseUrl` to `https://rudder-ragweed-divinity.ngrok-free.dev`. The frontend retains its empty API base so requests use the same public origin. No credentials belong in this runbook.
+
+Start or restart the API in a terminal:
+
+```powershell
+Set-Location D:\Source\TRS\Backend\TRS_API
+dotnet run --launch-profile Lan
+```
+
+Start or restart Vite in a second terminal and confirm it uses port 8080:
+
+```powershell
+Set-Location D:\Source\TRS\Frontend
+npm.cmd run dev -- --strictPort
+```
+
+From the installed ngrok directory, start the tunnel in a third terminal:
+
+```powershell
+.\ngrok.exe http 8080 --url https://rudder-ragweed-divinity.ngrok-free.dev
+```
+
+Keep all three terminals running. Use the network on which `ngrok diagnose` passes. The tunnel makes the development website/API reachable publicly while running. Stop ngrok with Ctrl+C when finished. Do not disable certificate revocation checking to work around network filtering.
+
+Connectivity acceptance: confirm ngrok reports online and forwards to localhost:8080; open the HTTPS website and confirm event loading/API requests succeed; confirm an unrelated hostname is still rejected by Vite; confirm restarting/stopping the tunnel behaves as expected. A free ngrok browser warning may appear before the website. Start eventual checkout from this same HTTPS origin so the saved attempt key is available after return. This configuration edit does not establish actual callback delivery or payment success.
+
+The future merchant callback addresses use this origin with `/api/webhooks/fiuu`, `/api/webhooks/fiuu/return`, and `/api/webhooks/fiuu/refund`. Merchant card channel and ExtendedVcode setting still require confirmation; Fiuu remains gated against selection. No portal settings or gateway enable flags are changed by this local setup.
+
+Rollback: stop the tunnel, remove the exact hostname from Vite's allowedHosts and remove the two local Fiuu origin settings, then restart the local frontend/API. Database schema and Stripe settings are unaffected.
+
+
+## Enable PayNow testing through local TRS (2026-10-08)
+
+Local Fiuu:EnableSandboxCheckout is now true in ignored Development configuration. Production/Staging remain gated off even if that flag is accidentally copied. No card channel is guessed: leave CardChannel empty to offer PayNow only. ExtendedVcode remains false, matching the portal screenshot. Gateway URLs remain the approved ngrok origin.
+
+Prepared, NOT EXECUTED: Backend/TRS_Data/Sql/20261008_enable_fiuu_local_sandbox.sql. After confirming the LOCAL database, the user can execute it to enable only the Fiuu PaymentGateways row. This is a data-only catalog update; it neither changes schema nor selects Fiuu. Do not run it on the VPS. Select Fiuu through superadmin Master Config -> Payment, then use the existing whole-page Save action (audited selection). Log out or use a separate public browser session to register: authenticated admins use the existing assisted-registration bypass rather than customer gateway checkout.
+
+Start/restart API and frontend and keep ngrok running as described above. Open TRS at the HTTPS ngrok origin, choose a paid SGD event (amount greater than 1.00), fill registration details, and confirm Credit / Debit Card is disabled and PayNow selected. Proceed through TRS to Fiuu, prepare the PayNow simulator first, then simulate success against the fresh QR before expiry. Keep the merchant QR page open until its countdown completes. This creates a TRS-owned order, unlike the earlier portal-generated payment link.
+
+Acceptance checks: successful payment produces one confirmed registration and verified webhook record; tampered/unsupported card requests fail; failed/expired payment never confirms registration; repeated callbacks do not duplicate registration; gateway changes refresh visible methods and unsupported stale submissions fail; Stripe still offers its supported methods when selected. Test pending/recovery and refunds separately. If TRAN_NOT_FOUND recurs, capture the TRS order ID, Fiuu transaction ID, provider response and ngrok callback HTTP status; do not manually mark payment successful.
+
+Rollback: select Stripe in Master Config before disabling the Fiuu catalog row using the commented rollback statement in the script. Set EnableSandboxCheckout=false and restart the API. Keep original Fiuu credentials/callback processing for existing financial obligations. This phase performs no SQL execution, gateway switch, portal change, or payment.
+
+### Fiuu payment constraint and registration rollback fix (2026-10-08)
+
+Read-only local evidence for attempt 47 / transaction 194544 showed a verified Fiuu success webhook remaining pending, with no linked registration/payment. The initial registration insert failed on Payments.CK_Payments_Gateway, which allowed only Manual, PayNow and Stripe. Later concurrency exceptions came from retrying with EF entities accepted by earlier SaveChanges calls inside the rolled-back transaction.
+
+Apply Backend/TRS_Data/Sql/20261008_allow_fiuu_payment_gateway.sql to the intended database after review. The script preserves the existing check expression and adds Fiuu, validates existing rows, and is repeatable. It performs no data updates, gateway switch, or payment confirmation. ALTER TABLE briefly needs a schema lock. Restore the original check only when no additional gateway history exists; do not delete payments to enable rollback. The script was prepared but NOT executed by this task.
+
+RegistrationWorkflowService snapshots existing tracked entities before its transaction. Every uncommitted exit restores their scalar values, original concurrency tokens and modified-property flags, and detaches newly tracked entities from the failed transaction. Caller-owned payment-attempt and webhook-log instances remain tracked for retry/reconciliation. PaymentAttemptService retries only after that cleanup and avoids an unnecessary delay after the final failure. Successful commits retain normal behavior.
+
+Verification: backend build passed; all 229 non-database backend tests passed, including regression cases for accepted inserts rolled back before a failed payment save, rowversion restoration, and preservation of caller-owned changes. SQL-backed PaymentRefundIntegrationTests were not run against the user's local business database. Fiuu finalization and repeated callback acceptance must still be tested after applying the script. No existing attempt was manually marked paid or replayed. Attempt 47 may have expired by then; use verified reconciliation if required rather than bypassing expiry rules or paying again.
+
+## Local Fiuu hosted selection (2026-10-09)
+
+`Fiuu:UseHostedMethodSelection` defaults to true. New SGD registrations open Fiuu's default hosted page without a channel restriction; `CardChannel` is unnecessary for this flow. Merchant-enabled methods and their currency eligibility are still controlled by Fiuu. Development-only sandbox opt-in remains mandatory; this does not enable production.
+
+Restart the local API after building, refresh the frontend and test a new public registration. Verify Visa and Mastercard separately with Fiuu sandbox test details, then check the confirmed registration and recorded CreditCard method. Also check PayNow, declined/abandoned checkout and duplicate callbacks. Never treat authorization alone as captured payment.
+
+Rollback: set UseHostedMethodSelection=false and restart; this restores explicit TRS selection (PayNow only when no valid CardChannel is configured). Existing attempts retain their original checkout route. No schema migration or historical payment update is required.
+
+## UAT/LIVE Fiuu release support (2026-10-16)
+
+Fiuu now has explicit Mode (Sandbox or Production) and EnableCheckout. UAT uses ASPNETCORE_ENVIRONMENT=Staging and Sandbox mode; LIVE uses Production environment and Production mode. Production rejects sandbox mode and SB_ merchant IDs; non-production rejects production mode. Production _Dev merchants are also rejected. Blank/malformed credentials, unknown modes or invalid HTTPS public origins keep Fiuu unselectable. Legacy EnableSandboxCheckout remains a Development-only compatibility opt-in. It does not override production environment checks.
+
+The adapter routes checkout/acknowledgement to sandbox-payment.fiuu.com or pay.fiuu.com and API calls to sandbox-api.fiuu.com or api.fiuu.com. Frontend handoff allows only these exact checkout origins and merchant paths. Master Config selection remains audited and superadmin-only. Original-provider ownership and signature/amount/currency/refund verification are unchanged. Never replace an existing Fiuu account's credentials while its outstanding transactions need servicing.
+
+Prepared package: DeploymentPrivateConfigs/ReadyZip/TRS_20261016. See DEPLOYMENT.md for UAT/LIVE paths, SQL, replacement, configuration and rollback. Credentials are blank templates; Stripe stays active. SQL is prepared only and has not been executed on VPS. Unrelated TLS export is excluded from the release assembly. Prior Development-only gate descriptions above are historical and superseded by this section.

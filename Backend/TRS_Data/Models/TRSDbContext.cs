@@ -43,8 +43,17 @@ public partial class TRSDbContext : DbContext
             optionsBuilder.UseSqlServer("Name=TRSConnection");
     }
 
+    public virtual DbSet<PaymentGateway> PaymentGateways { get; set; }
+
     protected override void OnModelCreating(ModelBuilder mb)
     {
+        mb.Entity<PaymentGateway>(e => {
+            e.ToTable("PaymentGateways");
+            e.HasKey(g => g.Code);
+            e.Property(g => g.Code).HasMaxLength(32).IsUnicode(false);
+            e.Property(g => g.DisplayName).HasMaxLength(100);
+        });
+
         // SystemConfig
         mb.Entity<SystemConfig>(e => {
             e.ToTable("SystemConfig");
@@ -359,6 +368,9 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.WebhookLogId).HasColumnName("WebhookLogId");
             e.Property(x => x.PaymentGateway).HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.GatewayRefundId).HasMaxLength(255).IsUnicode(false).HasColumnName("GatewayRefundID");
+            e.Property(x => x.GatewayRequestId).HasMaxLength(100).IsUnicode(false);
+            e.HasIndex(x => new { x.PaymentGateway, x.GatewayRequestId }).IsUnique()
+             .HasDatabaseName("UQ_Refunds_GatewayRequest").HasFilter("[GatewayRequestId] IS NOT NULL");
             e.Property(x => x.RefundSource).HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.RefundMethod).HasMaxLength(50).IsUnicode(false);
             e.Property(x => x.RefundAmount).HasColumnType("decimal(10,2)");
@@ -516,8 +528,17 @@ public partial class TRSDbContext : DbContext
             e.Property(x => x.PaymentMethod).HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.Amount).HasColumnType("decimal(10,2)");
             e.Property(x => x.Currency).HasMaxLength(3).IsUnicode(false).HasDefaultValue("SGD");
+            e.Property(x => x.PaymentGateway).HasMaxLength(32).IsUnicode(false).HasDefaultValue("Stripe")
+             .Metadata.SetAfterSaveBehavior(Microsoft.EntityFrameworkCore.Metadata.PropertySaveBehavior.Throw);
+            e.HasOne<PaymentGateway>().WithMany().HasForeignKey(x => x.PaymentGateway).OnDelete(DeleteBehavior.Restrict);
             e.Property(x => x.GatewayPaymentIntentId).HasMaxLength(255).IsUnicode(false)
              .HasColumnName("GatewayPaymentIntentID");
+            e.Property(x => x.GatewayOrderId).HasMaxLength(100).IsUnicode(false);
+            e.Property(x => x.GatewayTransactionId).HasMaxLength(255).IsUnicode(false);
+            e.HasIndex(x => new { x.PaymentGateway, x.GatewayOrderId }).IsUnique()
+             .HasDatabaseName("UQ_PaymentAttempts_GatewayOrder").HasFilter("[GatewayOrderId] IS NOT NULL");
+            e.HasIndex(x => new { x.PaymentGateway, x.GatewayTransactionId }).IsUnique()
+             .HasDatabaseName("UQ_PaymentAttempts_GatewayTransaction").HasFilter("[GatewayTransactionId] IS NOT NULL");
             e.Property(x => x.Status).HasMaxLength(2).IsUnicode(false).HasDefaultValue("CR");
             e.Property(x => x.PayloadJson).HasColumnType("nvarchar(max)").HasColumnName("PayloadJSON");
             e.Property(x => x.LineItemsJson).HasColumnType("nvarchar(max)").HasColumnName("LineItemsJSON");

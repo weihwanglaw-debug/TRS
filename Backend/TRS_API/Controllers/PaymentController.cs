@@ -49,6 +49,16 @@ namespace TRS_API.Controllers
             StripeConfiguration.ApiKey = _config["Stripe:SecretKey"];
         }
 
+        [HttpGet("methods")]
+        public async Task<IActionResult> GetPaymentMethods([FromServices] TRS_API.Services.Payments.PaymentGatewayConfigurationService gateways,
+            [FromQuery] string currency = "SGD")
+        {
+            Response.Headers.CacheControl = "no-store";
+            try { return Ok(await gateways.GetPaymentMethodsAsync(currency, HttpContext.RequestAborted)); }
+            catch (TRS_API.Services.Payments.GatewayConfigurationException ex)
+            { return StatusCode(ex.Status, new { code = ex.Code, message = ex.Message }); }
+        }
+
         [EnableRateLimiting("payment-create")]
         [HttpPost("embedded-attempt")]
         public async Task<IActionResult> CreateEmbeddedAttempt([FromBody] EmbeddedPaymentAttemptRequest request)
@@ -82,6 +92,9 @@ namespace TRS_API.Controllers
                 paymentIntentId = attempt.GatewayPaymentIntentId,
                 clientSecret = result.ClientSecret,
                 publishableKey = result.PublishableKey,
+                paymentGateway = attempt.PaymentGateway,
+                checkoutMode = result.HostedCheckout == null ? "embedded" : "hosted",
+                hostedCheckout = result.HostedCheckout,
                 status = attempt.Status,
                 amount = attempt.Amount,
                 currency = attempt.Currency,
@@ -129,6 +142,15 @@ namespace TRS_API.Controllers
         }
 
         // -- GET /api/Payment/get-payment-info/:registrationId -----------------
+        [EnableRateLimiting("payment-recover")]
+        [HttpPost("embedded-attempt/{attemptId:int}/recover")]
+        public async Task<IActionResult> RecoverHostedAttempt(int attemptId)
+        {
+            var result = await _paymentAttempts.RecoverHostedAsync(attemptId,
+                Request.Headers[PaymentAttemptAccessKey.HeaderName].ToString(), HttpContext.RequestAborted);
+            return result == null ? NotFound(new { code = "NOT_FOUND" }) : Ok(result);
+        }
+
         [HttpGet("get-payment-info/{registrationId}")]
         [EnableRateLimiting("payment")]
         public async Task<IActionResult> GetPaymentInfo(int registrationId)

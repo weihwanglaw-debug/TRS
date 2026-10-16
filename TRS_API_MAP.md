@@ -199,3 +199,43 @@ Controller-level auth is `superadmin,eventadmin`; orphan refund endpoint is narr
 - Registration detail and receipt endpoints are public and id-based.
 - `GET /api/Payment/get-payment-info/{registrationId}` and `GET /api/Payment/verify/{paymentId}` exist but are not central to the current embedded payment frontend flow.
 - `ConfirmSessionRequest.registrationPayload` is required but not used for finalization logic.
+
+## Payment gateway configuration (2026-10-08)
+
+- `GET /api/admin/payment-gateway-config` (superadmin): `{ activeGateway, version, gateways: [{ code, displayName, selectable, unavailableReason }] }`. No credentials. Availability is local readiness, not a network health probe.
+- `PUT /api/admin/payment-gateway-config` (superadmin): `{ gatewayCode, expectedVersion }`; returns the same configuration shape. Invalid/unavailable codes: 400; stale version: 409; missing seeded setting: 503. Role enforcement returns 401/403 as appropriate. Selection and old/new audit commit atomically.
+- `PUT /api/config` continues handling other master settings, but rejects any batch containing `activePaymentGateway`; callers must use the dedicated endpoint for that key.
+- Existing payment/refund public contracts are unchanged. Apply `20261008_payment_gateway_configuration.sql` before running the updated API; SQL execution is a separate approved step.
+
+## Hosted gateway checkout additions (2026-10-08)
+
+- POST /api/Payment/embedded-attempt retains its route and Stripe fields. Adds paymentGateway, checkoutMode (embedded/hosted), and hostedCheckout ({ url, fields }) for hosted providers. Fiuu uses an empty clientSecret and null publishableKey. Already-confirmed responses retain their existing shape.
+- POST /api/Payment/embedded-attempt/{id}/recover requires X-Payment-Attempt-Key; missing/wrong keys return 404. It queries the original hosted provider without initiating payment, then returns the existing status shape. Two calls/minute per token; routine GET status polling still reads only the database.
+- POST /api/webhooks/fiuu accepts bounded form data. Invalid signatures/identities/duplicate fields are rejected. Verified provider state is deduplicated and processed before IPN acknowledgement. Provider/database/ACK failures return 503 for retry; no success is inferred from transport errors.
+- POST /api/webhooks/fiuu/return handles the browser form return and sends a 303 to the configured TRS /payment/result?gatewayReturn=1&attempt=...&event=... route. URLs contain neither an attempt access key nor an authoritative success flag.
+- Apply 20261008_hosted_gateway_references.sql before this code runs. Fiuu remains unavailable in gateway selection; these endpoints are not evidence of completed refund integration or live readiness.
+
+Hosted and existing attempt status responses also include eventId, allowing cart cleanup to use server-owned event identity rather than an untrusted return query parameter.
+
+
+## Fiuu refund integration (2026-10-08)
+
+- POST /api/webhooks/fiuu/refund accepts bounded form or JSON fields, authenticates the Fiuu refund signature and matches the saved merchant request/transaction/amount. Returns 200 OK only after durable processing (including duplicate/no-change outcomes); malformed or unverifiable input returns 400, transient processing failures return 503. This endpoint does not use admin JWT authentication; the provider signature is required.
+- Existing registration refund/cancel and orphan refund routes/payloads are unchanged. They now pass an internal local refund ID to the original provider adapter. Uncertain Fiuu submissions stay P; retries and background recovery query the original RefID. Provider rejection remains an error in the existing response flow.
+- Failed refund.updated records are included in reconciliation stats/list/review; list responses map them to the existing charge.refunded discriminator so the current screen shows Mark Reviewed. Automatic/external orphan refund actions reject these review-only rows.
+- Apply 20261008_gateway_refund_tracking.sql before starting this version. This phase does not make Fiuu selectable; sandbox acceptance and merchant configuration remain required.
+
+
+## Gateway payment methods and local Fiuu testing (2026-10-08)
+
+GET /api/Payment/methods?currency=SGD is public and returns { paymentGateway, methods: ["card", "paynow"] } for the selectable active gateway, with Cache-Control: no-store. Unavailable configuration returns the existing gateway error/status rather than assuming Stripe. It exposes no credentials. Each adapter supplies supported methods for the currency; unimplemented capabilities default to no methods.
+
+New embedded attempts reject unknown/unsupported methods with PAYMENT_METHOD_UNAVAILABLE before creating the new attempt/provider checkout. Existing attempts continue through their saved provider. Fiuu requires a configured card channel only for CreditCard; PayNow works independently. Fiuu selection additionally requires ASPNETCORE_ENVIRONMENT=Development, Fiuu:EnableSandboxCheckout=true, valid sandbox credentials/public origins, and an enabled catalog row. Production/Staging remain blocked. Existing payment/refund routes retain their contracts.
+
+## Fiuu default hosted selection (2026-10-09)
+
+With `Fiuu:UseHostedMethodSelection=true` (default), GET `/api/Payment/methods?currency=SGD` returns `methods: ["hosted"]` for active Fiuu. POST `/api/Payment/embedded-attempt` accepts `paymentMethod: "hosted"` only when advertised by the selected adapter. The existing hosted response/form contract is unchanged; its fields omit `channel`. Deploy the frontend and backend together so clients understand the added method value. Stripe continues advertising card/paynow. Verified Fiuu success updates the attempt method before registration/payment creation.
+
+## Registration refund error details (2026-10-09)
+
+Existing refund/cancellation error fields retain their shape. Their message now contains labeled gateway code and verbatim gateway message, or explicitly labeled TRS fallback text if absent. Aggregated multi-item failures retain the item/program context. Audit notes retain the same details. No new endpoint or database schema is required.

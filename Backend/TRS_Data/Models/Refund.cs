@@ -19,6 +19,8 @@ public partial class Refund
 
     public string PaymentGateway { get; set; } = null!;
     public string? GatewayRefundId { get; set; }
+    public string? GatewayRequestId { get; set; }
+    public DateTime? GatewaySubmittedAt { get; set; }
     public string? RefundSource { get; set; }
     public string? RefundMethod { get; set; }
     public decimal RefundAmount { get; set; }

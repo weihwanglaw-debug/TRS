@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TRS_API.Models;
+using TRS_API.Services.Payments;
 using TRS_Data.Models;
 
 namespace TRS_API.Controllers;
@@ -40,6 +41,14 @@ public class ConfigController : ControllerBase
     [HttpPut, Authorize(Roles = "superadmin")]
     public async Task<IActionResult> Update([FromBody] UpdateConfigRequest req)
     {
+        if (req.Updates.Keys.Any(PaymentGatewayConfigurationService.IsProtectedKey))
+            return BadRequest(new { code = "GATEWAY_CONFIG_ENDPOINT_REQUIRED", message = "Use the payment gateway settings endpoint to change the active gateway." });
+        // Match using the database collation too, so alternate casing/accents cannot bypass the reserved key.
+        var keys = req.Updates.Keys.ToList();
+        var matchedKeys = await _db.SystemConfigs.AsNoTracking()
+            .Where(row => keys.Contains(row.ConfigKey)).Select(row => row.ConfigKey).ToListAsync();
+        if (matchedKeys.Any(PaymentGatewayConfigurationService.IsProtectedKey))
+            return BadRequest(new { code = "GATEWAY_CONFIG_ENDPOINT_REQUIRED", message = "Use the payment gateway settings endpoint to change the active gateway." });
         foreach (var (key, value) in req.Updates)
         {
             var row = await _db.SystemConfigs.FindAsync(key);

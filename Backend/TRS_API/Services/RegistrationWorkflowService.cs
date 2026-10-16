@@ -228,7 +228,9 @@ public class RegistrationWorkflowService
         if (!pricing.Success)
             return RegistrationWorkflowResult<RegistrationCreateOutcome>.Fail(pricing.Code!, pricing.Message);
 
+        var restoreTracking = CaptureTrackingForRollback(_db);
         using var tx = await _db.Database.BeginTransactionAsync(ct);
+        var committed = false;
 
         try
         {
@@ -490,6 +492,7 @@ public class RegistrationWorkflowService
 
             await _db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
+            committed = true;
 
             if (options.PaymentStatus == StatusCodesEx.Payment.Success && !options.SuppressReceiptEmail)
                 await QueueReceiptEmailAsync(reg.RegistrationId, payment.PaymentId);
@@ -502,12 +505,44 @@ public class RegistrationWorkflowService
                 PaymentStatus = payment.PaymentStatus,
             });
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!committed)
         {
             await tx.RollbackAsync(ct);
             _log.LogError(ex, "Error creating registration for event {EventId}", req.EventId);
             return RegistrationWorkflowResult<RegistrationCreateOutcome>.Fail("CREATE_FAILED", "Failed to save registration.");
         }
+        finally
+        {
+            if (!committed) restoreTracking();
+        }
+    }
+
+    private static Action CaptureTrackingForRollback(TRSDbContext db)
+    {
+        var snapshots = db.ChangeTracker.Entries().Select(entry => new
+        {
+            Entry = entry, State = entry.State,
+            Current = entry.CurrentValues.Clone(), Original = entry.OriginalValues.Clone(),
+            Modified = entry.Properties.Where(p => p.IsModified).Select(p => p.Metadata.Name).ToArray(),
+        }).ToArray();
+        var existing = snapshots.Select(s => s.Entry.Entity).ToHashSet(ReferenceEqualityComparer.Instance);
+        return () =>
+        {
+            // SQL rollback does not undo EF's accepted inserts or refreshed rowversions.
+            // Keep caller-owned attempt/log instances, but discard this transaction's new graph.
+            foreach (var entry in db.ChangeTracker.Entries().ToArray())
+                if (!existing.Contains(entry.Entity)) entry.State = EntityState.Detached;
+            foreach (var snapshot in snapshots)
+            {
+                snapshot.Entry.State = EntityState.Unchanged;
+                snapshot.Entry.CurrentValues.SetValues(snapshot.Current);
+                snapshot.Entry.OriginalValues.SetValues(snapshot.Original);
+                snapshot.Entry.State = snapshot.State;
+                if (snapshot.State is EntityState.Unchanged or EntityState.Modified)
+                    foreach (var property in snapshot.Entry.Properties)
+                        property.IsModified = snapshot.Modified.Contains(property.Metadata.Name);
+            }
+        };
     }
 
     private async Task<DuplicateCheckResult> FindDuplicateAsync(CreateGroupDto group, TrsProgram program, CancellationToken ct)

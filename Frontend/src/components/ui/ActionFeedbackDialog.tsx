@@ -58,7 +58,7 @@ export function ActionFeedbackDialog({
           </DialogTitle>
           {description && (
             <DialogDescription
-              className="mt-3 text-xs leading-relaxed"
+              className="mt-3 whitespace-pre-wrap break-words text-xs leading-relaxed"
               style={{ color: "var(--color-body-text)" }}
             >
               {description}

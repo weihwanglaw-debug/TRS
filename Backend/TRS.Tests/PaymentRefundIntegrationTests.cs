@@ -13,6 +13,7 @@ using Stripe.Checkout;
 using TRS_API.Controllers;
 using TRS_API.Models;
 using TRS_API.Services;
+using TRS_API.Services.Payments;
 using TRS_Data.Models;
 using StripeRefund = Stripe.Refund;
 using TrsRefund = TRS_Data.Models.Refund;
@@ -44,6 +45,7 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
                 ["ConnectionStrings:TRSConnection"] = ConnectionString,
                 ["Stripe:SecretKey"] = "sk_test_trs_integration",
                 ["Stripe:WebhookSecret"] = WebhookSecret,
+                ["Stripe:PublishableKey"] = "pk_test_trs_integration",
                 ["Jwt:Secret"] = "integration-test-secret-that-is-long-enough",
                 ["Jwt:Issuer"] = "TRS.Tests",
                 ["Jwt:Audience"] = "TRS.Tests",
@@ -61,6 +63,14 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
         services.AddScoped<AdminPaymentOutcomeService>();
         services.AddScoped<PaymentFinalizationService>();
         services.AddScoped<PaymentAttemptService>();
+        services.AddScoped(_ => new PaymentIntentService(_stripe));
+        services.AddScoped(_ => new RefundService(_stripe));
+        services.AddScoped(_ => new Stripe.Checkout.SessionService(_stripe));
+        services.AddScoped<IPaymentGateway, StripePaymentGateway>();
+        services.AddScoped<PaymentGatewayResolver>();
+        services.AddScoped<PaymentGatewayConfigurationService>();
+        services.AddScoped<AuthService>();
+        services.AddScoped<AdminAuditService>();
         services.AddScoped<ReceiptService>();
         services.AddScoped<EmailService>();
         _services = services.BuildServiceProvider();
@@ -957,7 +967,8 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             scope.ServiceProvider.GetRequiredService<IBackgroundJobQueue>(),
             _services.GetRequiredService<IServiceScopeFactory>(),
             scope.ServiceProvider.GetRequiredService<RegistrationWorkflowService>(),
-            scope.ServiceProvider.GetRequiredService<AdminPaymentOutcomeService>());
+            scope.ServiceProvider.GetRequiredService<AdminPaymentOutcomeService>(),
+            scope.ServiceProvider.GetRequiredService<PaymentGatewayResolver>());
         controller.ControllerContext = ControllerContextFor("refund-admin");
         return controller;
     }
@@ -997,7 +1008,9 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
             _services.GetRequiredService<EmailService>(),
             _services.GetRequiredService<IConfiguration>(),
             _services.GetRequiredService<ILogger<PaymentAttemptService>>(),
-            sbaRestrictions);
+            sbaRestrictions,
+            _services.GetRequiredService<PaymentGatewayResolver>(),
+            _services.GetRequiredService<PaymentGatewayConfigurationService>());
 
         return new StripeWebhookController(
             _services.GetRequiredService<ILogger<StripeWebhookController>>(),
@@ -1015,7 +1028,8 @@ public sealed class PaymentRefundIntegrationTests : IAsyncLifetime
         var controller = new AdminPaymentReconciliationController(
             scope.ServiceProvider.GetRequiredService<TRSDbContext>(),
             scope.ServiceProvider.GetRequiredService<ILogger<AdminPaymentReconciliationController>>(),
-            scope.ServiceProvider.GetRequiredService<IConfiguration>());
+            scope.ServiceProvider.GetRequiredService<IConfiguration>(),
+            scope.ServiceProvider.GetRequiredService<PaymentGatewayResolver>());
         controller.ControllerContext = ControllerContextFor("orphan-admin");
         return controller;
     }

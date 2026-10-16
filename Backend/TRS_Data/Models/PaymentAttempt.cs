@@ -11,7 +11,10 @@ public class PaymentAttempt
     public string PaymentMethod { get; set; } = "CreditCard";
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "SGD";
+    public string PaymentGateway { get; set; } = "Stripe";
     public string? GatewayPaymentIntentId { get; set; }
+    public string? GatewayOrderId { get; set; }
+    public string? GatewayTransactionId { get; set; }
     public string Status { get; set; } = "CR";
     public string PayloadJson { get; set; } = null!;
     public string? LineItemsJson { get; set; }

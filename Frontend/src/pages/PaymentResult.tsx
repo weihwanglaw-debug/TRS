@@ -3,7 +3,8 @@
  *
  * Confirmation/receipt landing page.
  *
- * Current public paid registrations are completed inside EmbeddedPaymentModal.
+ * Stripe paid registrations complete inside EmbeddedPaymentModal. Hosted gateway
+ * returns recover the saved attempt using its browser-held access key.
  * After the webhook finalizes the registration, EventDetail navigates here with
  * status=success&reg={registrationId}&direct=paid so this page can show the
  * registration result without hosted Checkout session recovery.
@@ -20,7 +21,8 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import { motion } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
-import { apiConfirmSession, apiGetRegistration } from "@/lib/api";
+import { apiConfirmSession, apiGetRegistration, apiGetEmbeddedPaymentAttemptStatus, apiRecoverHostedPaymentAttempt } from "@/lib/api";
+import { readHostedAttemptKey } from "@/lib/hostedCheckout";
 import { API_BASE } from "@/lib/api/_base";
 import type { Registration } from "@/lib/api";
 
@@ -42,6 +44,8 @@ export default function PaymentResult() {
   const eventId   = params.get("event");
   const regParam  = params.get("reg");
   const directParam = params.get("direct");
+  const hostedReturn = params.get("gatewayReturn") === "1";
+  const hostedAttemptId = Number(params.get("attempt"));
 
   const isSuccess = status === "success";
   const isCancel  = status === "cancel" || status === "failed";
@@ -59,7 +63,7 @@ export default function PaymentResult() {
   // Free registration: status=success + reg param present + no event param
   const isFreeReg = isSuccess && !!regParam && !eventId && !directMode;
 
-  const initialPhase: Phase = initialDirectRegistration ? "done" : isSuccess ? "confirming" : isCancel ? "cancelled" : "done";
+  const initialPhase: Phase = hostedReturn ? "confirming" : initialDirectRegistration ? "done" : isSuccess ? "confirming" : isCancel ? "cancelled" : "done";
 
   const [phase,        setPhase]        = useState<Phase>(initialPhase);
   const [registration, setRegistration] = useState<Registration | null>(initialDirectRegistration);
@@ -70,6 +74,52 @@ export default function PaymentResult() {
   // Stage A/B: tracks whether we've passed the 15-second processing threshold
   const [stageBActive, setStageBActive] = useState(false);
   const startTimeRef = useRef<number>(Date.now());
+
+  useEffect(() => {
+    if (!hostedReturn) return;
+    const key = Number.isSafeInteger(hostedAttemptId) && hostedAttemptId > 0 ? readHostedAttemptKey(hostedAttemptId) : null;
+    if (!key) {
+      setPhase("review");
+      setErrorMsg("This browser cannot restore your payment session. Please check your confirmation email or contact the organiser before paying again.");
+      return;
+    }
+    setPaymentReference(`TRS attempt ${hostedAttemptId}`);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let count = 0;
+    const poll = async () => {
+      try {
+        const response = await apiGetEmbeddedPaymentAttemptStatus(hostedAttemptId, key);
+        if (cancelled) return;
+        const data = response.data;
+        if (data?.status === "S" && data.registrationId) {
+          const registrationResult = await apiGetRegistration(String(data.registrationId));
+          if (cancelled) return;
+          if (registrationResult.data) {
+            setRegistration(registrationResult.data); setRegId(String(data.registrationId)); setPhase("done");
+            try {
+              // Retain the session-scoped key so refresh can restore the confirmed result.
+              if (data.eventId) sessionStorage.removeItem(`trs_cart_${data.eventId}`);
+            } catch { /* Confirmation is already saved on the server. */ }
+            return;
+          }
+        }
+        if (data && ["F", "X", "EX", "NR"].includes(data.status)) {
+          setPhase("review");
+          setErrorMsg(data.errorMessage || "This payment has not produced a confirmed registration. Contact the organiser before paying again.");
+          return;
+        }
+      } catch { /* Retry a bounded number of times without assuming a payment result. */ }
+      if (cancelled) return;
+      if (++count >= 20) {
+        setPhase("review");
+        setErrorMsg("Payment confirmation is still pending. Please check your email or contact the organiser before making another payment.");
+      } else timer = setTimeout(poll, 3000);
+    };
+    // Query the provider once on return; subsequent polling reads local status only.
+    void apiRecoverHostedPaymentAttempt(hostedAttemptId, key).catch(() => undefined).finally(() => { if (!cancelled) void poll(); });
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [hostedReturn, hostedAttemptId, eventId]);
 
   //  Stage B timer - fires after PROCESSING_STAGE_B_MS
   useEffect(() => {
@@ -82,6 +132,7 @@ export default function PaymentResult() {
 
   //  On success: handle paid flow (confirm-session) OR free flow
   useEffect(() => {
+    if (hostedReturn) return;
     if (!isSuccess) return;
     if (initialDirectRegistration) return;
 

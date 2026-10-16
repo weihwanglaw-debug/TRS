@@ -1,3 +1,5 @@
+export type CheckoutPaymentMethod = "card" | "paynow" | "hosted";
+
 /**
  * registration.ts - Complete registration data schema
  *
@@ -105,7 +107,7 @@ export type PaymentMethod =
   | "BankTransfer"  // DB: 'BankTransfer'
   | "Others";       // DB: 'Others'
 
-export type PaymentGateway = "Stripe" | "PayNow" | "Manual";
+export type PaymentGateway = "Stripe" | "PayNow" | "Manual" | "Fiuu";
 
 //  UI display helpers
 // Translate DB-aligned codes -> human labels for badge components.
@@ -430,8 +432,11 @@ export interface EmbeddedPaymentAttempt {
   paymentAttemptId: number;
   attemptKey: string;
   paymentIntentId: string;
-  clientSecret: string;
-  publishableKey: string;
+  clientSecret: string | null;
+  publishableKey: string | null;
+  paymentGateway?: string;
+  checkoutMode?: "embedded" | "hosted";
+  hostedCheckout?: { url: string; fields: Record<string, string> } | null;
   status: PaymentAttemptStatus;
   amount: number;
   currency: string;
@@ -451,6 +456,7 @@ export type EmbeddedPaymentAttemptCreateResult =
 
 export interface EmbeddedPaymentAttemptStatus {
   paymentAttemptId: number;
+  eventId?: number;
   status: PaymentAttemptStatus;
   expiresAt: string;
   registrationId: number | null;

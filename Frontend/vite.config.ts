@@ -19,6 +19,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "::",
       port: 8080,
+      allowedHosts: ["rudder-ragweed-divinity.ngrok-free.dev"],
       hmr: {
         overlay: false,
       },

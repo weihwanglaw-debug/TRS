@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getPublicClientToken, publicHeaders } from "@/lib/api/_base";
 import {
+  apiGetPaymentMethods,
   apiAbandonEmbeddedPaymentAttempt,
   apiGetEmbeddedPaymentAttemptStatus,
   apiSubmitEmbeddedPaymentAttempt,
@@ -10,6 +11,23 @@ describe("embedded payment API protection", () => {
   beforeEach(() => {
     sessionStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  it("refreshes gateway capabilities without caching or assuming card support", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ paymentGateway: "Stripe", methods: ["card", "paynow"] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ paymentGateway: "Fiuu", methods: ["paynow"] }), { status: 200 }));
+    expect((await apiGetPaymentMethods("SGD")).data?.methods).toEqual(["card", "paynow"]);
+    expect((await apiGetPaymentMethods("SGD")).data?.methods).toEqual(["paynow"]);
+    expect(fetchMock.mock.calls[1][0]).toContain("/api/Payment/methods?currency=SGD");
+    expect(fetchMock.mock.calls[1][1]?.cache).toBe("no-store");
+  });
+
+  it("returns an unavailable gateway error without falling back to Stripe methods", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ code: "GATEWAY_UNAVAILABLE", message: "Unavailable" }), { status: 503 }));
+    const result = await apiGetPaymentMethods("SGD");
+    expect(result.data).toBeNull();
+    expect(result.error?.code).toBe("GATEWAY_UNAVAILABLE");
   });
 
   it("keeps a stable browser-session token for public request partitioning", () => {
