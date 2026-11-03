@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Calendar, MapPin } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import { getLiveStatus } from "@/lib/api/scoresApi";
 import type { TournamentEvent } from "@/types/config";
 import { apiGetEvents, assetUrl } from "@/lib/api";
 import { formatDate, getEventStatus, isEventVisibleOnLanding } from "@/lib/eventUtils";
@@ -23,6 +24,13 @@ export default function EventCarousel() {
   const navigate = useNavigate();
   const [visibleEvents, setVisibleEvents] = useState<TournamentEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [liveEvents, setLiveEvents] = useState<number[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const load = () => getLiveStatus(controller.signal).then(rows => { if (!controller.signal.aborted) setLiveEvents(rows.map(r => r.eventId)); }).catch(() => {});
+    void load(); const timer = setInterval(load, 5000);
+    return () => { controller.abort(); clearInterval(timer); };
+  }, []);
   const [carouselApi, setCarouselApi] = useState<CarouselApi | null>(null);
   const [currentSnap, setCurrentSnap] = useState(0);
   const [snapCount, setSnapCount] = useState(0);
@@ -141,6 +149,7 @@ export default function EventCarousel() {
                           }}
                         />
                         <span className="trs-event-status">{statusLabel}</span>
+                        {liveEvents.includes(Number(event.id)) && <button type="button" className="absolute top-4 left-4 z-10 bg-red-600 text-white px-3 py-1 text-xs font-bold" onClick={e => { e.stopPropagation(); navigate(`/event/${event.id}/live`); }}>● LIVE</button>}
                         <span className="trs-event-date-badge">{dateLabel}</span>
                       </div>
                       <div className="trs-ticket-tear">

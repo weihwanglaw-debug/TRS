@@ -26,6 +26,9 @@ public sealed class TlsExportTests
         group.Participants.Add(new Participant {ParticipantId=101,FullName="Alex",DateOfBirth=new(2000,2,29),Gender="Male",Email="alex@example.com",ContactNumber="+6581234567",SbaId=null});
         group.Participants.Add(new Participant {ParticipantId=102,FullName="Withdrawn",ParticipantStatus="X"});
         var package=JsonSerializer.SerializeToElement(TlsExportController.CreatePackage(ev,programs,[group],"+08:00"));
+        Assert.Equal(2,package.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal("TRS",package.GetProperty("sourceSystemId").GetString());
+        Assert.False(package.GetProperty("hasFixtures").GetBoolean());
         Assert.Equal("+08:00",package.GetProperty("sourceTimeZone").GetString());
         var e=package.GetProperty("events")[0];
         Assert.Equal("2026-10-09",e.GetProperty("startDate").GetString());
@@ -42,5 +45,20 @@ public sealed class TlsExportTests
         Assert.False(people[0].TryGetProperty("guardianContact",out _));
         Assert.Single(package.GetProperty("entries")[0].GetProperty("participantIds").EnumerateArray());
         Assert.Equal(3,package.GetProperty("entries")[0].GetProperty("seed").GetInt32());
+    }
+
+    [Fact]
+    public void Repeated_player_across_programs_exports_once_with_shared_original_identity()
+    {
+        var ev = new Event { EventId = 7, Name = "Open", Venue = "Hall", IsActive = true, RegistrationStatus = "CL", EventStartDate = new(2026, 11, 3) };
+        var groups = new List<ParticipantGroup> {
+            new() { GroupId = 1, ProgramId = 12, Participants = [new() { ParticipantId = 20, FullName = "Alex", DateOfBirth = new(2000, 1, 1) }] },
+            new() { GroupId = 2, ProgramId = 13, Participants = [new() { ParticipantId = 30, FullName = " ALEX ", DateOfBirth = new(2000, 1, 1) }] }
+        };
+        var package = JsonSerializer.SerializeToElement(TlsExportController.CreatePackage(ev, [new() { ProgramId = 12 }, new() { ProgramId = 13 }], groups, "Asia/Singapore"));
+        Assert.Equal(1, package.GetProperty("participants").GetArrayLength());
+        Assert.Equal("participant:20", package.GetProperty("entries")[0].GetProperty("participantIds")[0].GetString());
+        Assert.Equal("participant:20", package.GetProperty("entries")[1].GetProperty("participantIds")[0].GetString());
+        Assert.True(package.GetProperty("registrationClosed").GetBoolean());
     }
 }

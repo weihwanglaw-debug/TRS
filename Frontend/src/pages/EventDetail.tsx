@@ -2,6 +2,7 @@ import type { CheckoutPaymentMethod } from "@/types/registration";
 import { HostedCheckoutError, submitHostedCheckout } from "@/lib/hostedCheckout";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { getScoreAvailability } from "@/lib/api/scoresApi";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -270,6 +271,13 @@ export default function EventDetail() {
 
   const [event,        setEvent]        = useState<TournamentEvent | null>(null);
   const [eventLoading, setEventLoading] = useState(true);
+  const scoreAvailability = useQuery({
+    queryKey: ["score-availability", id],
+    queryFn: ({ signal }) => getScoreAvailability(id!, signal),
+    enabled: !!id && !!event?.isSports && String(event.id) === id,
+    refetchInterval: query => Math.max(2, query.state.data?.refreshSeconds ?? 5) * 1000,
+    refetchIntervalInBackground: true,
+  });
 
   useEffect(() => {
     if (!id) return;
@@ -1155,6 +1163,7 @@ export default function EventDetail() {
 
             <div className="event-detail-panel space-y-5">
               <h2 className="event-detail-section-heading font-bold text-xl mb-6">Event Information</h2>
+              {scoreAvailability.isSuccess && scoreAvailability.data.hasLiveScores && <button type="button" className="landing-button secondary" onClick={() => navigate(`/event/${event.id}/live`)}>View Live Scores</button>}
               <InfoRow icon={Calendar} label="Event Dates" value={`${formatDate(event.eventStartDate)} - ${formatDate(event.eventEndDate)}`} />
               <InfoRow icon={MapPin} label="Venue" value={`${event.venue}, ${event.venueAddress}`} />
               <InfoRow icon={Calendar} label="Registration Period" value={`${formatDate(event.openDate)} - ${formatDate(event.closeDate)}`} />
@@ -1297,6 +1306,7 @@ export default function EventDetail() {
                       </div>
                     </div>
                     <div className="event-category-action">
+                      {scoreAvailability.isSuccess && scoreAvailability.data.resultProgramIds.includes(Number(prog.id)) && <button type="button" className="landing-button secondary w-full mb-3" onClick={() => navigate(`/event/${event.id}/results?program=${prog.id}`)}>View Results</button>}
                       <button disabled={!presentation.canRegister} onClick={() => handleSelectProgram(prog)}
                         className="btn-primary event-category-button disabled:opacity-40 disabled:cursor-not-allowed">
                         {presentation.buttonLabel}

@@ -12,8 +12,8 @@ export function readHostedAttemptKey(id: number): string | null {
 
 export function prepareHostedCheckout(attempt: EmbeddedPaymentAttempt): HTMLFormElement {
   const checkout = attempt.hostedCheckout;
-  const sandboxUrl = /^https:\/\/sandbox-payment\.fiuu\.com\/RMS\/pay\/SB_[A-Za-z0-9_]+\/$/;
-  const productionUrl = /^https:\/\/pay\.fiuu\.com\/RMS\/pay\/(?!SB_)[A-Za-z0-9_]{1,32}\/$/;
+  const sandboxUrl = /^https:\/\/sandbox-payment\.fiuu\.com\/RMS\/pay\/[A-Za-z0-9_]{1,32}\/$/;
+  const productionUrl = /^https:\/\/pay\.fiuu\.com\/RMS\/pay\/[A-Za-z0-9_]{1,32}\/$/;
   if (attempt.checkoutMode !== "hosted" || !checkout
     || !(sandboxUrl.test(checkout.url) || productionUrl.test(checkout.url))) {
     throw new Error("The secure payment page is unavailable.");

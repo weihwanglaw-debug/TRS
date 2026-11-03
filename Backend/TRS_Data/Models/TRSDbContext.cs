@@ -47,6 +47,7 @@ public partial class TRSDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
+        ConfigureTlsSnapshots(mb);
         mb.Entity<PaymentGateway>(e => {
             e.ToTable("PaymentGateways");
             e.HasKey(g => g.Code);

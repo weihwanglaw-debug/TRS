@@ -8,15 +8,16 @@ namespace TRS_API.Controllers;
 
 /// <summary>Read-only operational setup export; excludes registration and payment details.</summary>
 [ApiController, Route("api/tls-export"), Authorize(Roles = "superadmin,eventadmin")]
-public sealed class TlsExportController(TRSDbContext db) : ControllerBase
+public sealed class TlsExportController(TRSDbContext db, IConfiguration configuration) : ControllerBase
 {
     [HttpGet("events")]
     public async Task<IActionResult> Events(CancellationToken ct)
     {
         Response.Headers.CacheControl = "no-store";
-        return Ok(await db.Events.AsNoTracking().Where(e=>e.IsActive && e.IsSports)
-            .OrderByDescending(e=>e.EventStartDate)
-            .Select(e=>new {id=e.EventId,name=e.Name,startDate=e.EventStartDate,venue=e.Venue}).ToListAsync(ct));
+        var events = await db.Events.AsNoTracking().Where(e=>e.IsActive && e.IsSports && !db.Fixtures.Any(f => f.EventId == e.EventId))
+            .Include(e => e.Programs).OrderByDescending(e=>e.EventStartDate).ToListAsync(ct);
+        return Ok(events.Where(e => RegistrationWorkflowService.ComputeRegistrationStatus(e, e.Programs.Count(p => p.IsActive)) == StatusCodesEx.EventRegistration.Closed)
+            .Select(e=>new {id=e.EventId,name=e.Name,startDate=e.EventStartDate,venue=e.Venue}));
     }
 
     [HttpGet("events/{id:int}")]
@@ -29,24 +30,32 @@ public sealed class TlsExportController(TRSDbContext db) : ControllerBase
         if(ev==null)return NotFound(new {message="Active sports event not found."});
         var programs=await db.Programs.AsNoTracking().Where(p=>p.EventId==id && p.IsActive).ToListAsync(ct);
         var programIds=programs.Select(p=>p.ProgramId).ToList();
+        if (await db.Fixtures.AnyAsync(f => f.EventId == id, ct))
+            return BadRequest(new { message = "Remove the event's TRS fixtures before transferring it to TLS." });
+        if (RegistrationWorkflowService.ComputeRegistrationStatus(ev, programs.Count) != StatusCodesEx.EventRegistration.Closed)
+            return BadRequest(new { message = "Close event registration before transferring it to TLS." });
         var groups=await db.ParticipantGroups.AsNoTracking().Include(g=>g.Participants).Include(g=>g.Registration)
             .Where(g=>g.EventId==id && programIds.Contains(g.ProgramId)
                 && g.GroupStatus!=StatusCodesEx.Registration.Cancelled && g.Registration.RegStatus!=StatusCodesEx.Registration.Cancelled)
             .OrderBy(g=>g.GroupId).ToListAsync(ct);
         var zone=await db.SystemConfigs.AsNoTracking().Where(c=>c.ConfigKey=="displayTimeZone").Select(c=>c.ConfigValue).FirstOrDefaultAsync(ct) ?? "+08:00";
-        var package=CreatePackage(ev,programs,groups,zone);
+        var package=CreatePackage(ev,programs,groups,zone,configuration["TlsIntegration:SourceSystemId"] ?? "TRS");
         await tx.CommitAsync(ct);
         return Ok(package);
     }
 
     [NonAction]
-    public static object CreatePackage(Event ev,List<TrsProgram> programs,List<ParticipantGroup> groups,string zone)
+    public static object CreatePackage(Event ev,List<TrsProgram> programs,List<ParticipantGroup> groups,string zone,string sourceSystemId = "TRS")
     {
         string EventId()=>"event:"+ev.EventId;
         static string Gender(string? value)=>value?.Trim().ToLowerInvariant() switch {"male" or "m"=>"M","female" or "f"=>"F","mixed" or "x"=>"X",_=>"O"};
+        static string PersonKey(Participant p) => p.FullName.Trim().ToUpperInvariant() + "|" + (p.DateOfBirth?.ToString("yyyy-MM-dd") ?? "id:" + p.ParticipantId);
+        var people = groups.SelectMany(g => g.Participants).Where(p => p.ParticipantStatus != StatusCodesEx.Participant.Cancelled)
+            .OrderBy(p => p.ParticipantId).GroupBy(PersonKey).ToDictionary(g => g.Key, g => g.First());
         return new
         {
-            schemaVersion=1,source="TRS",sourceTimeZone=zone,exportedAt=DateTimeOffset.UtcNow,
+            schemaVersion=2,source="TRS",sourceSystemId,sourceTimeZone=zone,exportedAt=DateTimeOffset.UtcNow,
+            registrationClosed=RegistrationWorkflowService.ComputeRegistrationStatus(ev,programs.Count)==StatusCodesEx.EventRegistration.Closed,hasFixtures=false,
             events=new[] {new {id=EventId(),name=ev.Name,venue=ev.Venue,startDate=ev.EventStartDate,endDate=ev.EventEndDate??ev.EventStartDate,maxProgramsPerParticipant=ev.MaxProgramsPerParticipant,status="D"}},
             programs=programs.Select(p=>new {
                 id="program:"+p.ProgramId,eventId=EventId(),name=p.Name,sport=ev.SportType??"Other",
@@ -54,13 +63,13 @@ public sealed class TlsExportController(TRSDbContext db) : ControllerBase
                 minPlayers=p.MinPlayers,maxPlayers=p.MaxPlayers,minAge=p.MinAge,maxAge=p.MaxAge,gender=Gender(p.Gender),
                 minCapacity=p.MinParticipants,maxCapacity=p.MaxParticipants,capacityUnit=p.FeeStructure=="per_player"?"P":"E",status="A"
             }).ToArray(),
-            // Preserve source identities. TLS asks the organiser to link matching people across programs.
-            participants=groups.SelectMany(g=>g.Participants.Where(p=>p.ParticipantStatus!=StatusCodesEx.Participant.Cancelled)).Select(p=>new {
+            // TLS uses one person across program entries; preserve the earliest TRS participant identity.
+            participants=people.Values.Select(p=>new {
                 id="participant:"+p.ParticipantId,eventId=EventId(),name=p.FullName,dob=p.DateOfBirth,
                 gender=Gender(p.Gender),email=p.Email??"",mobile=p.ContactNumber??"",club=p.ClubSchoolCompany??"",nationality=p.Nationality??"",sbaId=p.SbaId??""
             }).ToArray(),
             entries=groups.Select(g=>new {id="entry:"+g.GroupId,eventId=EventId(),programId="program:"+g.ProgramId,
-                participantIds=g.Participants.Where(p=>p.ParticipantStatus!=StatusCodesEx.Participant.Cancelled).OrderBy(p=>p.ParticipantId).Select(p=>"participant:"+p.ParticipantId).ToArray(),
+                participantIds=g.Participants.Where(p=>p.ParticipantStatus!=StatusCodesEx.Participant.Cancelled).OrderBy(p=>p.ParticipantId).Select(p=>"participant:"+people[PersonKey(p)].ParticipantId).ToArray(),
                 name=g.NamesDisplay??"",seed=g.Seed,status="A"}).ToArray()
         };
     }

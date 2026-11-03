@@ -12,8 +12,13 @@ const attempt = (): EmbeddedPaymentAttempt => ({
 
 describe("hosted checkout handoff", () => {
   beforeEach(() => { sessionStorage.clear(); vi.restoreAllMocks(); });
-  it("allows the exact production Fiuu origin for a production merchant", () => {
-    const data = attempt(); data.hostedCheckout!.url = "https://pay.fiuu.com/RMS/pay/live_test/";
+  it.each([
+    "https://pay.fiuu.com/RMS/pay/live_test/",
+    "https://pay.fiuu.com/RMS/pay/SB_test/",
+    "https://sandbox-payment.fiuu.com/RMS/pay/live_test/",
+    "https://sandbox-payment.fiuu.com/RMS/pay/SB_test/",
+  ])("uses the API-selected Fiuu destination without merchant-prefix inference: %s", url => {
+    const data = attempt(); data.hostedCheckout!.url = url;
     expect(prepareHostedCheckout(data).action).toBe(data.hostedCheckout!.url);
   });
   it("saves the access token locally and posts provider fields without interpreting HTML", () => {
@@ -26,7 +31,7 @@ describe("hosted checkout handoff", () => {
     expect(form.outerHTML).not.toContain(data.attemptKey);
     expect(readHostedAttemptKey(12)).toBe(data.attemptKey);
   });
-  it.each(["https://evil.example/RMS/pay/SB_test/", "javascript:alert(1)", "https://sandbox-payment.fiuu.com.evil.example/RMS/pay/SB_test/", "https://pay.fiuu.com/RMS/pay/SB_test/"])("rejects unsupported destination %s", url => {
+  it.each(["https://evil.example/RMS/pay/SB_test/", "javascript:alert(1)", "https://sandbox-payment.fiuu.com.evil.example/RMS/pay/SB_test/", "https://pay.fiuu.com/RMS/pay/test/?redirect=evil", "https://pay.fiuu.com.evil.example/RMS/pay/test/", "http://pay.fiuu.com/RMS/pay/test/", "https://user@pay.fiuu.com/RMS/pay/test/", "https://pay.fiuu.com/RMS/pay/../test/"])("rejects unsupported destination %s", url => {
     const data = attempt(); data.hostedCheckout!.url = url;
     expect(() => prepareHostedCheckout(data)).toThrow();
     expect(sessionStorage.getItem(hostedAttemptStorageKey(12))).toBeNull();

@@ -440,3 +440,13 @@ Fiuu now has explicit Mode (Sandbox or Production) and EnableCheckout. UAT uses 
 The adapter routes checkout/acknowledgement to sandbox-payment.fiuu.com or pay.fiuu.com and API calls to sandbox-api.fiuu.com or api.fiuu.com. Frontend handoff allows only these exact checkout origins and merchant paths. Master Config selection remains audited and superadmin-only. Original-provider ownership and signature/amount/currency/refund verification are unchanged. Never replace an existing Fiuu account's credentials while its outstanding transactions need servicing.
 
 Prepared package: DeploymentPrivateConfigs/ReadyZip/TRS_20261016. See DEPLOYMENT.md for UAT/LIVE paths, SQL, replacement, configuration and rollback. Credentials are blank templates; Stripe stays active. SQL is prepared only and has not been executed on VPS. Unrelated TLS export is excluded from the release assembly. Prior Development-only gate descriptions above are historical and superseded by this section.
+
+
+## Fiuu configuration simplification (2026-10-16)
+
+Supersedes earlier environment/prefix restrictions: Fiuu Mode alone selects sandbox or production endpoints. EnableCheckout is the single opt-in; EnableSandboxCheckout is removed. There is no dependency on ASPNETCORE_ENVIRONMENT and no SB_/_Dev merchant-name inference. All environments use the same explicit fields. Existing signature, amount, currency, idempotency and refund checks remain in force. UAT is prepared with private sandbox credentials, then can be reconfigured to the customer's production account. LIVE uses its own origins with that same production account. Do not change merchant credentials while previous-account transactions still require service. No database or API payload change is involved.
+
+
+### Configuration-selected Fiuu destination and frontend follow-up (2026-10-16)
+
+Use Mode=Sandbox for sandbox or Mode=Live for real payments. Production remains an accepted alias for Live. Mode is case-insensitive and independent of hosting environment and merchant-name prefixes. The frontend uses the API-returned checkout URL and permits only the exact Fiuu HTTPS checkout origins and merchant paths; it no longer infers the mode from SB_. Payment credentials stay on the API server. UAT's private configuration retains its sandbox credentials. The incremental ZIP now includes both API DLLs and only changed frontend files under Portal; copy assets before index.html and preserve config.json and web.config. No SQL or API response change. Both modes and backwards-compatible Production routing are tested, as are malicious frontend destinations. Deploy from the ZIP, not the staging directory, which contains excluded temporary copies.

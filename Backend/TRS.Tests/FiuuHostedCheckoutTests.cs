@@ -22,33 +22,27 @@ public sealed class FiuuHostedCheckoutTests
         ContactName = "Test Customer", ContactEmail = "test@example.com", ContactPhone = "+6512345678",
         Amount = 12.34m, Currency = "SGD", ExpiresAt = DateTime.UtcNow.AddMinutes(5),
     };
-    private static FiuuPaymentGateway Gateway(FiuuOptions settings, Microsoft.Extensions.Hosting.IHostEnvironment? environment = null) => new(
+    private static FiuuPaymentGateway Gateway(FiuuOptions settings) => new(
         new TRSDbContext(new DbContextOptionsBuilder<TRSDbContext>().UseSqlServer("Server=unused;Database=unused;Integrated Security=true").Options),
-        Options.Create(settings), new(Options.Create(settings)), new(new HttpClient(), Options.Create(settings), new(Options.Create(settings))), environment: environment);
-    private sealed class TestEnvironment(string name) : Microsoft.Extensions.Hosting.IHostEnvironment
-    {
-        public string EnvironmentName { get; set; } = name;
-        public string ApplicationName { get; set; } = "TRS.Tests";
-        public string ContentRootPath { get; set; } = "";
-        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
-    }
-
+        Options.Create(settings), new(Options.Create(settings)), new(new HttpClient(), Options.Create(settings), new(Options.Create(settings))));
     [Theory]
-    [InlineData("Development", true, true)]
-    [InlineData("Development", false, false)]
-    [InlineData("Production", true, false)]
-    [InlineData("Staging", true, false)]
-    public void Sandbox_selection_requires_development_and_explicit_opt_in(string env, bool enabled, bool available)
+    [InlineData("Sandbox", true)]
+    [InlineData("Sandbox", false)]
+    [InlineData("Live", true)]
+    [InlineData("Live", false)]
+    [InlineData("Production", true)]
+    [InlineData("Production", false)]
+    public void Checkout_requires_one_explicit_switch(string mode, bool enabled)
     {
-        var settings = Settings(); settings.EnableSandboxCheckout = enabled; settings.CardChannel = "";
-        Assert.Equal(available, Gateway(settings, new TestEnvironment(env)).NewCheckoutUnavailableReason == null);
+        var settings = Settings(); settings.Mode = mode; settings.EnableCheckout = enabled;
+        Assert.Equal(enabled, Gateway(settings).NewCheckoutUnavailableReason == null);
     }
 
     [Fact]
-    public void Invalid_urls_block_even_opted_in_development_selection()
+    public void Invalid_urls_block_enabled_checkout()
     {
-        var settings = Settings(); settings.EnableSandboxCheckout = true; settings.PublicApiBaseUrl = "http://localhost";
-        Assert.NotNull(Gateway(settings, new TestEnvironment("Development")).NewCheckoutUnavailableReason);
+        var settings = Settings(); settings.EnableCheckout = true; settings.PublicApiBaseUrl = "http://localhost";
+        Assert.NotNull(Gateway(settings).NewCheckoutUnavailableReason);
     }
 
     [Theory]
@@ -76,26 +70,39 @@ public sealed class FiuuHostedCheckoutTests
     private static string Md5(string value) => Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 
     [Theory]
-    [InlineData("Staging", "Sandbox", "SB_test", true)]
-    [InlineData("UAT", "Sandbox", "SB_test", true)]
-    [InlineData("Production", "Production", "live_test", true)]
-    [InlineData("Production", "Sandbox", "SB_test", false)]
-    [InlineData("Staging", "Production", "live_test", false)]
-    [InlineData("Production", "Production", "SB_test", false)]
-    [InlineData("Staging", "Sandbox", "live_test", false)]
-    [InlineData("Production", "Production", "merchant_Dev", false)]
-    [InlineData("Production", "Typo", "live_test", false)]
-    public void Explicit_checkout_mode_validates_environment_and_merchant(string env, string mode, string merchant, bool allowed)
+    [InlineData("Sandbox", "SB_test", true)]
+    [InlineData("Production", "live_test", true)]
+    [InlineData("Production", "SB_test", true)]
+    [InlineData("Sandbox", "live_test", true)]
+    [InlineData("Production", "merchant_Dev", true)]
+    [InlineData("Typo", "live_test", false)]
+    [InlineData("Sandbox", "", false)]
+    [InlineData("Production", "../merchant", false)]
+    public void Mode_and_required_fields_are_validated_without_merchant_prefix_assumptions(string mode, string merchant, bool allowed)
     {
         var settings = Settings(); settings.EnableCheckout = true; settings.Mode = mode; settings.MerchantId = merchant;
-        Assert.Equal(allowed, Gateway(settings, new TestEnvironment(env)).NewCheckoutUnavailableReason == null);
+        Assert.Equal(allowed, Gateway(settings).NewCheckoutUnavailableReason == null);
+    }
+
+    [Theory]
+    [InlineData("Sandbox", "https://sandbox-api.fiuu.com/", "https://sandbox-payment.fiuu.com/")]
+    [InlineData("Live", "https://api.fiuu.com/", "https://pay.fiuu.com/")]
+    [InlineData("live", "https://api.fiuu.com/", "https://pay.fiuu.com/")]
+    [InlineData("Production", "https://api.fiuu.com/", "https://pay.fiuu.com/")]
+    public void Configured_mode_selects_api_and_checkout_endpoints(string mode, string api, string payment)
+    {
+        var settings = Settings(); settings.Mode = mode; settings.EnableCheckout = true;
+        Assert.Null(Gateway(settings).NewCheckoutUnavailableReason);
+        Assert.Equal(api, settings.ApiBase);
+        Assert.Equal(payment, settings.PaymentBase);
+        Assert.StartsWith(payment, Gateway(settings).BuildCheckout(Attempt()).Hosted!.Url);
     }
 
     [Fact]
     public void Production_form_uses_production_origin_and_missing_keys_remain_unselectable()
     {
         var settings = Settings(); settings.EnableCheckout = true; settings.Mode = "Production"; settings.MerchantId = "live_test";
-        var gateway = Gateway(settings, new TestEnvironment("Production"));
+        var gateway = Gateway(settings);
         var attempt = Attempt(); attempt.PaymentMethod = "Others";
         Assert.Equal("https://pay.fiuu.com/RMS/pay/live_test/", gateway.BuildCheckout(attempt).Hosted!.Url);
         settings.SecretKey = "";

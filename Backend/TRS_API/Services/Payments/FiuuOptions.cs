@@ -22,7 +22,6 @@ public sealed class FiuuOptions
     // Default hosted page offers the merchant-enabled methods; no card routing guess is needed.
     public bool UseHostedMethodSelection { get; set; } = true;
     public bool ExtendedVcode { get; set; }
-    public bool EnableSandboxCheckout { get; set; }
     public bool HasCardChannel => CardChannel is "creditT" or "creditAI" or "creditAN";
 
     internal void ValidateCheckout(string? paymentMethod = null)
@@ -44,11 +43,10 @@ public sealed class FiuuOptions
 
     internal void Validate()
     {
-        if (!IsSandbox && !Mode.Equals("Production", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Fiuu mode must be Sandbox or Production.");
-        if (!Regex.IsMatch(MerchantId ?? "", @"\A[A-Za-z0-9_]{1,32}\z") || (MerchantId?.StartsWith("SB_", StringComparison.OrdinalIgnoreCase) == true) != IsSandbox
-            || (!IsSandbox && MerchantId?.EndsWith("_Dev", StringComparison.OrdinalIgnoreCase) == true)
+        if (!IsSandbox && !Mode.Equals("Live", StringComparison.OrdinalIgnoreCase) && !Mode.Equals("Production", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Fiuu mode must be Sandbox or Live (Production is also accepted).");
+        if (!Regex.IsMatch(MerchantId ?? "", @"\A[A-Za-z0-9_]{1,32}\z")
             || !Regex.IsMatch(VerifyKey ?? "", @"\A[0-9a-fA-F]{32}\z") || !Regex.IsMatch(SecretKey ?? "", @"\A[0-9a-fA-F]{32}\z"))
-            throw new InvalidOperationException("Fiuu merchant credentials are missing or do not match the configured mode.");
+            throw new InvalidOperationException("Fiuu merchant credentials are missing or malformed.");
     }
 }

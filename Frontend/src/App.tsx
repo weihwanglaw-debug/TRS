@@ -11,6 +11,7 @@ import { RouteIndexingControl } from "@/components/RouteIndexingControl";
 import Landing from "@/pages/Landing";
 import EventsArchive from "@/pages/EventsArchive";
 import EventDetail from "@/pages/EventDetail";
+import EventScores from "@/pages/EventScores";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import TermsOfService from "@/pages/TermsOfService";
 import PaymentResult from "@/pages/PaymentResult";
@@ -46,6 +47,8 @@ const App = () => (
                 <Route path="/" element={<Landing />} />
                 <Route path="/events" element={<EventsArchive />} />
                 <Route path="/event/:id" element={<EventDetail />} />
+                <Route path="/event/:id/live" element={<EventScores live />} />
+                <Route path="/event/:id/results" element={<EventScores />} />
                 <Route path="/privacy" element={<PrivacyPolicy />} />
                 <Route path="/terms" element={<TermsOfService />} />
                 <Route path="/payment/result" element={<PaymentResult />} />

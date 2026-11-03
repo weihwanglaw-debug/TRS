@@ -6,7 +6,7 @@ using TRS_Data.Models;
 namespace TRS_API.Services.Payments;
 
 public sealed class FiuuPaymentGateway(TRSDbContext db, IOptions<FiuuOptions> options,
-    FiuuSignatureValidator signatures, FiuuApiClient api, FiuuRefundService? refunds = null, IHostEnvironment? environment = null) : IPaymentGateway, IRefundReconciliationGateway
+    FiuuSignatureValidator signatures, FiuuApiClient api, FiuuRefundService? refunds = null) : IPaymentGateway, IRefundReconciliationGateway
 {
     public string Code => "Fiuu";
     public bool SupportsCancellation => false;
@@ -15,13 +15,8 @@ public sealed class FiuuPaymentGateway(TRSDbContext db, IOptions<FiuuOptions> op
         get
         {
             var config = options.Value;
-            var developmentSandbox = environment?.IsDevelopment() == true && config.IsSandbox && config.EnableSandboxCheckout;
-            if (!config.EnableCheckout && !developmentSandbox)
+            if (!config.EnableCheckout)
                 return "Fiuu checkout is not enabled in server configuration.";
-            if (environment?.IsProduction() == true && config.IsSandbox)
-                return "Fiuu sandbox mode cannot be used in Production.";
-            if (environment?.IsProduction() != true && !config.IsSandbox)
-                return "Fiuu production mode requires the Production environment.";
             try { options.Value.ValidateCheckout(); return null; }
             catch (InvalidOperationException) { return "Fiuu mode, merchant credentials or public URLs are incomplete."; }
         }
