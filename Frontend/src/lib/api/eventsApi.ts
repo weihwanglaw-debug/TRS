@@ -245,7 +245,7 @@ export async function apiUpdateProgram(
 export async function apiUpdateProgramStatus(
   eventId: string,
   programId: string,
-  status: "O" | "CL",
+  status: "O" | "CL" | "H",
 ): Promise<ApiResult<{ programId: number; status: string }>> {
   await delay();
   const res = await apiFetch(`${API_BASE}/api/events/${eventId}/programs/${programId}/status`, {

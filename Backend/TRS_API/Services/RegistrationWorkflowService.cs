@@ -145,7 +145,7 @@ public class RegistrationWorkflowService
             var program = programs[group.ProgramId];
             NormalizeGroupClubValues(group, program);
 
-            if (!program.IsActive || program.Status == StatusCodesEx.Program.Closed)
+            if (!CanRegisterProgram(program, options.RegistrationGateMode))
                 return RegistrationWorkflowResult<PricingQuote>.Fail("PROGRAM_CLOSED", $"'{program.Name}' is no longer accepting registrations.");
 
             if (fixturePrograms.Contains(program.ProgramId))
@@ -296,7 +296,7 @@ public class RegistrationWorkflowService
                 if (program == null || program.EventId != req.EventId)
                     return await RollbackAndFail(tx, "PROGRAM_NOT_FOUND", "One or more selected programs could not be found.");
 
-                if (!program.IsActive || program.Status == StatusCodesEx.Program.Closed)
+                if (!CanRegisterProgram(program, options.RegistrationGateMode))
                     return await RollbackAndFail(tx, "PROGRAM_CLOSED", $"'{program.Name}' is no longer accepting registrations.");
 
                 var fixtureExists = await _db.Fixtures.AnyAsync(f => f.ProgramId == groupDto.ProgramId, ct);
@@ -729,6 +729,11 @@ public class RegistrationWorkflowService
             ? customFields.FirstOrDefault(cf => cf.CustomFieldId == customFieldId)
             : null;
     }
+
+    public static bool CanRegisterProgram(TrsProgram program, EventRegistrationGateMode mode) =>
+        program.IsActive &&
+        program.Status != StatusCodesEx.Program.Closed &&
+        (program.Status != StatusCodesEx.Program.Hidden || mode != EventRegistrationGateMode.StrictPublic);
 
     public static string ComputeRegistrationStatus(
         Event eventEntity,

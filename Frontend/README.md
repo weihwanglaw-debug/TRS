@@ -55,3 +55,17 @@ After deployment, verify:
 4. Browser API requests target the configured API hostname and pass CORS.
 5. `/robots.txt` disallows admin, login, and payment-result routes.
 6. Admin and payment-result pages contain a `noindex` robots meta value after navigation.
+
+## Program visibility
+
+The program action menu supports Open (O), Closed (CL), and Hidden (H).
+Hidden programs remain available to admins but are excluded from public event
+responses and reject new public registrations. Restore them explicitly as Open
+or Closed. Existing paid finalization and admin-assisted registration remain
+eligible for hidden programs, subject to the other registration rules.
+
+Deploy Backend/TRS_Data/Sql/20261124_add_hidden_program_status.sql before the
+updated API and frontend. This expands CK_Programs_Status without changing
+existing rows. Before rolling back, change any H programs to CL using the admin
+action and verify none remain, then restore the old API/frontend and constraint.
+If all programs are hidden, the public response has no selectable programs.

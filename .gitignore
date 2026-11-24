@@ -124,3 +124,6 @@ DeploymentPrivateConfigs/
 
 .DS_Store
 Thumbs.db
+
+# Local architecture index
+/graphify-out/

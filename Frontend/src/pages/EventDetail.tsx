@@ -1221,7 +1221,7 @@ export default function EventDetail() {
             <div className="event-detail-panel mb-12">
                  <h2 className="event-detail-section-heading font-bold text-xl mb-6">Additional Information</h2>
               <div
-                className="prose prose-sm max-w-none"
+                className="event-rich-text"
                 style={{ color: "var(--color-body-text)" }}
                 dangerouslySetInnerHTML={{ __html: event.additionalInfo }}
               />

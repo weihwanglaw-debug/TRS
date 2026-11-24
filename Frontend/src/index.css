@@ -2115,3 +2115,17 @@
 .ql-container.ql-snow.ql-disabled .ql-editor {
   cursor: default;
 }
+
+/* Public Additional Information uses the same block hierarchy as the Snow editor. */
+.event-rich-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.event-rich-text h2 { font-size: 1.5em; }
+.event-rich-text h3 { font-size: 1.17em; }
+.event-rich-text h4 { font-size: 1em; }
+.event-rich-text :is(ol, ul) { padding-inline-start: 1.5em; }
+.event-rich-text ol { list-style-type: decimal; }
+.event-rich-text ul { list-style-type: disc; }
+.event-rich-text li[data-list="bullet"] { list-style-type: disc; }
+.event-rich-text .ql-align-center { text-align: center; }
+.event-rich-text .ql-align-right { text-align: right; }
+.event-rich-text .ql-align-justify { text-align: justify; }
+.event-rich-text a { color: var(--color-primary); text-decoration: underline; }

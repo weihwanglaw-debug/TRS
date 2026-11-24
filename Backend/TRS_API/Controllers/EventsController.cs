@@ -35,7 +35,7 @@ public class EventsController : ControllerBase
         if (includeInactive && !User.IsInRole("superadmin") && !User.IsInRole("eventadmin"))
             includeInactive = false;
 
-        var q = LoadEvents();
+        var q = LoadEvents(User.IsInRole("superadmin") || User.IsInRole("eventadmin"));
         if (!includeInactive) q = q.Where(e => e.IsActive && e.Programs.Any(p => p.IsActive));
         // Kept for API compatibility. The public archive now includes every active,
         // non-draft event, including manually paused events.
@@ -50,7 +50,7 @@ public class EventsController : ControllerBase
     public async Task<IActionResult> GetById(int id)
     {
         var isAdmin = User.IsInRole("superadmin") || User.IsInRole("eventadmin");
-        var q = LoadEvents().Where(e => e.EventId == id);
+        var q = LoadEvents(isAdmin).Where(e => e.EventId == id);
         if (!isAdmin) q = q.Where(e => e.IsActive && e.Programs.Any(p => p.IsActive));
         var ev = await q.FirstOrDefaultAsync();
         if (ev == null) return NotFound(new { code = "NOT_FOUND", message = "Event not found." });
@@ -400,8 +400,8 @@ public class EventsController : ControllerBase
     [HttpPatch("{eid:int}/programs/{pid:int}/status"), Authorize(Roles = "superadmin,eventadmin")]
     public async Task<IActionResult> UpdateProgramStatus(int eid, int pid, [FromBody] UpdateProgramStatusRequest req)
     {
-        if (req.Status != StatusCodesEx.Program.Open && req.Status != StatusCodesEx.Program.Closed)
-            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be O or CL." });
+        if (req.Status != StatusCodesEx.Program.Open && req.Status != StatusCodesEx.Program.Closed && req.Status != StatusCodesEx.Program.Hidden)
+            return BadRequest(new { code = "INVALID_STATUS", message = "Status must be O, CL or H." });
 
         await using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
         var prog = await _db.Programs.Include(p => p.Fields).Include(p => p.CustomFields)
@@ -469,10 +469,10 @@ public class EventsController : ControllerBase
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private IQueryable<Event> LoadEvents() =>
+    private IQueryable<Event> LoadEvents(bool includeHidden = true) =>
         _db.Events
-            .Include(e => e.Programs.Where(p => p.IsActive)).ThenInclude(p => p.Fields)
-            .Include(e => e.Programs.Where(p => p.IsActive)).ThenInclude(p => p.CustomFields)
+            .Include(e => e.Programs.Where(p => p.IsActive && (includeHidden || p.Status != StatusCodesEx.Program.Hidden))).ThenInclude(p => p.Fields)
+            .Include(e => e.Programs.Where(p => p.IsActive && (includeHidden || p.Status != StatusCodesEx.Program.Hidden))).ThenInclude(p => p.CustomFields)
             .Include(e => e.GalleryImages)
             .Include(e => e.Documents.OrderBy(d => d.DisplayOrder));   // NEW
 

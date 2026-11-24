@@ -59,9 +59,52 @@ const QUILL_FORMATS = [
   "underline",
   "strike",
   "list",
+  "indent",
   "align",
   "link",
 ];
+
+// Quill stores list type, depth and alignment in editor-only attributes/classes.
+function eventInfoHtml(editor: Quill) {
+  const content = editor.root.cloneNode(true) as HTMLElement;
+  content.querySelectorAll(".ql-ui").forEach(node => node.remove());
+  content.querySelectorAll<HTMLElement>("[class]").forEach(node => {
+    for (const align of ["center", "right", "justify"]) {
+      if (node.classList.contains(`ql-align-${align}`)) node.style.textAlign = align;
+    }
+  });
+
+  for (const source of content.querySelectorAll("ol")) {
+    const levels: HTMLElement[] = [];
+    for (const item of Array.from(source.children)) {
+      const tag = item.getAttribute("data-list") === "bullet" ? "ul" : "ol";
+      const indent = Number(item.className.match(/(?:^|\s)ql-indent-(\d+)/)?.[1] ?? 0);
+      const depth = Math.min(indent, levels.length);
+      levels.length = Math.min(levels.length, depth + 1);
+      if (levels[depth]?.localName !== tag) {
+        const list = document.createElement(tag);
+        if (depth === 0) source.before(list);
+        else levels[depth - 1].lastElementChild!.append(list);
+        levels[depth] = list;
+      }
+      item.removeAttribute("data-list");
+      levels[depth].append(item);
+    }
+    source.remove();
+  }
+  // An aligned parent item must not pass its alignment to a nested list on reopen.
+  for (const item of content.querySelectorAll<HTMLElement>("li[style]")) {
+    const nested = item.querySelector(":scope > ol, :scope > ul");
+    if (!nested || !item.style.textAlign) continue;
+    const paragraph = document.createElement("p");
+    paragraph.style.textAlign = item.style.textAlign;
+    while (item.firstChild && item.firstChild !== nested) paragraph.append(item.firstChild);
+    item.prepend(paragraph);
+    item.style.removeProperty("text-align");
+    item.removeAttribute("class");
+  }
+  return content.innerHTML;
+}
 
 function RichTextEditor({
   value,
@@ -98,7 +141,11 @@ function RichTextEditor({
       });
 
       instance.clipboard.dangerouslyPasteHTML(valueRef.current || "");
-      instance.on("text-change", () => onChangeRef.current(instance.root.innerHTML));
+      instance.on("text-change", () => {
+        const html = eventInfoHtml(instance);
+        valueRef.current = html;
+        onChangeRef.current(html);
+      });
       instance.enable(!disabledRef.current);
       quillInstanceRef.current = instance;
     });
@@ -109,12 +156,9 @@ function RichTextEditor({
   }, []);
 
   useEffect(() => {
+    if (valueRef.current === value) return;
     valueRef.current = value;
-    const quill = quillInstanceRef.current;
-    if (!quill) return;
-    if (quill.root.innerHTML !== (value || "")) {
-      quill.clipboard.dangerouslyPasteHTML(value || "");
-    }
+    quillInstanceRef.current?.clipboard.dangerouslyPasteHTML(value || "", "silent");
   }, [value]);
 
   useEffect(() => {
@@ -215,6 +259,8 @@ export default function EventEdit() {
   const [seedingOpen,      setSeedingOpen]      = useState(false);
   const [seedingProgramId, setSeedingProgramId] = useState("");
   const [openAction,       setOpenAction]       = useState<{ prog: Program; anchorEl: HTMLElement } | null>(null);
+  const [removeProgram, setRemoveProgram] = useState<Program | null>(null);
+  const [removingProgram, setRemovingProgram] = useState(false);
   const [deleteConfirmOpen,setDeleteConfirmOpen]= useState(false);
   const [importProgram,    setImportProgram]    = useState<Program | null>(null);
   const [importFile,       setImportFile]       = useState<File | null>(null);
@@ -565,6 +611,36 @@ export default function EventEdit() {
     setEvent(refreshed.data);
     setPrograms(refreshed.data.programs);
     return true;
+  };
+
+  const handleRemoveProgram = async () => {
+    if (!removeProgram || !eventId || removingProgram || !editing) return;
+    const remaining = (items: Program[]) => items.filter(p => p.id !== removeProgram.id);
+    setRemovingProgram(true);
+    try {
+      if (!isNew) {
+        const result = await apiDeleteProgram(eventId, removeProgram.id);
+        if (result.error) {
+          showError("Program could not be removed", result.error.message);
+          return;
+        }
+      }
+      setPrograms(remaining);
+      if (!isNew) {
+        setEvent(prev => prev && ({
+          ...prev, programs: remaining(prev.programs), computedRegistrationStatus: undefined,
+        }));
+        if (!await refreshEventSummary().catch(() => false)) {
+          setFeedback({ open: true, variant: "warning", title: "Program removed",
+            description: "Reload the event to refresh its details." });
+        }
+      }
+    } catch {
+      showError("Removal could not be confirmed", "Reload the event to check whether the program was removed.");
+    } finally {
+      setRemoveProgram(null);
+      setRemovingProgram(false);
+    }
   };
 
   const handleImportPreview = async () => {
@@ -1117,13 +1193,7 @@ export default function EventEdit() {
                       {prog.fee > 0 ? `$${prog.fee.toFixed(2)}` : "Free"}
                     </td>
                     <td>
-                      <span className="text-xs font-semibold px-2 py-0.5"
-                        style={{
-                          backgroundColor: prog.status === "CL" ? "var(--badge-closed-bg)" : "var(--badge-open-bg)",
-                          color: prog.status === "CL" ? "var(--badge-closed-text)" : "var(--badge-open-text)",
-                        }}>
-                        {prog.status === "CL" ? "Closed" : "Open"}
-                      </span>
+                      <StatusBadge status={prog.status} />
                     </td>
                     <td className="text-sm">{prog.minParticipants} / {prog.maxParticipants}</td>
                     <td className="text-sm">
@@ -1171,13 +1241,7 @@ export default function EventEdit() {
                   </button>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold px-2 py-0.5"
-                    style={{
-                      backgroundColor: prog.status === "CL" ? "var(--badge-closed-bg)" : "var(--badge-open-bg)",
-                      color: prog.status === "CL" ? "var(--badge-closed-text)" : "var(--badge-open-text)",
-                    }}>
-                    {prog.status === "CL" ? "Closed" : "Open"}
-                  </span>
+                  <StatusBadge status={prog.status} />
                   <span className="text-xs opacity-60">Min / Max: {prog.minParticipants} / {prog.maxParticipants}</span>
                 </div>
                 <div className="mt-4 flex items-end justify-between gap-3">
@@ -1231,10 +1295,10 @@ export default function EventEdit() {
               <Upload className="h-4 w-4" /> Import From Template
             </button>
           )}
-          {!isNew && (
-            <button onClick={async () => {
+          {!isNew && (["O", "CL", "H"] as const).filter(status => status !== openAction.prog.status).map(targetStatus => (
+            <button key={targetStatus} onClick={async () => {
               const prog = openAction.prog;
-              const newStatus = prog.status === "CL" ? "O" : "CL";
+              const newStatus = targetStatus;
               try {
                 const r = await apiUpdateProgramStatus(eventId!, prog.id, newStatus);
                 if (r.error) {
@@ -1251,11 +1315,11 @@ export default function EventEdit() {
                 setOpenAction(null);
               }
             }}>
-              {openAction.prog.status === "CL"
+              {targetStatus === "O"
                 ? <><Unlock className="h-4 w-4" /> Open Program</>
-                : <><Lock   className="h-4 w-4" /> Close Program</>}
+                : <><Lock className="h-4 w-4" /> {targetStatus === "H" ? "Hide Program" : "Close Program"}</>}
             </button>
-          )}
+          ))}
           {!isNew && (
             <button onClick={() => {
               navigate(`/admin/registrations/participants?eventId=${eventId}&programId=${openAction.prog.id}`);
@@ -1264,6 +1328,9 @@ export default function EventEdit() {
               <ExternalLink className="h-4 w-4" /> View Participants
             </button>
           )}
+          <button onClick={() => { setRemoveProgram(openAction.prog); setOpenAction(null); }}>
+            <Trash2 className="h-4 w-4" /> Remove Program
+          </button>
         </ActionDropdownPortal>
       )}
 
@@ -1437,6 +1504,17 @@ export default function EventEdit() {
 
       <SeedingModal open={seedingOpen} onClose={() => setSeedingOpen(false)}
         eventId={eventId ?? ""} programId={seedingProgramId} />
+
+      <ConfirmDialog
+        open={!!removeProgram}
+        onOpenChange={open => { if (!open) setRemoveProgram(null); }}
+        title="Remove Program"
+        description={`Remove "${removeProgram?.name ?? ""}" from this ${isNew ? "draft" : "event"}?`}
+        confirmLabel="Remove Program"
+        destructive
+        loading={removingProgram}
+        onConfirm={handleRemoveProgram}
+      />
 
       <ConfirmDialog
         open={deleteConfirmOpen}

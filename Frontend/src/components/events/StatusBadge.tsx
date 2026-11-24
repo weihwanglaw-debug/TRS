@@ -7,6 +7,7 @@ const styles: Record<string, { bg: string; text: string; label: string }> = {
   D:  { bg: "var(--feedback-info-bg)", text: "var(--feedback-info)",     label: "Draft"       },
   U:  { bg: "var(--badge-soon-bg)",   text: "var(--badge-soon-text)",   label: "Upcoming"    },
   PA: { bg: "var(--feedback-warning-bg)", text: "var(--feedback-warning)", label: "Paused"    },
+  H: { bg: "var(--badge-closed-bg)", text: "var(--badge-closed-text)", label: "Hidden" },
   CL: { bg: "var(--badge-closed-bg)", text: "var(--badge-closed-text)", label: "Closed"      },
   F:  { bg: "var(--badge-closed-bg)", text: "var(--badge-closed-text)", label: "Full"        },
   NF: { bg: "var(--badge-soon-bg)",   text: "var(--badge-soon-text)",   label: "Nearly Full" },
@@ -26,7 +27,7 @@ export default function StatusBadge({ status }: { status: BadgeStatus }) {
 
 export function getProgramCapacityStatus(program: Program): ProgramStatus {
   // Respect the program's explicit status field first
-  if (program.status === "CL") return "CL";
+  if (program.status === "CL" || program.status === "H") return program.status;
 
   // Then compute from capacity
   const ratio = program.currentParticipants / program.maxParticipants;
