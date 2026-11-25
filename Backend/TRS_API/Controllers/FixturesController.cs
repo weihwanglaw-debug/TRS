@@ -306,6 +306,10 @@ public class FixturesController : ControllerBase
         if (f?.IsLocked == true)
             return BadRequest(new { code = "LOCKED", message = "Cannot overwrite fixture state after results have been entered." });
 
+        var statusError = FixtureGenerationService.GenerationStatusError(program.Status);
+        if (statusError != null)
+            return BadRequest(new { code = "PROGRAM_NOT_CLOSED", message = statusError });
+
         if (f == null)
         {
             f = new Fixture
@@ -323,7 +327,6 @@ public class FixturesController : ControllerBase
         f.Phase = req.Phase;
         f.IsLocked = req.IsLocked;
         f.UpdatedAt = DateTime.UtcNow;
-        program.Status = StatusCodesEx.Program.Closed;
         program.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         await tx.CommitAsync();

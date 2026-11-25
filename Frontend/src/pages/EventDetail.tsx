@@ -667,6 +667,8 @@ export default function EventDetail() {
   // Per-participant field validation via shared function
       const perParticipantErrs = validateParticipant(p, {
         program: selectedProgram,
+        isSports: event.isSports,
+        teamMode: isTeamProgram(selectedProgram.type),
         allValues: participants,
         selfIndex: i,
       });
@@ -1387,6 +1389,7 @@ export default function EventDetail() {
                                   }
                                 }}
                                 programFields={selectedProgram.fields}
+                                isSports={event.isSports}
                                 eventType={event.sportType}
                                 teamMode={isTeamProgram(selectedProgram.type)}
                                 participantIndex={idx}

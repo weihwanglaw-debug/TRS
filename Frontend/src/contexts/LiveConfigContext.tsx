@@ -31,6 +31,8 @@ export interface LiveConfig {
   socialLinkedInUrl: string;
   socialTiktokUrl: string;
   consentText:   string;
+  eventsLabel:   string;
+  eventsTitle:   string;
   messageTitle:  string;
   messageBody:   string;
   // Ad banner
@@ -65,6 +67,8 @@ const EMPTY: LiveConfig = {
   socialYoutubeUrl: "",
   socialLinkedInUrl: "https://sg.linkedin.com/company/wyse-active-pte-ltd",
   socialTiktokUrl: "",
+  eventsLabel: "Featured events /",
+  eventsTitle: "Choose your tournament and continue registration",
   messageTitle: "Questions before joining?",
   messageBody: "Players, parents, coaches, and club representatives can leave a message for the tournament team.\nUse this space for event questions, program clarification, venue help, or registration support.",
   adEnabled: "true", adUrl: "", adImageUrl: "",

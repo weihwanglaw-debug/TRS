@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLiveConfig } from "@/contexts/LiveConfigContext";
 import { Calendar, MapPin } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
@@ -21,6 +22,9 @@ const FALLBACK_BANNERS = [eventBanner1, eventBanner2, eventBanner3];
 
 export default function EventCarousel() {
   const navigate = useNavigate();
+  const { cfg } = useLiveConfig();
+  const eventsLabel = cfg.eventsLabel?.trim() || "Featured events /";
+  const eventsTitle = cfg.eventsTitle?.trim() || "Choose your tournament and continue registration";
   const [visibleEvents, setVisibleEvents] = useState<TournamentEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [carouselApi, setCarouselApi] = useState<CarouselApi | null>(null);
@@ -73,7 +77,7 @@ export default function EventCarousel() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.3 }}
         >
-          Featured events /
+          {eventsLabel}
         </motion.p>
         <motion.h2
           className="landing-section-title"
@@ -82,7 +86,7 @@ export default function EventCarousel() {
           viewport={{ once: true, amount: 0.3 }}
           transition={{ delay: 0.06 }}
         >
-          Choose your tournament and continue registration
+          {eventsTitle}
         </motion.h2>
 
         {!loading && visibleEvents.length === 0 && (

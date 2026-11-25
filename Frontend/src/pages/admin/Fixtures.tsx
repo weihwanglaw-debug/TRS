@@ -55,6 +55,7 @@ interface ProgramRow {
   programId:   string;
   programName: string;
   programType: string;
+  programStatus: string;
   sbaRankingType?: string | null;
   mode:        string;
   sportType:   string;
@@ -379,6 +380,7 @@ export default function AdminFixtures() {
         programId:    p.id,
         programName:  p.name,
         programType:  p.type,
+        programStatus: p.status,
         sbaRankingType: p.sbaRankingType,
         mode:         ev.fixtureMode,
         sportType:    ev.sportType,
@@ -431,6 +433,15 @@ export default function AdminFixtures() {
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resetLatestRoundConfirmOpen, setResetLatestRoundConfirmOpen] = useState(false);
   const [clearResultConfirmOpen, setClearResultConfirmOpen] = useState(false);
+  const checkGenerationStatus = () => {
+    if (!selRow) return false;
+    if (selRow.programStatus === "CL") return true;
+    feedbackApi.error(selRow.programStatus === "H"
+      ? "This program is hidden. Change it to Closed before generating fixtures. This will make it publicly visible."
+      : "This program is still open for registration. Close it before generating fixtures.");
+    return false;
+  };
+
   const [generateConfirmOpen, setGenerateConfirmOpen] = useState(false);
   const [pendingWizardResult, setPendingWizardResult] = useState<WizardResult | null>(null);
 
@@ -536,7 +547,7 @@ export default function AdminFixtures() {
   };
 
   const executeFixtureGeneration = async () => {
-    if (!selRow || !pendingWizardResult) return;
+    if (!selRow || !pendingWizardResult || !checkGenerationStatus()) return;
     const { config: wizConfig, seeds, bracket: prebuilt } = pendingWizardResult;
     const result = await withLoading(() => apiGenerateDraw(selRow.eventId, selRow.programId, seeds, wizConfig, prebuilt));
     if (result.error) { apiErr(result.error); return; }
@@ -978,7 +989,7 @@ export default function AdminFixtures() {
                   {loadingParticipants ? (
                     <LoadingSpinner size="sm" label="Loading registered entries..." />
                   ) : selRowParticipants.length >= 2
-                    ? <button onClick={() => setShowWizard(true)} className="btn-primary inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold">Generate Fixture <ArrowRight className="h-4 w-4" /></button>
+                    ? <button onClick={() => { if (checkGenerationStatus()) setShowWizard(true); }} className="btn-primary inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold">Generate Fixture <ArrowRight className="h-4 w-4" /></button>
                     : <p className="text-xs opacity-30">Need at least 2 registered entries.</p>}
                 </div>
               )}

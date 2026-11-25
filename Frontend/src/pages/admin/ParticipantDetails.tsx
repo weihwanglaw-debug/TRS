@@ -159,6 +159,7 @@ function toFormValues(p: RegistrationParticipant): ParticipantFormValues {
 interface DetailModalProps {
   row:           ParticipantRow;
   programFields: ProgramFields | null;
+  isSports?:     boolean;
   eventType?:    string;
   teamMode:      boolean;
   readOnly:      boolean;
@@ -166,7 +167,7 @@ interface DetailModalProps {
   onSaved:       (updated: Registration) => void;
 }
 
-function DetailModal({ row, programFields, eventType, teamMode, readOnly, onClose, onSaved }: DetailModalProps) {
+function DetailModal({ row, programFields, eventType, isSports, teamMode, readOnly, onClose, onSaved }: DetailModalProps) {
   const p = row.participant;
 
   const [form,       setForm]       = useState<ParticipantFormValues>(() => toFormValues(p));
@@ -201,6 +202,8 @@ function DetailModal({ row, programFields, eventType, teamMode, readOnly, onClos
   // Client-side validation - same rules as registration form
   // Admin gets no exemption: wrong data is wrong data
     const errs = validateParticipant(form, {
+      isSports,
+      teamMode,
       program: {
         minAge: 0, maxAge: 0,        // age range not enforced on admin edit
         gender: "Open",              // gender rule only enforced at registration time
@@ -244,7 +247,7 @@ function DetailModal({ row, programFields, eventType, teamMode, readOnly, onClos
         dob:               dob                   || undefined,
         gender:            form.gender            || undefined,
         nationality:       toCountryCode(form.nationality) || undefined,
-        clubSchoolCompany: form.clubSchoolCompany || undefined,
+        clubSchoolCompany: isSports === false && !teamMode ? undefined : form.clubSchoolCompany || undefined,
         email:             form.email             || undefined,
         contactNumber:     form.contactNumber     || undefined,
         tshirtSize:        form.tshirtSize        || undefined,
@@ -329,6 +332,7 @@ function DetailModal({ row, programFields, eventType, teamMode, readOnly, onClos
             values={form}
             onChange={patch => setForm(prev => ({ ...prev, ...patch }))}
             programFields={fields}
+            isSports={isSports}
             eventType={eventType}
             teamMode={teamMode}
             errors={errors}
@@ -757,6 +761,7 @@ export default function ParticipantDetails() {
         <DetailModal
           row={detailRow}
           programFields={getProgramFields(detailRow.group)}
+          isSports={events.find(ev => ev.programs.some(p => p.id === detailRow.group.programId))?.isSports}
           eventType={getEventType(detailRow.group)}
           teamMode={isTeamProgram(detailRow.programType)}
           readOnly={detailRow.fixtureExists}

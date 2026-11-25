@@ -156,7 +156,7 @@ public class RegistrationWorkflowService
             if (activeCount + requestedCount > program.MaxParticipants)
                 return RegistrationWorkflowResult<PricingQuote>.Fail(StatusCodesEx.Validation.ProgramFull, $"'{program.Name}' does not have enough remaining slots.");
 
-            var participantValidation = ValidateParticipants(group, program, existingParticipants);
+            var participantValidation = ValidateParticipants(group, program, existingParticipants, eventEntity.IsSports);
             if (!participantValidation.Success)
                 return RegistrationWorkflowResult<PricingQuote>.Fail(participantValidation.Code!, participantValidation.Message);
 
@@ -608,10 +608,14 @@ public class RegistrationWorkflowService
             .Any(existing => string.Equals(existing, normalizedTeamName, StringComparison.OrdinalIgnoreCase));
     }
 
+    public static bool RequiresClubField(bool isSports, string? programType) =>
+        isSports || ProgramTypeRules.IsTeamProgram(programType);
+
     private RegistrationWorkflowResult<object> ValidateParticipants(
         CreateGroupDto group,
         TrsProgram program,
-        List<ExistingParticipantIdentity> existingParticipants)
+        List<ExistingParticipantIdentity> existingParticipants,
+        bool isSports)
     {
         if (group.Participants == null || group.Participants.Count < program.MinPlayers || group.Participants.Count > program.MaxPlayers)
             return RegistrationWorkflowResult<object>.Fail("INVALID_PARTICIPANT_COUNT", $"'{program.Name}' requires between {program.MinPlayers} and {program.MaxPlayers} participants.");
@@ -632,7 +636,7 @@ public class RegistrationWorkflowService
                 return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"Contact number is required for '{participant.FullName}'.");
             if (string.IsNullOrWhiteSpace(participant.Nationality))
                 return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"Nationality is required for '{participant.FullName}'.");
-            if (string.IsNullOrWhiteSpace(participant.ClubSchoolCompany))
+            if (RequiresClubField(isSports, program.Type) && string.IsNullOrWhiteSpace(participant.ClubSchoolCompany))
                 return RegistrationWorkflowResult<object>.Fail(StatusCodesEx.Validation.MissingRequiredField, $"Club / school / company is required for '{participant.FullName}'.");
 
             var dob = ParseDob(participant.Dob)!;

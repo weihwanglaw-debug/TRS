@@ -69,6 +69,7 @@ export default function PaymentResult() {
   const [registration, setRegistration] = useState<Registration | null>(initialDirectRegistration);
   const [regId,        setRegId]        = useState<string | null>(initialDirectRegistration ? String(initialDirectRegistration.id) : null);
   const [paymentReference, setPaymentReference] = useState<string | null>(null);
+  const [attemptOutcome, setAttemptOutcome] = useState<"F" | "X" | "EX" | "NR" | null>(null);
   const [errorMsg,     setErrorMsg]     = useState("");
   const [pollCount,    setPollCount]    = useState(0);
   // Stage A/B: tracks whether we've passed the 15-second processing threshold
@@ -78,12 +79,12 @@ export default function PaymentResult() {
   useEffect(() => {
     if (!hostedReturn) return;
     const key = Number.isSafeInteger(hostedAttemptId) && hostedAttemptId > 0 ? readHostedAttemptKey(hostedAttemptId) : null;
+    if (Number.isSafeInteger(hostedAttemptId) && hostedAttemptId > 0) setPaymentReference(`TRS attempt ${hostedAttemptId}`);
     if (!key) {
       setPhase("review");
       setErrorMsg("This browser cannot restore your payment session. Please check your confirmation email or contact the organiser before paying again.");
       return;
     }
-    setPaymentReference(`TRS attempt ${hostedAttemptId}`);
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let count = 0;
@@ -105,8 +106,15 @@ export default function PaymentResult() {
           }
         }
         if (data && ["F", "X", "EX", "NR"].includes(data.status)) {
+          const outcome = data.status as "F" | "X" | "EX" | "NR";
+          setAttemptOutcome(outcome);
           setPhase("review");
-          setErrorMsg(data.errorMessage || "This payment has not produced a confirmed registration. Contact the organiser before paying again.");
+          setErrorMsg(data.errorMessage || ({
+            F: "The payment provider confirmed that this payment was not completed.",
+            X: "The server confirmed that this payment attempt was cancelled.",
+            EX: "This checkout session has expired.",
+            NR: "The organiser needs to review this payment before registration can be confirmed.",
+          })[outcome]);
           return;
         }
       } catch { /* Retry a bounded number of times without assuming a payment result. */ }
@@ -163,7 +171,7 @@ export default function PaymentResult() {
 
     if (!SESSION_KEY) {
       setPhase("review");
-      setErrorMsg("Missing event context. If your payment was successful you will receive a confirmation email. Otherwise please contact the organiser.");
+      setErrorMsg("The checkout details are unavailable. Please check your payment status with the organiser before paying again.");
       return;
     }
 
@@ -230,7 +238,7 @@ export default function PaymentResult() {
   //  - Paid:  paymentStatus === "S"
   //  - Free:  regStatus === "C" (paymentStatus stays "P")
   // After MAX_ATTEMPTS we stop polling and show the "still processing" state -
-  // this is NOT a failure; the webhook will complete the registration shortly.
+  // this is not proof of failure; a later webhook may still confirm registration.
   useEffect(() => {
     if (phase !== "polling" || !regId) return;
 
@@ -263,7 +271,7 @@ export default function PaymentResult() {
         setPollCount(attempts);
         setTimeout(poll, 1500);
       } else {
-  // Polling exhausted - not a failure. Webhook will complete shortly.
+  // Polling exhausted - outcome remains unconfirmed; a webhook may arrive later.
         setPhase("done");
       }
     };
@@ -287,8 +295,14 @@ export default function PaymentResult() {
 
   //  Stage A / Stage B processing message
   const processingMessage = stageBActive
-    ? "Payment is processing. You will receive a confirmation email shortly. Do not retry payment."
-    : (phase === "confirming" ? "Verifying your payment..." : "Finalising your registration...");
+    ? "We are still checking your payment status. Please wait before making another payment."
+    : "Checking your payment status...";
+  const unsuccessful = attemptOutcome === "F" || attemptOutcome === "X";
+  const reviewTitle = attemptOutcome === "F" ? "Payment Not Completed"
+    : attemptOutcome === "X" ? "Payment Cancelled"
+    : attemptOutcome === "EX" ? "Checkout Expired"
+    : attemptOutcome === "NR" ? "Payment Requires Review"
+    : "Payment Status Not Confirmed";
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -304,7 +318,7 @@ export default function PaymentResult() {
               <Loader2 className="h-12 w-12 mx-auto mb-5 animate-spin opacity-40" />
               <p className="text-sm opacity-50 mb-1">{processingMessage}</p>
               {stageBActive && (
-                <p className="text-xs opacity-30 mt-2">You can safely close this page.</p>
+                <p className="text-xs opacity-30 mt-2">Contact the organiser if you need help confirming the outcome.</p>
               )}
             </>
           )}
@@ -351,10 +365,10 @@ export default function PaymentResult() {
           {phase === "done" && !isConfirmed && !errorMsg && (
             <>
               <Loader2 className="h-12 w-12 mx-auto mb-5 opacity-40" />
-              <h1 className="font-heading font-bold text-2xl mb-3">Payment Processing</h1>
+              <h1 className="font-heading font-bold text-2xl mb-3">Payment Status Not Confirmed</h1>
               <p className="text-sm opacity-60 mb-8">
-                Your payment is being processed. If successful, you will receive
-                a confirmation email shortly. You can safely close this page.
+                We could not confirm the payment outcome. Please check with the organiser
+                before making another payment.
               </p>
               <button onClick={() => navigate("/")} className="btn-outline px-6 py-2.5 text-sm font-medium">
                 Back to Home
@@ -371,7 +385,7 @@ export default function PaymentResult() {
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 {eventId && (
                   <button onClick={handleTryAgain} className="btn-primary px-6 py-2.5 text-sm font-semibold">
-                    Try Again
+                    Return to Event
                   </button>
                 )}
                 <button onClick={() => navigate("/")} className="btn-outline px-6 py-2.5 text-sm font-medium">
@@ -385,11 +399,12 @@ export default function PaymentResult() {
           {phase === "review" && (
             <>
               <AlertCircle className="h-16 w-16 mx-auto mb-5 opacity-70" style={{ color: "var(--badge-soon-text)" }} />
-              <h1 className="font-heading font-bold text-2xl mb-3">Payment Status Not Confirmed</h1>
+              <h1 className="font-heading font-bold text-2xl mb-3">{reviewTitle}</h1>
               <p className="text-sm opacity-70 mb-3">{errorMsg}</p>
               <p className="text-sm opacity-70 mb-3">
-                We recommend that you do not make another payment until you have checked with the event administrator.
-                If you choose to try again, the earlier payment may still complete and could require a refund.
+                {unsuccessful
+                  ? "You can return to the event to try again. If you see a charge, contact the organiser first."
+                  : "Please check with the organiser before making another payment. The earlier payment may still complete."}
               </p>
               <p className="text-xs opacity-50 mb-8">Payment reference: {paymentReference ?? "Unavailable"}</p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
@@ -409,15 +424,15 @@ export default function PaymentResult() {
           {phase === "cancelled" && (
             <>
               <XCircle className="h-16 w-16 mx-auto mb-5" style={{ color: "var(--badge-open-text)" }} />
-              <h1 className="font-heading font-bold text-2xl mb-3">Payment Cancelled</h1>
+              <h1 className="font-heading font-bold text-2xl mb-3">Checkout Returned Without Confirmation</h1>
               <p className="text-sm opacity-70 mb-8">
-                No payment was taken and nothing has been saved.
-                Your registration details are preserved - click Try Again to continue.
+                You returned from checkout without a confirmed payment result.
+                Please check your payment status with the organiser before paying again.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <button onClick={handleTryAgain} className="btn-primary px-6 py-2.5 text-sm font-semibold">
-                  Try Again
-                </button>
+                {eventId && <button onClick={handleTryAgain} className="btn-outline px-6 py-2.5 text-sm font-semibold">
+                  Return to Event
+                </button>}
                 <button onClick={() => navigate("/")} className="btn-outline px-6 py-2.5 text-sm font-medium">
                   Back to Home
                 </button>

@@ -662,8 +662,11 @@ public class RegistrationsController : ControllerBase
             });
         }
 
+        var isSports = await _db.Events.Where(e => e.EventId == program.EventId)
+            .Select(e => (bool?)e.IsSports).FirstOrDefaultAsync() ?? true;
         var trimmedClub = req.ClubSchoolCompany?.Trim();
-        if (req.ClubSchoolCompany != null && string.IsNullOrWhiteSpace(trimmedClub))
+        if (RegistrationWorkflowService.RequiresClubField(isSports, program.Type)
+            && req.ClubSchoolCompany != null && string.IsNullOrWhiteSpace(trimmedClub))
             return BadRequest(new { code = "MISSING_REQUIRED_FIELD", message = "Club / school / company is required." });
 
         // ── Duplicate check — only when FullName or Dob is being changed ──────

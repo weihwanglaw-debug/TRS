@@ -69,3 +69,33 @@ updated API and frontend. This expands CK_Programs_Status without changing
 existing rows. Before rolling back, change any H programs to CL using the admin
 action and verify none remain, then restore the old API/frontend and constraint.
 If all programs are hidden, the public response has no selectable programs.
+
+## Fixture creation requires Closed
+Generate Fixture and raw fixture-state save require program status CL.
+O prompts the admin to close registration; H prompts changing to Closed and
+explains that the program becomes publicly visible. The backend rechecks status,
+including after a stale browser selection. Generation no longer changes status.
+Existing score-entry, advancement and result endpoints retain their behaviour.
+The generation transaction locks the program through validation and save.
+
+## Payment result messages
+Hosted returns distinguish server-confirmed unsuccessful/cancelled attempts,
+expired sessions, reconciliation, and unresolved outcomes. Only confirmed
+unsuccessful/cancelled attempts offer retry guidance. Stripe cancel/failed URL
+parameters describe a return without confirmation; they do not prove no charge.
+Processing screens do not promise an email before confirmation.
+Provider verification and database status transitions are unchanged.
+
+## Landing events copy
+Superadmins can edit Landing Events Label and Landing Events Title in Master
+Configuration > Events. The existing configuration API persists eventsLabel and
+eventsTitle in SystemConfigs; no migration is required. Missing or blank values
+use the original landing text. Values render as plain text, not HTML.
+
+## Non-sport affiliation fields
+For non-sport events, public registration and admin participant editing hide the
+built-in Club / School / Company field. Team programs retain required Team name.
+Sports retain existing requirements. Registration and Excel import accept blank
+affiliation for non-sport, non-Team programs; the template column stays compatible.
+Hidden values are preserved when editing. Organisers can collect affiliation using
+custom fields, whose required-field rules remain independent. No migration is needed.
