@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLiveConfig } from "@/contexts/LiveConfigContext";
 import { Calendar, MapPin } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
@@ -22,6 +23,9 @@ const FALLBACK_BANNERS = [eventBanner1, eventBanner2, eventBanner3];
 
 export default function EventCarousel() {
   const navigate = useNavigate();
+  const { cfg } = useLiveConfig();
+  const eventsLabel = cfg.eventsLabel?.trim() || "Featured events /";
+  const eventsTitle = cfg.eventsTitle?.trim() || "Choose your tournament and continue registration";
   const [visibleEvents, setVisibleEvents] = useState<TournamentEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [liveEvents, setLiveEvents] = useState<number[]>([]);
@@ -81,7 +85,7 @@ export default function EventCarousel() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.3 }}
         >
-          Featured events /
+          {eventsLabel}
         </motion.p>
         <motion.h2
           className="landing-section-title"
@@ -90,7 +94,7 @@ export default function EventCarousel() {
           viewport={{ once: true, amount: 0.3 }}
           transition={{ delay: 0.06 }}
         >
-          Choose your tournament and continue registration
+          {eventsTitle}
         </motion.h2>
 
         {!loading && visibleEvents.length === 0 && (
@@ -149,7 +153,7 @@ export default function EventCarousel() {
                           }}
                         />
                         <span className="trs-event-status">{statusLabel}</span>
-                        {liveEvents.includes(Number(event.id)) && <button type="button" className="absolute top-4 left-4 z-10 bg-red-600 text-white px-3 py-1 text-xs font-bold" onClick={e => { e.stopPropagation(); navigate(`/event/${event.id}/live`); }}>● LIVE</button>}
+                        {liveEvents.includes(Number(event.id)) && <span className="absolute top-4 left-4 z-10 bg-red-600 text-white px-3 py-1 text-xs font-bold">● LIVE</span>}
                         <span className="trs-event-date-badge">{dateLabel}</span>
                       </div>
                       <div className="trs-ticket-tear">

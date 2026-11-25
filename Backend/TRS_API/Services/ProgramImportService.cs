@@ -260,7 +260,8 @@ public sealed class ProgramImportService
                 ValidateRequired(row, "Contact Number", row.ContactNumber, errors);
                 ValidatePhone(row, "Contact Number", row.ContactNumber, errors);
                 ValidateRequired(row, "Nationality", row.Nationality, errors);
-                ValidateRequired(row, "Club / Team / School", row.ClubSchoolCompany, errors);
+                if (RegistrationWorkflowService.RequiresClubField(ev.IsSports, program.Type))
+                    ValidateRequired(row, "Club / Team / School", row.ClubSchoolCompany, errors);
 
                 var participant = new CreateParticipantDto
                 {

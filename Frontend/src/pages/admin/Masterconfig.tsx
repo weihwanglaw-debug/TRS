@@ -26,6 +26,8 @@ const CONFIG_ROWS: ConfigRow[] = [
   { id: "heroTitle",     group: "Hero",       label: "Hero Title",                                type: "text"     },
   { id: "heroSubtitle",  group: "Hero",       label: "Hero Subtitle",                             type: "textarea" },
   { id: "heroImageUrl",  group: "Hero",       label: "Hero Background Image URL",                 type: "url"      },
+  { id: "eventsLabel", group: "Events", label: "Landing Events Label", type: "text" },
+  { id: "eventsTitle", group: "Events", label: "Landing Events Title", type: "text" },
   { id: "messageTitle",  group: "Message",    label: "Landing Message Title",                     type: "text"     },
   { id: "messageBody",   group: "Message",    label: "Landing Message Body",                      type: "textarea" },
   { id: "activePaymentGateway", group: "Payment", label: "Payment Gateway", type: "gateway" },
@@ -49,7 +51,7 @@ const CONFIG_ROWS: ConfigRow[] = [
   { id: "displayDateTimeFormat", group: "Payment", label: "Date Time Display Format (e.g. dd/MM/yyyy HH:mm:ss)", type: "text" },
 ];
 
-const GROUPS = ["All", "Branding", "Hero", "Message", "Payment", "Footer", "Consent", "Ad Banner"];
+const GROUPS = ["All", "Branding", "Hero", "Events", "Message", "Payment", "Footer", "Consent", "Ad Banner"];
 const GROUP_TABS = GROUPS.map(group => ({ key: group, label: group }));
 
 export default function MasterConfig() {

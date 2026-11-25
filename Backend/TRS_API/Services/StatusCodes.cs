@@ -56,6 +56,7 @@ public static class StatusCodesEx
 
     public static class Program
     {
+        public const string Hidden = "H";
         public const string Open = "O";
         public const string Closed = "CL";
         public const string Upcoming = "U";

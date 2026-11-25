@@ -78,6 +78,9 @@ export function getProgramRegistrationPresentation({
       canRegister: false,
     };
   }
+  if (programDisplayStatus === "H") {
+    return { badgeStatus: "H", buttonLabel: "Unavailable", canRegister: false };
+  }
   if (programDisplayStatus === "CL") {
     return { badgeStatus: "CL", buttonLabel: "Closed", canRegister: false };
   }

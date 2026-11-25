@@ -153,6 +153,13 @@ builder.Services.AddRateLimiter(options =>
             cancellationToken);
     };
 
+    foreach (var policy in new[] { (Name: "event-integration", Default: 600), (Name: "public-scores", Default: 1200) })
+        options.AddPolicy<string>(policy.Name, context => RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions {
+                PermitLimit = Math.Max(1, builder.Configuration.GetValue($"RateLimiting:{policy.Name}:PermitLimit", policy.Default)),
+                Window = TimeSpan.FromMinutes(1), AutoReplenishment = true, QueueLimit = 0
+            }));
+
     options.AddPolicy<string>("payment", context =>
         RateLimitPartition.GetFixedWindowLimiter(
             PaymentAttemptAccessKey.PartitionKey(

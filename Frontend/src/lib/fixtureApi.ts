@@ -1,3 +1,4 @@
+import type { ScoreMatch } from "@/lib/api/scoresApi";
 /**
  * fixtureApi.ts - Real API. All state lives in the backend Fixtures table.
  * The fixture engine (fixtureEngine.ts) is still used locally to compute
@@ -13,6 +14,7 @@ export type ApiResult<T> = { data: T; error: null } | { data: null; error: ApiEr
 
 interface StoredFixtureResponse {
   bracketStateJson?: string | null;
+  tlsResults?: ScoreMatch[];
 }
 
 function ok<T>(data: T): ApiResult<T>                     { return { data, error: null }; }
@@ -23,13 +25,19 @@ function err(code: string, msg: string): ApiResult<never>  { return { data: null
 // Used by the Fixtures table and Dashboard to show Draw status without fetching full brackets.
 export async function apiGetFixtureStatus(
   programIds: string[],
+  onTlsResults?: (programIds: string[]) => void,
 ): Promise<ApiResult<Record<string, boolean>>> {
   if (!programIds.length) return ok({});
   const res = await apiFetch(
-    `${API_BASE}/api/fixtures/status?programIds=${programIds.join(",")}`,
+    `${API_BASE}/api/fixtures/status?programIds=${programIds.join(",")}${onTlsResults ? "&includeTlsResults=true" : ""}`,
     { headers: adminHeaders() },
   );
   if (!res.ok) return err("FETCH_FAILED", (await parseError(res)).message);
+  if (onTlsResults) {
+    const data: { fixtures?: Record<string, boolean>; tlsResults?: string[] } = await res.json();
+    onTlsResults(data.tlsResults ?? []);
+    return ok(data.fixtures ?? {});
+  }
   return ok(await res.json());
 }
 
@@ -37,6 +45,7 @@ export async function apiGetFixtureStatus(
 export async function apiGetFixture(
   eventId: string,
   programId: string,
+  onTlsResults?: (matches: ScoreMatch[]) => void,
 ): Promise<ApiResult<BracketState | null>> {
   const res = await apiFetch(`${API_BASE}/api/fixtures/${eventId}/${programId}`, {
     headers: adminHeaders(),
@@ -48,6 +57,7 @@ export async function apiGetFixture(
   if (!text || text.trim() === "" || text.trim() === "null") return ok(null);
   let data: StoredFixtureResponse;
   try { data = JSON.parse(text) as StoredFixtureResponse; } catch { return ok(null); }
+  onTlsResults?.(data?.tlsResults ?? []);
   if (!data?.bracketStateJson) return ok(null);
   try {
     return ok(JSON.parse(data.bracketStateJson) as BracketState);

@@ -17,13 +17,26 @@ public class FixtureGenerationService
 
     public FixtureGenerationService(TRSDbContext db) => _db = db;
 
+    public static string? GenerationStatusError(string status) => status switch
+    {
+        StatusCodesEx.Program.Closed => null,
+        StatusCodesEx.Program.Hidden => "This program is hidden. Change it to Closed before generating fixtures. This will make it publicly visible.",
+        _ => "This program is still open for registration. Close it before generating fixtures.",
+    };
+
     public async Task<FixtureGenerationResult> GenerateAsync(int eventId, int programId, GenerateFixtureRequest req)
     {
+        await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
         var program = await _db.Programs
+            .FromSqlInterpolated($"SELECT * FROM dbo.Programs WITH (UPDLOCK, ROWLOCK) WHERE EventID = {eventId} AND ProgramID = {programId}")
             .Include(p => p.Event)
             .FirstOrDefaultAsync(p => p.ProgramId == programId && p.EventId == eventId);
         if (program == null)
             return FixtureGenerationResult.Fail("PROGRAM_NOT_FOUND", "Program not found.");
+
+        var statusError = GenerationStatusError(program.Status);
+        if (statusError != null)
+            return FixtureGenerationResult.Fail("PROGRAM_NOT_CLOSED", statusError);
 
         var groups = await _db.ParticipantGroups
             .Include(g => g.Participants)
@@ -111,10 +124,10 @@ public class FixtureGenerationService
         fixture.Phase = state.Phase;
         fixture.IsLocked = state.Locked;
         fixture.UpdatedAt = DateTime.UtcNow;
-        program.Status = StatusCodesEx.Program.Closed;
         program.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
+        await transaction.CommitAsync();
         return FixtureGenerationResult.Ok(state, stateJson);
     }
 
@@ -725,6 +738,7 @@ public class FixtureGenerationService
         fixture.IsLocked = state.Locked;
         fixture.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        await EventResultSnapshots.RefreshManualAsync(_db, fixture.EventId);
     }
 
     private bool IsLocked(FixtureState state)

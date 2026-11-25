@@ -1,3 +1,5 @@
+import { eventIntegrationMessage } from "@/hooks/useEventIntegration";
+import EventIntegrationReadiness from '@/components/admin/EventIntegrationReadiness';
 import { useState, useRef, useEffect } from "react";
 import type Quill from "quill";
 import { useParams, useNavigate } from "react-router-dom";
@@ -59,9 +61,52 @@ const QUILL_FORMATS = [
   "underline",
   "strike",
   "list",
+  "indent",
   "align",
   "link",
 ];
+
+// Quill stores list type, depth and alignment in editor-only attributes/classes.
+function eventInfoHtml(editor: Quill) {
+  const content = editor.root.cloneNode(true) as HTMLElement;
+  content.querySelectorAll(".ql-ui").forEach(node => node.remove());
+  content.querySelectorAll<HTMLElement>("[class]").forEach(node => {
+    for (const align of ["center", "right", "justify"]) {
+      if (node.classList.contains(`ql-align-${align}`)) node.style.textAlign = align;
+    }
+  });
+
+  for (const source of content.querySelectorAll("ol")) {
+    const levels: HTMLElement[] = [];
+    for (const item of Array.from(source.children)) {
+      const tag = item.getAttribute("data-list") === "bullet" ? "ul" : "ol";
+      const indent = Number(item.className.match(/(?:^|\s)ql-indent-(\d+)/)?.[1] ?? 0);
+      const depth = Math.min(indent, levels.length);
+      levels.length = Math.min(levels.length, depth + 1);
+      if (levels[depth]?.localName !== tag) {
+        const list = document.createElement(tag);
+        if (depth === 0) source.before(list);
+        else levels[depth - 1].lastElementChild!.append(list);
+        levels[depth] = list;
+      }
+      item.removeAttribute("data-list");
+      levels[depth].append(item);
+    }
+    source.remove();
+  }
+  // An aligned parent item must not pass its alignment to a nested list on reopen.
+  for (const item of content.querySelectorAll<HTMLElement>("li[style]")) {
+    const nested = item.querySelector(":scope > ol, :scope > ul");
+    if (!nested || !item.style.textAlign) continue;
+    const paragraph = document.createElement("p");
+    paragraph.style.textAlign = item.style.textAlign;
+    while (item.firstChild && item.firstChild !== nested) paragraph.append(item.firstChild);
+    item.prepend(paragraph);
+    item.style.removeProperty("text-align");
+    item.removeAttribute("class");
+  }
+  return content.innerHTML;
+}
 
 function RichTextEditor({
   value,
@@ -98,7 +143,11 @@ function RichTextEditor({
       });
 
       instance.clipboard.dangerouslyPasteHTML(valueRef.current || "");
-      instance.on("text-change", () => onChangeRef.current(instance.root.innerHTML));
+      instance.on("text-change", () => {
+        const html = eventInfoHtml(instance);
+        valueRef.current = html;
+        onChangeRef.current(html);
+      });
       instance.enable(!disabledRef.current);
       quillInstanceRef.current = instance;
     });
@@ -109,12 +158,9 @@ function RichTextEditor({
   }, []);
 
   useEffect(() => {
+    if (valueRef.current === value) return;
     valueRef.current = value;
-    const quill = quillInstanceRef.current;
-    if (!quill) return;
-    if (quill.root.innerHTML !== (value || "")) {
-      quill.clipboard.dangerouslyPasteHTML(value || "");
-    }
+    quillInstanceRef.current?.clipboard.dangerouslyPasteHTML(value || "", "silent");
   }, [value]);
 
   useEffect(() => {
@@ -164,6 +210,12 @@ export default function EventEdit() {
   }>({ open: false, variant: "info", title: "" });
   const showError = (title: string, description: string) =>
     setFeedback({ open: true, variant: "error", title, description });
+
+  const preventIntegrationChange = () => {
+    if (!event?.readyForEventIntegration) return false;
+    setFeedback({ open: true, variant: "warning", title: "Event ready for integration", description: eventIntegrationMessage });
+    return true;
+  };
 
   //  Form state
   const [form, setForm] = useState({
@@ -215,6 +267,8 @@ export default function EventEdit() {
   const [seedingOpen,      setSeedingOpen]      = useState(false);
   const [seedingProgramId, setSeedingProgramId] = useState("");
   const [openAction,       setOpenAction]       = useState<{ prog: Program; anchorEl: HTMLElement } | null>(null);
+  const [removeProgram, setRemoveProgram] = useState<Program | null>(null);
+  const [removingProgram, setRemovingProgram] = useState(false);
   const [deleteConfirmOpen,setDeleteConfirmOpen]= useState(false);
   const [importProgram,    setImportProgram]    = useState<Program | null>(null);
   const [importFile,       setImportFile]       = useState<File | null>(null);
@@ -228,6 +282,25 @@ export default function EventEdit() {
 
   const isBadminton   = form.isSports && form.sportType === "Badminton";
   const showImportPaymentDetails = importStatus === "S";
+
+  useEffect(() => {
+    if (isNew || !eventId) return;
+    const refreshReadiness = () => {
+      void apiGetEvent(eventId, { admin: true }).then(result => {
+        if (result.data) setEvent(previous => previous ? { ...previous, readyForEventIntegration: result.data!.readyForEventIntegration } : previous);
+      }).catch(() => {});
+    };
+    window.addEventListener("focus", refreshReadiness);
+    return () => window.removeEventListener("focus", refreshReadiness);
+  }, [eventId, isNew]);
+
+  useEffect(() => {
+    if (!event?.readyForEventIntegration) return;
+    setEditing(false);
+    setOpenAction(null);
+    setProgramModalOpen(false);
+    setImportProgram(null);
+  }, [event?.readyForEventIntegration]);
 
   //  Load existing event
   useEffect(() => {
@@ -470,6 +543,7 @@ export default function EventEdit() {
 
   //  Save
   const handleSave = async () => {
+    if (preventIntegrationChange()) return;
     if (!validate()) return;
     setSaving(true);
     try {
@@ -538,6 +612,7 @@ export default function EventEdit() {
   };
 
   const handleDeleteEvent = async () => {
+    if (preventIntegrationChange()) return;
     if (!eventId || isNew) return;
     setSaving(true);
     const r = await apiDeleteEvent(eventId);
@@ -567,6 +642,36 @@ export default function EventEdit() {
     return true;
   };
 
+  const handleRemoveProgram = async () => {
+    if (!removeProgram || !eventId || removingProgram || !editing) return;
+    const remaining = (items: Program[]) => items.filter(p => p.id !== removeProgram.id);
+    setRemovingProgram(true);
+    try {
+      if (!isNew) {
+        const result = await apiDeleteProgram(eventId, removeProgram.id);
+        if (result.error) {
+          showError("Program could not be removed", result.error.message);
+          return;
+        }
+      }
+      setPrograms(remaining);
+      if (!isNew) {
+        setEvent(prev => prev && ({
+          ...prev, programs: remaining(prev.programs), computedRegistrationStatus: undefined,
+        }));
+        if (!await refreshEventSummary().catch(() => false)) {
+          setFeedback({ open: true, variant: "warning", title: "Program removed",
+            description: "Reload the event to refresh its details." });
+        }
+      }
+    } catch {
+      showError("Removal could not be confirmed", "Reload the event to check whether the program was removed.");
+    } finally {
+      setRemoveProgram(null);
+      setRemovingProgram(false);
+    }
+  };
+
   const handleImportPreview = async () => {
     if (!eventId || !importProgram || !importFile) return;
     setImportBusy(true);
@@ -587,6 +692,7 @@ export default function EventEdit() {
   };
 
   const handleImportConfirm = async () => {
+    if (preventIntegrationChange()) return;
     if (!eventId || !importProgram || !importPreview || !importNote.trim()) return;
     setImportBusy(true);
     setImportError("");
@@ -682,7 +788,7 @@ export default function EventEdit() {
       </Dialog>
   {/*  Sticky Header  */}
       <div className="sticky-header px-2 md:px-4" style={panelStyle}>
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-4">
             <button onClick={() => navigate("/admin/events")} className="btn-back">
               <ArrowLeft className="h-4 w-4" /> Back
@@ -694,15 +800,16 @@ export default function EventEdit() {
               {!isNew && status && <StatusBadge status={status} />}
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap justify-end gap-3">
             {!isNew && !editing && (
               <>
-                <button onClick={() => setDeleteConfirmOpen(true)} disabled={saving}
+                <button onClick={() => { if (!preventIntegrationChange()) setDeleteConfirmOpen(true); }} disabled={saving}
                   className="btn-outline flex items-center gap-2 px-5 py-2.5 text-sm font-medium"
                   style={{ color: "var(--badge-closed-text)", borderColor: "var(--badge-closed-text)" }}>
                   <Trash2 className="h-4 w-4" /> Delete Event
                 </button>
-                <button onClick={() => setEditing(true)}
+                {event && <EventIntegrationReadiness eventId={event.id} ready={!!event.readyForEventIntegration} closed={status === "CL"} disabled={saving} onChanged={ready => { setEvent(prev => prev ? {...prev, readyForEventIntegration: ready} : prev); if (ready) { setEditing(false); setOpenAction(null); setProgramModalOpen(false); resetImportDialog(); } }}/>}
+                <button onClick={() => { if (!preventIntegrationChange()) setEditing(true); }}
                   className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-semibold">
                   <Edit2 className="h-4 w-4" /> Edit Event
                 </button>
@@ -738,31 +845,31 @@ export default function EventEdit() {
         <SectionTitle>Event Details</SectionTitle>
         <div className="grid md:grid-cols-2 gap-6">
           <FF label="Event Name *" error={errors.name}>
-            <input className="field-input" value={form.name} onChange={e => set("name", e.target.value)} disabled={!editing} />
+            <input className="field-input" value={form.name} onChange={e => set("name", e.target.value)} disabled={!editing || !!event?.readyForEventIntegration} />
           </FF>
           <FF label="Venue Name *" error={errors.venue}>
-            <input className="field-input" value={form.venue} onChange={e => set("venue", e.target.value)} disabled={!editing} />
+            <input className="field-input" value={form.venue} onChange={e => set("venue", e.target.value)} disabled={!editing || !!event?.readyForEventIntegration} />
           </FF>
           <div className="md:col-span-2">
             <FF label="Venue Address">
-              <input className="field-input" value={form.venueAddress} onChange={e => set("venueAddress", e.target.value)} disabled={!editing} />
+              <input className="field-input" value={form.venueAddress} onChange={e => set("venueAddress", e.target.value)} disabled={!editing || !!event?.readyForEventIntegration} />
             </FF>
           </div>
           <FF label="Event Start Date" error={errors.eventStartDate}>
-            <input type="date" className="field-input" value={form.eventStartDate} onChange={e => set("eventStartDate", e.target.value)} disabled={!editing} />
+            <input type="date" className="field-input" value={form.eventStartDate} onChange={e => set("eventStartDate", e.target.value)} disabled={!editing || !!event?.readyForEventIntegration} />
           </FF>
           <FF label="Event End Date" error={errors.eventEndDate}>
-            <input type="date" className="field-input" value={form.eventEndDate} onChange={e => set("eventEndDate", e.target.value)} disabled={!editing} />
+            <input type="date" className="field-input" value={form.eventEndDate} onChange={e => set("eventEndDate", e.target.value)} disabled={!editing || !!event?.readyForEventIntegration} />
           </FF>
           <FF label="Registration Open Date" error={errors.openDate}>
-            <input type="date" className="field-input" value={form.openDate} onChange={e => set("openDate", e.target.value)} disabled={!editing} />
+            <input type="date" className="field-input" value={form.openDate} onChange={e => set("openDate", e.target.value)} disabled={!editing || !!event?.readyForEventIntegration} />
           </FF>
           <FF label="Registration Close Date" error={errors.closeDate}>
-            <input type="date" className="field-input" value={form.closeDate} onChange={e => set("closeDate", e.target.value)} disabled={!editing} />
+            <input type="date" className="field-input" value={form.closeDate} onChange={e => set("closeDate", e.target.value)} disabled={!editing || !!event?.readyForEventIntegration} />
           </FF>
           <div className="md:col-span-2 grid md:grid-cols-[2fr_1fr_1fr] gap-6">
             <FF label="Sponsor Information">
-              <input className="field-input" value={form.sponsorInfo} onChange={e => set("sponsorInfo", e.target.value)} disabled={!editing} />
+              <input className="field-input" value={form.sponsorInfo} onChange={e => set("sponsorInfo", e.target.value)} disabled={!editing || !!event?.readyForEventIntegration} />
             </FF>
             {!isNew && event && status && (
               <div>
@@ -778,16 +885,13 @@ export default function EventEdit() {
                   <option value="PA">Pause registration</option>
                   <option value="CL">Close registration</option>
                 </select>
-                <p className="mt-2 text-xs opacity-60">
-                  The effective badge also considers event activity, active programs, and registration dates.
-                </p>
               </div>
             )}
             <FF label="Programs Per Participant" error={errors.maxProgramsPerParticipant}>
               <select
                 className="field-input"
                 value={form.maxProgramsPerParticipant ?? ""}
-                disabled={!editing}
+                disabled={!editing || !!event?.readyForEventIntegration}
                 onChange={e => set("maxProgramsPerParticipant", e.target.value === "" ? null : Number(e.target.value))}
               >
                 <option value="">No restriction</option>
@@ -799,7 +903,7 @@ export default function EventEdit() {
           </div>
           <div className="md:col-span-2">
             <FF label="Short Description (shown on event header)">
-              <textarea className="field-input" rows={2} value={form.description} onChange={e => set("description", e.target.value)} disabled={!editing} />
+              <textarea className="field-input" rows={2} value={form.description} onChange={e => set("description", e.target.value)} disabled={!editing || !!event?.readyForEventIntegration} />
             </FF>
           </div>
         </div>
@@ -836,7 +940,7 @@ export default function EventEdit() {
                   className="field-input mb-1"
                   placeholder="Label, e.g. Prospectus, Visa Application Form..."
                   value={doc.label}
-                  disabled={!editing}
+                  disabled={!editing || !!event?.readyForEventIntegration}
                   onChange={e => updateDocRow(idx, { label: e.target.value })}
                 />
                 {doc.labelError && (
@@ -894,23 +998,24 @@ export default function EventEdit() {
         <RichTextEditor
           value={form.additionalInfo}
           onChange={html => set("additionalInfo", html)}
-          disabled={!editing}
+          disabled={!editing || !!event?.readyForEventIntegration}
         />
       </div>
+
 
   {/*  Sport / Fixture Settings  */}
       <div className="mb-8 p-8" style={panelStyle}>
         <SectionTitle>Sport &amp; Fixture Settings</SectionTitle>
         <div className="space-y-5">
           <label className="flex items-center gap-3 text-sm cursor-pointer">
-            <Switch checked={form.isSports} disabled={!editing}
+            <Switch checked={form.isSports} disabled={!editing || !!event?.readyForEventIntegration}
               onCheckedChange={checked => set("isSports", !!checked)} />
             This is a sports event
           </label>
           {form.isSports && (
             <div className="grid sm:grid-cols-2 gap-6">
               <FF label="Sport Type">
-                <select className="field-input" value={form.sportType} disabled={!editing}
+                <select className="field-input" value={form.sportType} disabled={!editing || !!event?.readyForEventIntegration}
                   onChange={e => set("sportType", e.target.value)}>
                   <option>Badminton</option>
                   <option>Non Badminton</option>
@@ -1085,8 +1190,8 @@ export default function EventEdit() {
         <div className="flex items-center justify-between mb-6">
           <SectionTitle>Programs</SectionTitle>
           <button
-            onClick={() => { if (!editing) return; setEditingProgram(null); setProgramModalOpen(true); }}
-            disabled={!editing}
+            onClick={() => { if (preventIntegrationChange() || !editing) return; setEditingProgram(null); setProgramModalOpen(true); }}
+            disabled={!editing && !event?.readyForEventIntegration}
             className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
             <Plus className="h-4 w-4" /> Add Program
           </button>
@@ -1117,13 +1222,7 @@ export default function EventEdit() {
                       {prog.fee > 0 ? `$${prog.fee.toFixed(2)}` : "Free"}
                     </td>
                     <td>
-                      <span className="text-xs font-semibold px-2 py-0.5"
-                        style={{
-                          backgroundColor: prog.status === "CL" ? "var(--badge-closed-bg)" : "var(--badge-open-bg)",
-                          color: prog.status === "CL" ? "var(--badge-closed-text)" : "var(--badge-open-text)",
-                        }}>
-                        {prog.status === "CL" ? "Closed" : "Open"}
-                      </span>
+                      <StatusBadge status={prog.status} />
                     </td>
                     <td className="text-sm">{prog.minParticipants} / {prog.maxParticipants}</td>
                     <td className="text-sm">
@@ -1139,8 +1238,8 @@ export default function EventEdit() {
                       <div className="relative">
                         <button
                           type="button"
-                          onClick={e => { if (!editing) return; setOpenAction(openAction?.prog.id === prog.id ? null : { prog, anchorEl: e.currentTarget }); }}
-                          disabled={!editing}
+                          onClick={e => { if (preventIntegrationChange() || !editing) return; setOpenAction(openAction?.prog.id === prog.id ? null : { prog, anchorEl: e.currentTarget }); }}
+                          disabled={!editing && !event?.readyForEventIntegration}
                           className="action-trigger"
                           aria-label={`Open actions for ${prog.name}`}>
                           <MoreVertical className="h-4 w-4" />
@@ -1162,8 +1261,8 @@ export default function EventEdit() {
                   </div>
                   <button
                     type="button"
-                    onClick={e => { if (!editing) return; setOpenAction(openAction?.prog.id === prog.id ? null : { prog, anchorEl: e.currentTarget }); }}
-                    disabled={!editing}
+                    onClick={e => { if (preventIntegrationChange() || !editing) return; setOpenAction(openAction?.prog.id === prog.id ? null : { prog, anchorEl: e.currentTarget }); }}
+                    disabled={!editing && !event?.readyForEventIntegration}
                     className="action-trigger -mr-2"
                     aria-label={`Open actions for ${prog.name}`}
                   >
@@ -1171,13 +1270,7 @@ export default function EventEdit() {
                   </button>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold px-2 py-0.5"
-                    style={{
-                      backgroundColor: prog.status === "CL" ? "var(--badge-closed-bg)" : "var(--badge-open-bg)",
-                      color: prog.status === "CL" ? "var(--badge-closed-text)" : "var(--badge-open-text)",
-                    }}>
-                    {prog.status === "CL" ? "Closed" : "Open"}
-                  </span>
+                  <StatusBadge status={prog.status} />
                   <span className="text-xs opacity-60">Min / Max: {prog.minParticipants} / {prog.maxParticipants}</span>
                 </div>
                 <div className="mt-4 flex items-end justify-between gap-3">
@@ -1231,10 +1324,10 @@ export default function EventEdit() {
               <Upload className="h-4 w-4" /> Import From Template
             </button>
           )}
-          {!isNew && (
-            <button onClick={async () => {
+          {!isNew && (["O", "CL", "H"] as const).filter(status => status !== openAction.prog.status).map(targetStatus => (
+            <button key={targetStatus} onClick={async () => {
               const prog = openAction.prog;
-              const newStatus = prog.status === "CL" ? "O" : "CL";
+              const newStatus = targetStatus;
               try {
                 const r = await apiUpdateProgramStatus(eventId!, prog.id, newStatus);
                 if (r.error) {
@@ -1251,11 +1344,11 @@ export default function EventEdit() {
                 setOpenAction(null);
               }
             }}>
-              {openAction.prog.status === "CL"
+              {targetStatus === "O"
                 ? <><Unlock className="h-4 w-4" /> Open Program</>
-                : <><Lock   className="h-4 w-4" /> Close Program</>}
+                : <><Lock className="h-4 w-4" /> {targetStatus === "H" ? "Hide Program" : "Close Program"}</>}
             </button>
-          )}
+          ))}
           {!isNew && (
             <button onClick={() => {
               navigate(`/admin/registrations/participants?eventId=${eventId}&programId=${openAction.prog.id}`);
@@ -1264,6 +1357,9 @@ export default function EventEdit() {
               <ExternalLink className="h-4 w-4" /> View Participants
             </button>
           )}
+          <button onClick={() => { setRemoveProgram(openAction.prog); setOpenAction(null); }}>
+            <Trash2 className="h-4 w-4" /> Remove Program
+          </button>
         </ActionDropdownPortal>
       )}
 
@@ -1393,6 +1489,7 @@ export default function EventEdit() {
         open={programModalOpen}
         onClose={() => { setProgramModalOpen(false); setEditingProgram(null); }}
         onSave={async (savedProgram: Program) => {
+          if (event?.readyForEventIntegration) return eventIntegrationMessage;
           const wasEditingProgram = !!editingProgram;
           if (!isNew && eventId && eventId !== "new") {
             if (editingProgram) {
@@ -1437,6 +1534,17 @@ export default function EventEdit() {
 
       <SeedingModal open={seedingOpen} onClose={() => setSeedingOpen(false)}
         eventId={eventId ?? ""} programId={seedingProgramId} />
+
+      <ConfirmDialog
+        open={!!removeProgram}
+        onOpenChange={open => { if (!open) setRemoveProgram(null); }}
+        title="Remove Program"
+        description={`Remove "${removeProgram?.name ?? ""}" from this ${isNew ? "draft" : "event"}?`}
+        confirmLabel="Remove Program"
+        destructive
+        loading={removingProgram}
+        onConfirm={handleRemoveProgram}
+      />
 
       <ConfirmDialog
         open={deleteConfirmOpen}

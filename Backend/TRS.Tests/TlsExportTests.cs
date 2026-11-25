@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using TRS_API.Controllers;
+using TRS_API.Services;
 using TRS_Data.Models;
 
 namespace TRS.Tests;
@@ -9,11 +10,10 @@ namespace TRS.Tests;
 public sealed class TlsExportTests
 {
     [Fact]
-    public void Export_requires_existing_administrator_roles()
+    public void Export_requires_the_shared_integration_access_filter()
     {
-        var attribute=typeof(TlsExportController).GetCustomAttribute<AuthorizeAttribute>();
+        var attribute=typeof(TlsExportController).GetCustomAttribute<TlsExportAccessAttribute>();
         Assert.NotNull(attribute);
-        Assert.Equal("superadmin,eventadmin",attribute.Roles);
         Assert.DoesNotContain(typeof(TlsExportController).GetMethods(),m=>m.GetCustomAttribute<AllowAnonymousAttribute>()!=null);
     }
 

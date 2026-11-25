@@ -274,7 +274,7 @@ export default function EventDetail() {
   const scoreAvailability = useQuery({
     queryKey: ["score-availability", id],
     queryFn: ({ signal }) => getScoreAvailability(id!, signal),
-    enabled: !!id && !!event?.isSports && String(event.id) === id,
+    enabled: !!id && !!event && String(event.id) === id,
     refetchInterval: query => Math.max(2, query.state.data?.refreshSeconds ?? 5) * 1000,
     refetchIntervalInBackground: true,
   });
@@ -675,6 +675,8 @@ export default function EventDetail() {
   // Per-participant field validation via shared function
       const perParticipantErrs = validateParticipant(p, {
         program: selectedProgram,
+        isSports: event.isSports,
+        teamMode: isTeamProgram(selectedProgram.type),
         allValues: participants,
         selfIndex: i,
       });
@@ -1122,6 +1124,9 @@ export default function EventDetail() {
     );
   }
 
+  const hasLiveScores = scoreAvailability.data?.hasLiveScores;
+  const hasResults = scoreAvailability.data?.hasResults;
+
   return (
     <div className="event-detail-shell min-h-screen flex flex-col">
       <Header />
@@ -1163,7 +1168,7 @@ export default function EventDetail() {
 
             <div className="event-detail-panel space-y-5">
               <h2 className="event-detail-section-heading font-bold text-xl mb-6">Event Information</h2>
-              {scoreAvailability.isSuccess && scoreAvailability.data.hasLiveScores && <button type="button" className="landing-button secondary" onClick={() => navigate(`/event/${event.id}/live`)}>View Live Scores</button>}
+
               <InfoRow icon={Calendar} label="Event Dates" value={`${formatDate(event.eventStartDate)} - ${formatDate(event.eventEndDate)}`} />
               <InfoRow icon={MapPin} label="Venue" value={`${event.venue}, ${event.venueAddress}`} />
               <InfoRow icon={Calendar} label="Registration Period" value={`${formatDate(event.openDate)} - ${formatDate(event.closeDate)}`} />
@@ -1230,11 +1235,21 @@ export default function EventDetail() {
             <div className="event-detail-panel mb-12">
                  <h2 className="event-detail-section-heading font-bold text-xl mb-6">Additional Information</h2>
               <div
-                className="prose prose-sm max-w-none"
+                className="event-rich-text"
                 style={{ color: "var(--color-body-text)" }}
                 dangerouslySetInnerHTML={{ __html: event.additionalInfo }}
               />
             </div>
+          )}
+
+          {(hasLiveScores || hasResults) && (
+            <section className="event-detail-panel mb-8 flex flex-wrap items-center justify-between gap-4" aria-label="Scores and results">
+              <h2 className="event-detail-section-heading font-bold text-xl">{hasLiveScores ? "Live Scores" : "Results"}</h2>
+              <div className="flex flex-wrap gap-3">
+                {hasLiveScores && <button type="button" className="landing-button secondary" onClick={() => navigate(`/event/${event.id}/live`)}>View Live Scores</button>}
+                {hasResults && <button type="button" className="landing-button secondary" onClick={() => navigate(`/event/${event.id}/results`)}>View Results</button>}
+              </div>
+            </section>
           )}
 
   {/*  Section 2: Program Cards  */}
@@ -1306,7 +1321,6 @@ export default function EventDetail() {
                       </div>
                     </div>
                     <div className="event-category-action">
-                      {scoreAvailability.isSuccess && scoreAvailability.data.resultProgramIds.includes(Number(prog.id)) && <button type="button" className="landing-button secondary w-full mb-3" onClick={() => navigate(`/event/${event.id}/results?program=${prog.id}`)}>View Results</button>}
                       <button disabled={!presentation.canRegister} onClick={() => handleSelectProgram(prog)}
                         className="btn-primary event-category-button disabled:opacity-40 disabled:cursor-not-allowed">
                         {presentation.buttonLabel}
@@ -1397,6 +1411,7 @@ export default function EventDetail() {
                                   }
                                 }}
                                 programFields={selectedProgram.fields}
+                                isSports={event.isSports}
                                 eventType={event.sportType}
                                 teamMode={isTeamProgram(selectedProgram.type)}
                                 participantIndex={idx}

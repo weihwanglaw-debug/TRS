@@ -15,11 +15,48 @@ public sealed class ScoreSnapshotTests
             MatchDate = "2026-11-03", StartTime = "14:00", EndTime = "14:40" }]
     };
 
+    [Fact]
+    public void Event_results_validate_the_complete_program_directory()
+    {
+        var s = Snapshot();
+        s.ProgramId = null;
+        s.Programs = [new(12, "Doubles"), new(13, "Singles")];
+        Assert.Null(ScoreSnapshotRules.Validate(s, 7, null, false));
+        Assert.True(EventResultSnapshots.ProgramsMatch([13, 12], s.Programs));
+        Assert.False(EventResultSnapshots.ProgramsMatch([12, 14], s.Programs));
+        Assert.False(EventResultSnapshots.ProgramsMatch([12], s.Programs));
+        s.Programs[1] = new(13, "Singles", "T01", false);
+        Assert.False(EventResultSnapshots.ProgramsMatch([12, 13], s.Programs));
+        s.Matches[0].ProgramId = 14;
+        Assert.NotNull(ScoreSnapshotRules.Validate(s, 7, null, false));
+    }
+
     [Theory]
     [InlineData(false)] [InlineData(true)]
     public void Accepts_complete_results_and_live_snapshots(bool live)
     {
         Assert.Null(ScoreSnapshotRules.Validate(Snapshot(live), 7, live ? null : 12, live));
+    }
+
+    [Theory]
+    [InlineData("SC","WU")]
+    [InlineData("IP","IN")]
+    [InlineData("IP","BG")]
+    [InlineData("IP","TP")]
+    [InlineData("IP","MP")]
+    [InlineData("RC","RC")]
+    public void Preserves_live_game_phase_in_snapshot_json(string status,string phase)
+    {
+        var snapshot = Snapshot(true);
+        var match = snapshot.Matches[0];
+        match.Status = status;
+        match.GamePhase = phase;
+        match.GameNumber = 1;
+        if (phase is "WU" or "IN" or "BG") match.PhaseUntil = snapshot.GeneratedAt.AddSeconds(30);
+        Assert.Null(ScoreSnapshotRules.Validate(snapshot,7,null,true));
+        var roundTrip = JsonSerializer.Deserialize<ScoreSnapshot>(JsonSerializer.Serialize(snapshot))!.Matches[0];
+        Assert.Equal(phase,roundTrip.GamePhase);
+        Assert.Equal(match.PhaseUntil,roundTrip.PhaseUntil);
     }
 
     [Fact]
@@ -39,7 +76,19 @@ public sealed class ScoreSnapshotTests
         var s = Snapshot(); s.Matches.Clear(); Assert.Null(ScoreSnapshotRules.Validate(s, 7, 12, false));
         s = Snapshot(); s.Matches[0].Outcome = "R"; s.Matches[0].Games = [new(8, 3)]; s.Matches[0].Remark = "Injury";
         Assert.Null(ScoreSnapshotRules.Validate(s, 7, 12, false));
-        Assert.Contains("Retirement", s.Matches[0].Remark); Assert.Contains("Injury", s.Matches[0].Remark);
+        Assert.Contains("Retirement", s.Matches[0].Remark); Assert.DoesNotContain("Injury", s.Matches[0].Remark);
+    }
+
+    [Fact]
+    public void Future_laptop_clock_does_not_reject_valid_snapshots_and_errors_identify_the_field()
+    {
+        var snapshot = Snapshot(); snapshot.GeneratedAt = DateTimeOffset.UtcNow.AddDays(3);
+        Assert.Null(ScoreSnapshotRules.Validate(snapshot,7,12,false));
+        snapshot.GeneratedAt = default; Assert.Contains("generatedAt",ScoreSnapshotRules.Validate(snapshot,7,12,false)!);
+        snapshot = Snapshot(); snapshot.Matches[0].StartTime="invalid";
+        Assert.Contains("Match M1: start/end times",ScoreSnapshotRules.Validate(snapshot,7,12,false)!);
+        snapshot = Snapshot(); snapshot.Matches[0].Remark="Private administrator reason";
+        Assert.Null(ScoreSnapshotRules.Validate(snapshot,7,12,false));Assert.Equal("",snapshot.Matches[0].Remark);
     }
 
     [Fact]

@@ -88,7 +88,13 @@ export function parseTshirtOptions(options?: string | null) {
 // Returns a flat errors map keyed by field name.
 // Caller passes the result into <ParticipantFieldsForm errors={...} />.
 
+export function requiresClubField(isSports: boolean | undefined, teamMode = false): boolean {
+  return isSports !== false || teamMode;
+}
+
 export interface ValidateParticipantOptions {
+  isSports?: boolean;
+  teamMode?: boolean;
   program:    Pick<Program, "minAge" | "maxAge" | "gender" | "fields">;
   /** All values in the same submission (for in-cart duplicate check). */
   allValues?: ParticipantFormValues[];
@@ -122,7 +128,7 @@ export function validateParticipant(
   if (!v.contactNumber.trim())     errs.contactNumber = "Required";
   else if (!isValidPhoneInput(v.contactNumber)) errs.contactNumber = "Enter a valid contact number";
   if (!v.nationality.trim())       errs.nationality   = "Required";
-  if (!v.clubSchoolCompany.trim()) errs.clubSchoolCompany = "Required";
+  if (requiresClubField(opts.isSports, opts.teamMode) && !v.clubSchoolCompany.trim()) errs.clubSchoolCompany = "Required";
 
   if (!v.dobDay || !v.dobMonth || !v.dobYear) {
     errs.dob = "Complete date required";
@@ -332,6 +338,7 @@ export interface ParticipantFieldsFormProps {
   // Nationality options - registration flow provides full country list
   nationalityOptions?: { code: string; label: string }[];
 
+  isSports?: boolean;
   eventType?: string;
   teamMode?: boolean;
   participantIndex?: number;
@@ -344,6 +351,7 @@ export default function ParticipantFieldsForm({
   suggestions, onApplySuggestion,
   nationalityOptions,
   eventType,
+  isSports,
   teamMode = false,
   participantIndex = 0,
 }: ParticipantFieldsFormProps) {
@@ -353,7 +361,8 @@ export default function ParticipantFieldsForm({
     set({ customFieldValues: { ...values.customFieldValues, [customFieldValueKey(cf)]: value } });
 
   const sbaLocked = sbaStatus === "found";
-  const isBadminton = eventType?.toLowerCase() === "badminton";
+  const showClubField = requiresClubField(isSports, teamMode);
+  const isBadminton = showClubField && eventType?.toLowerCase() === "badminton";
   const isInheritedTeamName = teamMode && participantIndex > 0;
   const clubFieldLabel = teamMode ? "Team name" : (isBadminton ? "Club" : "Club / School / Company");
   const clubFieldDisabled = disabled || isInheritedTeamName;
@@ -569,7 +578,7 @@ export default function ParticipantFieldsForm({
       </FieldWrapper>
 
   {/*  Club / School / Company  */}
-      <FieldWrapper label={`${clubFieldLabel} *`} error={errors.clubSchoolCompany}>
+      {showClubField && <FieldWrapper label={`${clubFieldLabel} *`} error={errors.clubSchoolCompany}>
         {isBadminton && !teamMode ? (
           <>
             <select className="field-input" value={clubSelectValue}
@@ -618,7 +627,7 @@ export default function ParticipantFieldsForm({
         {isInheritedTeamName && (
           <p className="text-xs opacity-50 mt-1">Inherited from Player 1.</p>
         )}
-      </FieldWrapper>
+      </FieldWrapper>}
 
   {/*  T-Shirt Size (conditional)  */}
       {programFields.enableTshirt && (

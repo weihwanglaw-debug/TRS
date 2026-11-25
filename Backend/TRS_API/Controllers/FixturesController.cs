@@ -25,7 +25,7 @@ public class FixturesController : ControllerBase
         => (_db, _auth, _fixtureGeneration, _audit) = (db, auth, fixtureGeneration, audit);
 
     [HttpGet("status")]
-    public async Task<IActionResult> GetStatus([FromQuery] string? programIds)
+    public async Task<IActionResult> GetStatus([FromQuery] string? programIds, [FromQuery] bool includeTlsResults = false)
     {
         if (string.IsNullOrWhiteSpace(programIds))
             return Ok(new Dictionary<string, bool>());
@@ -46,14 +46,40 @@ public class FixturesController : ControllerBase
             .ToListAsync();
 
         var result = ids.ToDictionary(id => id.ToString(), id => existing.Contains(id));
-        return Ok(result);
+        if (!includeTlsResults) return Ok(result);
+        var links = await _db.TlsResultSnapshots.AsNoTracking().Where(r => ids.Contains(r.ProgramId)).ToListAsync();
+        var eventIds = links.Select(r => r.EventId).Distinct().ToArray();
+        var snapshots = await _db.EventResultSnapshots.AsNoTracking()
+            .Where(r => eventIds.Contains(r.EventId) && r.Source == EventResultSnapshots.Tls).ToDictionaryAsync(r => r.EventId);
+        var activePrograms = await _db.Programs.Where(p => eventIds.Contains(p.EventId) && p.IsActive)
+            .Select(p => new { p.EventId, p.ProgramId }).ToListAsync();
+        var validEvents = snapshots.Values.Where(r => EventResultSnapshots.ProgramsMatch(
+            activePrograms.Where(p => p.EventId == r.EventId).Select(p => p.ProgramId),
+            EventResultSnapshots.Read(r).Programs ?? [])).Select(r => r.EventId).ToHashSet();
+        var tlsResults = links.Where(link => validEvents.Contains(link.EventId) && snapshots[link.EventId].Version == link.Version &&
+            JsonSerializer.Deserialize<ScoreSnapshot>(link.PayloadJson, _fixtureJsonOptions)?.Matches.Count > 0)
+            .Select(link => link.ProgramId.ToString()).ToArray();
+        return Ok(new { fixtures = result, tlsResults });
     }
 
     [HttpGet("{eventId:int}/{programId:int}")]
     public async Task<IActionResult> Get(int eventId, int programId)
     {
         var f = await _db.Fixtures.FirstOrDefaultAsync(x => x.EventId == eventId && x.ProgramId == programId);
-        if (f == null) return Ok(new { fixture = (object?)null });
+        var linked = await _db.TlsResultSnapshots.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.EventId == eventId && r.ProgramId == programId);
+        PublicScoreMatch[] tlsResults = [];
+        if (linked is not null)
+        {
+            var published = await _db.EventResultSnapshots.AsNoTracking().SingleOrDefaultAsync(r => r.EventId == eventId);
+            var validLink = published?.Source == EventResultSnapshots.Tls && published.Version == linked.Version &&
+                EventResultSnapshots.ProgramsMatch(
+                    await _db.Programs.Where(p => p.EventId == eventId && p.IsActive).Select(p => p.ProgramId).ToArrayAsync(),
+                    EventResultSnapshots.Read(published).Programs ?? []);
+            if (validLink)
+                tlsResults = JsonSerializer.Deserialize<ScoreSnapshot>(linked.PayloadJson, _fixtureJsonOptions)?.Matches.ToArray() ?? [];
+        }
+        if (f == null) return Ok(new { fixture = (object?)null, tlsResults });
 
         return Ok(new
         {
@@ -64,6 +90,7 @@ public class FixturesController : ControllerBase
             f.IsLocked,
             f.Phase,
             bracketStateJson = f.BracketStateJson,
+            tlsResults,
             f.UpdatedAt,
         });
     }
@@ -306,6 +333,10 @@ public class FixturesController : ControllerBase
         if (f?.IsLocked == true)
             return BadRequest(new { code = "LOCKED", message = "Cannot overwrite fixture state after results have been entered." });
 
+        var statusError = FixtureGenerationService.GenerationStatusError(program.Status);
+        if (statusError != null)
+            return BadRequest(new { code = "PROGRAM_NOT_CLOSED", message = statusError });
+
         if (f == null)
         {
             f = new Fixture
@@ -323,9 +354,9 @@ public class FixturesController : ControllerBase
         f.Phase = req.Phase;
         f.IsLocked = req.IsLocked;
         f.UpdatedAt = DateTime.UtcNow;
-        program.Status = StatusCodesEx.Program.Closed;
         program.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        await EventResultSnapshots.RefreshManualAsync(_db, eventId);
         await tx.CommitAsync();
 
         var newState = ParseFixtureState(req.BracketStateJson);
@@ -344,6 +375,7 @@ public class FixturesController : ControllerBase
     public async Task<IActionResult> Delete(int eventId, int programId)
     {
         var oldState = await LoadFixtureStateAsync(eventId, programId);
+        await using var tx = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
         var f = await _db.Fixtures.FirstOrDefaultAsync(x => x.EventId == eventId && x.ProgramId == programId);
         if (f != null)
         {
@@ -352,6 +384,8 @@ public class FixturesController : ControllerBase
 
             _db.Fixtures.Remove(f);
             await _db.SaveChangesAsync();
+            await EventResultSnapshots.RefreshManualAsync(_db, eventId);
+            await tx.CommitAsync();
 
             await AuditAsync(
                 "Fixture_Reset",

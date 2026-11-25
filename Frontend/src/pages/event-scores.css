@@ -17,6 +17,7 @@
 .public-scores-tab:focus-visible { outline: 2px solid var(--landing-red); outline-offset: -3px; }
 .public-scores-empty { background: var(--landing-card); border: 1px solid var(--landing-line); padding: 40px 24px; text-align: center; }
 .public-scores-notice { border-left: 3px solid var(--landing-red); padding: 12px 16px; background: var(--landing-card); margin-bottom: 20px; }
+.public-scores-delayed { color: var(--landing-deep); font-weight: 600; }
 .public-scores-grid { display: grid; gap: 20px; }
 .public-scores-grid.is-live { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
 .public-score-card { background: var(--landing-card); border: 1px solid var(--landing-line); border-top: 3px solid var(--landing-red); padding: clamp(16px, 3vw, 24px); color: var(--landing-deep); min-width: 0; }
@@ -44,3 +45,5 @@
   .public-score-columns > span:last-child, .public-score-points { gap: 2px; }
   .public-score-columns > span:last-child > span, .public-score-points > span, .public-score-points > strong { width: 27px; }
 }
+
+.public-scores-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px;}

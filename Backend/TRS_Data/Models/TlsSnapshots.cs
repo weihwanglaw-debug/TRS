@@ -17,3 +17,12 @@ public sealed class TlsResultSnapshot
     public string PayloadJson { get; set; } = "";
     public DateTimeOffset ReceivedAt { get; set; }
 }
+
+public sealed class EventResultSnapshot
+{
+    public int EventId { get; set; }
+    public long Version { get; set; }
+    public string Source { get; set; } = "";
+    public string PayloadJson { get; set; } = "";
+    public DateTimeOffset ReceivedAt { get; set; }
+}

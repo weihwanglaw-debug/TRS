@@ -23,6 +23,7 @@ public partial class Event
     public string    FixtureMode     { get; set; } = "internal";
     public int?      MaxProgramsPerParticipant { get; set; }
     public string    RegistrationStatus { get; set; } = "O";
+    public bool      ReadyForEventIntegration { get; set; }
     public bool      IsActive        { get; set; }
     public DateTime  CreatedAt       { get; set; }
     public DateTime? UpdatedAt       { get; set; }

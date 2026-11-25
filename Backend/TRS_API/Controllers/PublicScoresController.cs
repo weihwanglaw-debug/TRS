@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.RateLimiting;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +8,7 @@ using TRS_Data.Models;
 
 namespace TRS_API.Controllers;
 
+[EnableRateLimiting("public-scores")]
 [ApiController, Route("api/events")]
 public sealed class PublicScoresController(TRSDbContext db) : ControllerBase
 {
@@ -16,7 +18,7 @@ public sealed class PublicScoresController(TRSDbContext db) : ControllerBase
     public async Task<IActionResult> Status(CancellationToken ct)
     {
         Response.Headers.CacheControl = "no-store";
-        return Ok(await db.TlsLiveSnapshots.AsNoTracking().Where(s => s.MatchCount > 0 && db.Events.Any(e => e.EventId == s.EventId && e.IsActive && e.IsSports))
+        return Ok(await db.TlsLiveSnapshots.AsNoTracking().Where(s => s.MatchCount > 0 && db.Events.Any(e => e.EventId == s.EventId && e.IsActive))
             .Select(s => new { s.EventId, s.ReceivedAt }).ToListAsync(ct));
     }
 
@@ -24,60 +26,64 @@ public sealed class PublicScoresController(TRSDbContext db) : ControllerBase
     public async Task<IActionResult> Availability(int eventId, CancellationToken ct)
     {
         Response.Headers.CacheControl = "no-store";
-        if (!await db.Events.AnyAsync(e => e.EventId == eventId && e.IsActive && e.IsSports, ct)) return NotFound();
-        var programIds = await db.Programs.AsNoTracking().Where(p => p.EventId == eventId && p.IsActive).Select(p => p.ProgramId).ToListAsync(ct);
-        var fixtures = await db.Fixtures.AsNoTracking().Where(f => f.EventId == eventId && programIds.Contains(f.ProgramId)).ToListAsync(ct);
-        var snapshots = await db.TlsResultSnapshots.AsNoTracking().Where(s => s.EventId == eventId && programIds.Contains(s.ProgramId)).ToListAsync(ct);
-        var available = programIds.Where(id => PublicResults.HasTrsResults(PublicResults.ReadFixture(fixtures.FirstOrDefault(f => f.ProgramId == id)?.BracketStateJson))
-            || snapshots.FirstOrDefault(s => s.ProgramId == id) is { } row && JsonSerializer.Deserialize<ScoreSnapshot>(row.PayloadJson, Json)!.Matches.Count > 0).ToArray();
+        if (!await db.Events.AnyAsync(e => e.EventId == eventId && e.IsActive, ct)) return NotFound();
+        var (results, _, _) = await ReadResultsAsync(eventId, ct);
+        var available = results is null ? [] : results.Matches.Select(m => m.ProgramId)
+            .Concat(results.Heats.Select(h => h.ProgramId)).Distinct().ToArray();
         var live = await db.TlsLiveSnapshots.AsNoTracking().SingleOrDefaultAsync(s => s.EventId == eventId, ct);
         var interval = live is null ? 5 : JsonSerializer.Deserialize<ScoreSnapshot>(live.PayloadJson, Json)!.RefreshSeconds;
-        return Ok(new { hasLiveScores = live?.MatchCount > 0, resultProgramIds = available, refreshSeconds = interval });
+        return Ok(new { hasLiveScores = live?.MatchCount > 0, hasResults = available.Length > 0, resultProgramIds = available, refreshSeconds = interval });
     }
 
     [HttpGet("{eventId:int}/live")]
     public async Task<IActionResult> Live(int eventId, CancellationToken ct)
     {
         Response.Headers.CacheControl = "no-store";
-        var ev = await db.Events.AsNoTracking().SingleOrDefaultAsync(e => e.EventId == eventId && e.IsActive && e.IsSports, ct);
+        var ev = await db.Events.AsNoTracking().SingleOrDefaultAsync(e => e.EventId == eventId && e.IsActive, ct);
         if (ev is null) return NotFound();
         var row = await db.TlsLiveSnapshots.AsNoTracking().SingleOrDefaultAsync(s => s.EventId == eventId, ct);
         var snapshot = row is null ? new ScoreSnapshot { EventId = eventId, EventName = ev.Name } : JsonSerializer.Deserialize<ScoreSnapshot>(row.PayloadJson, Json)!;
-        return Ok(new { eventId, eventName = ev.Name, receivedAt = row?.ReceivedAt, snapshot.RefreshSeconds, snapshot.TimeZone, snapshot.Matches });
+        return Ok(new { eventId, eventName = ev.Name, receivedAt = row?.ReceivedAt, snapshot.RefreshSeconds, snapshot.TimeZone, snapshot.GeneratedAt, snapshot.Matches });
     }
 
     [HttpGet("{eventId:int}/results")]
     public async Task<IActionResult> Results(int eventId, [FromQuery] int? programId, CancellationToken ct)
     {
         Response.Headers.CacheControl = "no-store";
-        var ev = await db.Events.AsNoTracking().SingleOrDefaultAsync(e => e.EventId == eventId && e.IsActive && e.IsSports, ct);
+        var ev = await db.Events.AsNoTracking().SingleOrDefaultAsync(e => e.EventId == eventId && e.IsActive, ct);
         if (ev is null) return NotFound();
-        var programs = await db.Programs.AsNoTracking().Where(p => p.EventId == eventId && p.IsActive).OrderBy(p => p.ProgramId).Select(p => new { id = p.ProgramId, p.Name }).ToListAsync(ct);
-        var selected = programId.HasValue ? programs.SingleOrDefault(p => p.id == programId) : programs.FirstOrDefault();
-        if (programId.HasValue && selected is null) return NotFound();
-        string source = "", zone = "Asia/Singapore"; DateTimeOffset? receivedAt = null;
-        List<PublicScoreMatch> matches = [];
-        object[] heats = [];
-        if (selected is not null)
+        var (snapshot, source, receivedAt) = await ReadResultsAsync(eventId, ct);
+        var programs = snapshot?.Programs ?? [];
+        if (programId.HasValue && programs.All(p => p.Id != programId)) return NotFound();
+        return Ok(new
         {
-            var fixture = await db.Fixtures.AsNoTracking().FirstOrDefaultAsync(f => f.EventId == eventId && f.ProgramId == selected.id, ct);
-            var state = PublicResults.ReadFixture(fixture?.BracketStateJson);
-            if (PublicResults.HasTrsResults(state))
-            {
-                source = "TRS"; matches = PublicResults.Project(state!, selected.id, selected.Name);
-                heats = state!.HeatRounds?.Where(r => r.IsComplete).Select(r => (object)new { r.Label, r.RoundNumber,
-                    results = r.Results.Select(v => new { name = state.Seeds.FirstOrDefault(s => s.Id == v.TeamId)?.Participants is { Count: > 0 } players ? string.Join(" / ", players) : v.TeamId, v.Result, v.Place, v.Advanced }) }).ToArray() ?? [];
-            }
-            else
-            {
-                var row = await db.TlsResultSnapshots.AsNoTracking().SingleOrDefaultAsync(s => s.ProgramId == selected.id && s.EventId == eventId, ct);
-                if (row is not null)
-                {
-                    var snapshot = JsonSerializer.Deserialize<ScoreSnapshot>(row.PayloadJson, Json)!;
-                    source = "TLS"; matches = snapshot.Matches; zone = snapshot.TimeZone; receivedAt = row.ReceivedAt;
-                }
-            }
+            eventId, eventName = ev.Name, programs, programId, source, receivedAt,
+            generatedAt = snapshot?.GeneratedAt,
+            timeZone = snapshot?.TimeZone ?? "Asia/Singapore",
+            matches = snapshot?.Matches.Where(m => !programId.HasValue || m.ProgramId == programId).ToArray() ?? [],
+            heats = snapshot?.Heats.Where(h => !programId.HasValue || h.ProgramId == programId).ToArray() ?? []
+        });
+    }
+
+    private async Task<(ScoreSnapshot? Snapshot, string Source, DateTimeOffset? ReceivedAt)> ReadResultsAsync(int eventId, CancellationToken ct)
+    {
+        var row = await db.EventResultSnapshots.AsNoTracking().SingleOrDefaultAsync(r => r.EventId == eventId, ct);
+        if (row is not null) return (EventResultSnapshots.Read(row), row.Source, row.ReceivedAt);
+
+        // Compatibility for events that already had results before event-level snapshots were introduced.
+        var legacy = await EventResultSnapshots.BuildManualAsync(db, eventId, ct);
+        if (legacy is null) return (null, "", null);
+        var legacyPrograms = legacy.Programs!.Select(p => p.Id).ToArray();
+        var manualPrograms = legacy.Matches.Select(m => m.ProgramId).Concat(legacy.Heats.Select(h => h.ProgramId)).ToHashSet();
+        var oldRows = await db.TlsResultSnapshots.AsNoTracking()
+            .Where(r => r.EventId == eventId && legacyPrograms.Contains(r.ProgramId)).ToListAsync(ct);
+        DateTimeOffset? lastReceived = null;
+        foreach (var old in oldRows.Where(r => !manualPrograms.Contains(r.ProgramId)))
+        {
+            var oldSnapshot = JsonSerializer.Deserialize<ScoreSnapshot>(old.PayloadJson, Json)!;
+            legacy.Matches.AddRange(oldSnapshot.Matches);
+            if (lastReceived is null || old.ReceivedAt > lastReceived) lastReceived = old.ReceivedAt;
         }
-        return Ok(new { eventId, eventName = ev.Name, programs, programId = selected?.id, source, timeZone = zone, receivedAt, matches, heats });
+        return (legacy, manualPrograms.Count > 0 ? EventResultSnapshots.Trs : lastReceived.HasValue ? EventResultSnapshots.Tls : "", lastReceived);
     }
 }

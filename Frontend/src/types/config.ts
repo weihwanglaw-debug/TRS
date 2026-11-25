@@ -154,6 +154,7 @@ export interface EventRestrictedSbaPlayer {
  
 
 export interface TournamentEvent {
+  readyForEventIntegration?: boolean;
   id:               string;
   name:             string;
   description:      string;
@@ -215,8 +216,8 @@ export interface Config {
 }
 
 export type EventStatus   = "D" | "U" | "O" | "PA" | "CL";
-export type ProgramLifecycleStatus = "O" | "CL";
-export type ProgramStatus = "O" | "U" | "CL" | "F" | "NF";
+export type ProgramLifecycleStatus = "O" | "CL" | "H";
+export type ProgramStatus = "H" | "O" | "U" | "CL" | "F" | "NF";
 
 //  Match / bracket types
 

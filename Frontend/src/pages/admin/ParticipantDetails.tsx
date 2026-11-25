@@ -1,3 +1,4 @@
+import { useEventIntegration, eventIntegrationMessage } from "@/hooks/useEventIntegration";
 /**
  * ParticipantDetails.tsx - Admin participant list and edit modal.
  *
@@ -159,14 +160,16 @@ function toFormValues(p: RegistrationParticipant): ParticipantFormValues {
 interface DetailModalProps {
   row:           ParticipantRow;
   programFields: ProgramFields | null;
+  isSports?:     boolean;
   eventType?:    string;
   teamMode:      boolean;
   readOnly:      boolean;
+  integrationReady: boolean;
   onClose:       () => void;
   onSaved:       (updated: Registration) => void;
 }
 
-function DetailModal({ row, programFields, eventType, teamMode, readOnly, onClose, onSaved }: DetailModalProps) {
+function DetailModal({ row, programFields, eventType, isSports, teamMode, readOnly, integrationReady, onClose, onSaved }: DetailModalProps) {
   const p = row.participant;
 
   const [form,       setForm]       = useState<ParticipantFormValues>(() => toFormValues(p));
@@ -196,11 +199,14 @@ function DetailModal({ row, programFields, eventType, teamMode, readOnly, onClos
   };
 
   const handleSave = async () => {
+    if (integrationReady) { setFeedback({ open: true, variant: "warning", title: "Event ready for integration", description: eventIntegrationMessage }); return; }
     if (readOnly) return;
 
   // Client-side validation - same rules as registration form
   // Admin gets no exemption: wrong data is wrong data
     const errs = validateParticipant(form, {
+      isSports,
+      teamMode,
       program: {
         minAge: 0, maxAge: 0,        // age range not enforced on admin edit
         gender: "Open",              // gender rule only enforced at registration time
@@ -244,7 +250,7 @@ function DetailModal({ row, programFields, eventType, teamMode, readOnly, onClos
         dob:               dob                   || undefined,
         gender:            form.gender            || undefined,
         nationality:       toCountryCode(form.nationality) || undefined,
-        clubSchoolCompany: form.clubSchoolCompany || undefined,
+        clubSchoolCompany: isSports === false && !teamMode ? undefined : form.clubSchoolCompany || undefined,
         email:             form.email             || undefined,
         contactNumber:     form.contactNumber     || undefined,
         tshirtSize:        form.tshirtSize        || undefined,
@@ -322,13 +328,14 @@ function DetailModal({ row, programFields, eventType, teamMode, readOnly, onClos
           {readOnly && (
             <div className="p-3 text-sm font-medium"
               style={{ backgroundColor: "var(--badge-soon-bg)", color: "var(--badge-soon-text)" }}>
-              Participant details cannot be changed after fixtures have been generated. Reset the fixture first.
+              {integrationReady ? eventIntegrationMessage : "Participant details cannot be changed after fixtures have been generated. Reset the fixture first."}
             </div>
           )}
           <ParticipantFieldsForm
             values={form}
             onChange={patch => setForm(prev => ({ ...prev, ...patch }))}
             programFields={fields}
+            isSports={isSports}
             eventType={eventType}
             teamMode={teamMode}
             errors={errors}
@@ -346,7 +353,7 @@ function DetailModal({ row, programFields, eventType, teamMode, readOnly, onClos
           <button onClick={onClose}
             className="btn-outline px-5 py-2.5 text-sm font-medium">Cancel</button>
           <button onClick={handleSave}
-            disabled={readOnly || saving || !form.fullName.trim()}
+            disabled={(readOnly && !integrationReady) || saving || !form.fullName.trim()}
             className="btn-primary px-5 py-2.5 text-sm font-semibold disabled:opacity-40 flex items-center gap-2">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {saving ? "Saving..." : "Save Changes"}
@@ -361,6 +368,7 @@ function DetailModal({ row, programFields, eventType, teamMode, readOnly, onClos
 // Main page
 
 export default function ParticipantDetails() {
+  const integrationReady = useEventIntegration();
   const { regId }      = useParams<{ regId: string }>();
   const [searchParams] = useSearchParams();
   const navigate       = useNavigate();
@@ -699,7 +707,10 @@ export default function ParticipantDetails() {
                         <td className="text-sm">{row.group.clubDisplay || row.participant.clubSchoolCompany || "-"}</td>
                         <td>
                           <button type="button"
-                            onClick={() => setDetailRow(row)}
+                            onClick={() => {
+                              if (integrationReady(row.registration.eventId)) { setFeedback({ open: true, variant: "warning", title: "Event ready for integration", description: eventIntegrationMessage }); return; }
+                              setDetailRow(row);
+                            }}
                             className="flex items-center gap-2 text-left text-xs hover:opacity-70">
                             <span className="font-semibold">{row.participant.fullName}</span>
                             {row.participant.sbaId && <span className="font-mono opacity-40">{row.participant.sbaId}</span>}
@@ -741,7 +752,10 @@ export default function ParticipantDetails() {
                       <span className="opacity-50">Club / Team / School</span><span>{row.group.clubDisplay || row.participant.clubSchoolCompany || "-"}</span>
                     </div>
                     <button type="button"
-                      onClick={() => setDetailRow(row)}
+                      onClick={() => {
+                              if (integrationReady(row.registration.eventId)) { setFeedback({ open: true, variant: "warning", title: "Event ready for integration", description: eventIntegrationMessage }); return; }
+                              setDetailRow(row);
+                            }}
                       className="w-full flex items-center justify-between gap-3 text-left text-xs p-2"
                       style={{ backgroundColor: "var(--color-row-hover)" }}>
                       <span className="font-semibold">{row.participant.fullName}</span>
@@ -757,9 +771,11 @@ export default function ParticipantDetails() {
         <DetailModal
           row={detailRow}
           programFields={getProgramFields(detailRow.group)}
+          isSports={events.find(ev => ev.programs.some(p => p.id === detailRow.group.programId))?.isSports}
           eventType={getEventType(detailRow.group)}
           teamMode={isTeamProgram(detailRow.programType)}
-          readOnly={detailRow.fixtureExists}
+          readOnly={detailRow.fixtureExists || integrationReady(detailRow.registration.eventId)}
+          integrationReady={integrationReady(detailRow.registration.eventId)}
           onClose={() => setDetailRow(null)}
           onSaved={handleSaved}
         />

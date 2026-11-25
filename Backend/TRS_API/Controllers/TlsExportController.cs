@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TRS_API.Services;
@@ -7,14 +7,15 @@ using TRS_Data.Models;
 namespace TRS_API.Controllers;
 
 /// <summary>Read-only operational setup export; excludes registration and payment details.</summary>
-[ApiController, Route("api/tls-export"), Authorize(Roles = "superadmin,eventadmin")]
+[EnableRateLimiting("event-integration")]
+[ApiController, Route("api/tls-export"), TlsExportAccess]
 public sealed class TlsExportController(TRSDbContext db, IConfiguration configuration) : ControllerBase
 {
     [HttpGet("events")]
     public async Task<IActionResult> Events(CancellationToken ct)
     {
         Response.Headers.CacheControl = "no-store";
-        var events = await db.Events.AsNoTracking().Where(e=>e.IsActive && e.IsSports && !db.Fixtures.Any(f => f.EventId == e.EventId))
+        var events = await db.Events.AsNoTracking().Where(e=>e.IsActive && e.IsSports && e.ReadyForEventIntegration && !db.Fixtures.Any(f => f.EventId == e.EventId))
             .Include(e => e.Programs).OrderByDescending(e=>e.EventStartDate).ToListAsync(ct);
         return Ok(events.Where(e => RegistrationWorkflowService.ComputeRegistrationStatus(e, e.Programs.Count(p => p.IsActive)) == StatusCodesEx.EventRegistration.Closed)
             .Select(e=>new {id=e.EventId,name=e.Name,startDate=e.EventStartDate,venue=e.Venue}));
@@ -28,6 +29,9 @@ public sealed class TlsExportController(TRSDbContext db, IConfiguration configur
         await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
         var ev=await db.Events.AsNoTracking().SingleOrDefaultAsync(e=>e.EventId==id && e.IsActive && e.IsSports,ct);
         if(ev==null)return NotFound(new {message="Active sports event not found."});
+        if (!ev.ReadyForEventIntegration) return Conflict(new { message="Mark this event Ready for Event Integration in TRS first." });
+        var readinessErrors = await EventIntegrationRules.ValidateAsync(db, ev, ct);
+        if (readinessErrors.Count > 0) return Conflict(new { message="The event is no longer ready for integration. Unmark it and resolve the readiness issues.", errors=readinessErrors });
         var programs=await db.Programs.AsNoTracking().Where(p=>p.EventId==id && p.IsActive).ToListAsync(ct);
         var programIds=programs.Select(p=>p.ProgramId).ToList();
         if (await db.Fixtures.AnyAsync(f => f.EventId == id, ct))
@@ -36,7 +40,7 @@ public sealed class TlsExportController(TRSDbContext db, IConfiguration configur
             return BadRequest(new { message = "Close event registration before transferring it to TLS." });
         var groups=await db.ParticipantGroups.AsNoTracking().Include(g=>g.Participants).Include(g=>g.Registration)
             .Where(g=>g.EventId==id && programIds.Contains(g.ProgramId)
-                && g.GroupStatus!=StatusCodesEx.Registration.Cancelled && g.Registration.RegStatus!=StatusCodesEx.Registration.Cancelled)
+                && g.GroupStatus==StatusCodesEx.Registration.Confirmed && g.Registration.RegStatus==StatusCodesEx.Registration.Confirmed)
             .OrderBy(g=>g.GroupId).ToListAsync(ct);
         var zone=await db.SystemConfigs.AsNoTracking().Where(c=>c.ConfigKey=="displayTimeZone").Select(c=>c.ConfigValue).FirstOrDefaultAsync(ct) ?? "+08:00";
         var package=CreatePackage(ev,programs,groups,zone,configuration["TlsIntegration:SourceSystemId"] ?? "TRS");

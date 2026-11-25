@@ -1,3 +1,6 @@
+import ScoreMatches from "@/components/events/ScoreMatches";
+import type { ScoreMatch } from "@/lib/api/scoresApi";
+import { useEventIntegration, eventIntegrationMessage } from "@/hooks/useEventIntegration";
 /**
  * Fixtures.tsx - Fixture Management
  *
@@ -55,6 +58,7 @@ interface ProgramRow {
   programId:   string;
   programName: string;
   programType: string;
+  programStatus: string;
   sbaRankingType?: string | null;
   mode:        string;
   sportType:   string;
@@ -328,10 +332,13 @@ function ExternalPanel({ participants, sbaRankings, isBadminton, canAutoSeedFrom
 
 
 export default function AdminFixtures() {
+  const integrationReady = useEventIntegration();
   const [allEvents,          setAllEvents]          = useState<TournamentEvent[]>([]);
   const [sbaRankings,        setSbaRankings]        = useState<SbaRanking[]>([]);
   const [fixtureExists,      setFixtureExists]      = useState<Record<string, boolean>>({});
   const [selRowParticipants, setSelRowParticipants] = useState<SeedEntry[]>([]);
+  const [linkedProgramIds, setLinkedProgramIds] = useState<string[]>([]);
+  const [tlsResultsOnly, setTlsResultsOnly] = useState(false);
 
   // Load events from real API on mount
   useEffect(() => {
@@ -340,12 +347,12 @@ export default function AdminFixtures() {
         setFeedback({ open: true, variant: "error", title: "Fixtures could not be loaded", description: r.error.message });
         return;
       }
-      const evs = (r.data ?? []).filter(e => e.isSports);
+      const evs = r.data ?? [];
       setAllEvents(evs);
   // Bulk-check which programs already have a fixture in the DB
       const progIds = evs.flatMap(e => e.programs.map(p => p.id));
       if (progIds.length > 0) {
-        const fxR = await apiGetFixtureStatus(progIds);
+        const fxR = await apiGetFixtureStatus(progIds, setLinkedProgramIds);
         if (fxR.data) setFixtureExists(fxR.data);
         else if (fxR.error) setFeedback({ open: true, variant: "error", title: "Fixture status could not be loaded", description: fxR.error.message });
       }
@@ -373,21 +380,22 @@ export default function AdminFixtures() {
   // Build flat program rows
   const allRows: ProgramRow[] = useMemo(() =>
     allEvents.flatMap(ev =>
-      ev.programs.map(p => ({
+      ev.programs.filter(p => ev.isSports || linkedProgramIds.includes(p.id)).map(p => ({
         eventId:      ev.id,
         eventName:    ev.name,
         programId:    p.id,
         programName:  p.name,
         programType:  p.type,
+        programStatus: p.status,
         sbaRankingType: p.sbaRankingType,
-        mode:         ev.fixtureMode,
+        mode:         ev.isSports ? ev.fixtureMode : "not_required",
         sportType:    ev.sportType,
         startDate:    ev.eventStartDate,
         endDate:      ev.eventEndDate,
         closeDate:    ev.closeDate,
         participants: (p.participantSeeds ?? []) as SeedEntry[],
       }))
-    ), [allEvents]
+    ), [allEvents, linkedProgramIds]
   );
 
   //  Filters
@@ -422,6 +430,7 @@ export default function AdminFixtures() {
   const hasFilters = filterEvent || filterProgram || filterMode || filterFrom || filterTo;
 
   //  Selected program
+  const [tlsResults, setTlsResults] = useState<ScoreMatch[]>([]);
   const [selRow,       setSelRow]       = useState<ProgramRow | null>(null);
   const [bracketState, setBracketState] = useState<BracketState | null>(null);
   const [showWizard,   setShowWizard]   = useState(false);
@@ -431,8 +440,31 @@ export default function AdminFixtures() {
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resetLatestRoundConfirmOpen, setResetLatestRoundConfirmOpen] = useState(false);
   const [clearResultConfirmOpen, setClearResultConfirmOpen] = useState(false);
+  const checkGenerationStatus = () => {
+    if (!selRow) return false;
+    if (selRow.programStatus === "CL") return true;
+    feedbackApi.error(selRow.programStatus === "H"
+      ? "This program is hidden. Change it to Closed before generating fixtures. This will make it publicly visible."
+      : "This program is still open for registration. Close it before generating fixtures.");
+    return false;
+  };
+
   const [generateConfirmOpen, setGenerateConfirmOpen] = useState(false);
   const [pendingWizardResult, setPendingWizardResult] = useState<WizardResult | null>(null);
+
+  const selectedIntegrationReady = !tlsResultsOnly && !!selRow && integrationReady(selRow.eventId);
+  useEffect(() => {
+    if (!selectedIntegrationReady) return;
+    setSelRow(null);
+    setBracketState(null);
+    setShowWizard(false);
+    setScoreModal(null);
+    setDraft(null);
+    setGenerateConfirmOpen(false);
+    setResetConfirmOpen(false);
+    setResetLatestRoundConfirmOpen(false);
+    setClearResultConfirmOpen(false);
+  }, [selectedIntegrationReady]);
 
   //  Score modal
   const [scoreModal, setScoreModal] = useState<MatchEntry | null>(null);
@@ -464,9 +496,12 @@ export default function AdminFixtures() {
 
   //  Load bracket when row selected
   useEffect(() => {
+    setTlsResults([]);
     if (!selectedFixtureEventId || !selectedFixtureProgramId) { setBracketState(null); return; }
     let cancelled = false;
-    apiGetFixture(selectedFixtureEventId, selectedFixtureProgramId).then(r => {
+    apiGetFixture(selectedFixtureEventId, selectedFixtureProgramId, matches => {
+      if (!cancelled) setTlsResults(matches);
+    }).then(r => {
       if (cancelled) return;
       if (r.error) {
         feedbackApi.error(r.error.message);
@@ -512,9 +547,9 @@ export default function AdminFixtures() {
   }, [feedbackApi]);
 
   useEffect(() => {
-    if (!selRow) { setSelRowParticipants([]); return; }
+    if (!selRow || tlsResultsOnly) { setSelRowParticipants([]); return; }
     loadSelectedProgramParticipants(selRow);
-  }, [selRow, loadSelectedProgramParticipants]);
+  }, [selRow, tlsResultsOnly, loadSelectedProgramParticipants]);
 
 
   //  Bracket cached results display in table - refresh on save
@@ -522,7 +557,7 @@ export default function AdminFixtures() {
   const refreshTable = useCallback(() => {
     const progIds = allEvents.flatMap(e => e.programs.map(p => p.id));
     if (progIds.length > 0) {
-      apiGetFixtureStatus(progIds).then(r => {
+      apiGetFixtureStatus(progIds, setLinkedProgramIds).then(r => {
         if (r.data) setFixtureExists(r.data);
         else if (r.error) feedbackApi.error(r.error.message);
       }).catch(() => feedbackApi.error("Fixture status could not be refreshed."));
@@ -536,7 +571,7 @@ export default function AdminFixtures() {
   };
 
   const executeFixtureGeneration = async () => {
-    if (!selRow || !pendingWizardResult) return;
+    if (!selRow || !pendingWizardResult || !checkGenerationStatus()) return;
     const { config: wizConfig, seeds, bracket: prebuilt } = pendingWizardResult;
     const result = await withLoading(() => apiGenerateDraw(selRow.eventId, selRow.programId, seeds, wizConfig, prebuilt));
     if (result.error) { apiErr(result.error); return; }
@@ -703,8 +738,9 @@ export default function AdminFixtures() {
     }
   }, [allEvents, fetchAllEventRegistrations, selRow, feedbackApi]);
 
-  const selectRow = (row: ProgramRow) => {
-    setSelRow(row); setBracketState(null); setShowWizard(false); setActiveTab("draw");
+  const selectRow = (row: ProgramRow, resultsOnly = false) => {
+    if (!resultsOnly && integrationReady(row.eventId)) { showFeedback("warning", "Event ready for integration", eventIntegrationMessage); return; }
+    setTlsResultsOnly(resultsOnly); setSelRow(row); setBracketState(null); setShowWizard(false); setActiveTab("draw");
   };
   const backToList = () => { setSelRow(null); setBracketState(null); setShowWizard(false); };
 
@@ -839,6 +875,7 @@ export default function AdminFixtures() {
                       <td className="text-xs opacity-60 whitespace-nowrap">{row.startDate} to {row.endDate}</td>
                       <td><DrawBadge programId={row.programId} closeDate={row.closeDate} mode={row.mode} fixtureExists={fixtureExists} /></td>
                       <td>
+                        {linkedProgramIds.includes(row.programId) && <button onClick={() => selectRow(row, true)} className="btn-outline px-4 py-1.5 text-xs font-semibold mr-2">View Results</button>}
                         {row.mode === "not_required"
                           ? <span className="text-xs opacity-30">-</span>
                           : <button onClick={() => selectRow(row)} className="btn-primary px-4 py-1.5 text-xs font-semibold">Manage</button>}
@@ -887,6 +924,9 @@ export default function AdminFixtures() {
                     <span className="opacity-60">{row.startDate} &rarr; {row.endDate}</span>
                     <DrawBadge programId={row.programId} closeDate={row.closeDate} mode={row.mode} fixtureExists={fixtureExists} />
                   </div>
+                  {linkedProgramIds.includes(row.programId) && (
+                    <button onClick={() => selectRow(row, true)} className="btn-outline mt-4 w-full px-4 py-2 text-xs font-semibold">View Results</button>
+                  )}
                   {row.mode !== "not_required" && (
                     <button onClick={() => selectRow(row)} className="btn-primary mt-4 w-full px-4 py-2 text-xs font-semibold">
                       Manage
@@ -902,7 +942,13 @@ export default function AdminFixtures() {
 
       {/* PROGRAM DETAIL */}
 
-      {selRow && (
+      {selRow && tlsResultsOnly && <section className="p-5 mb-5" aria-label="TLS program results">
+        <button onClick={backToList} className="btn-back mb-5">All Programs</button>
+        <h2 className="font-bold text-base mb-3">{selRow.programName} Results</h2>
+        <ScoreMatches matches={tlsResults} />
+      </section>}
+      {selRow && !tlsResultsOnly && integrationReady(selRow.eventId) && <p className="p-4 mb-5 text-sm">{eventIntegrationMessage} <button className="btn-back ml-3" onClick={backToList}>All Programs</button></p>}
+      {selRow && !tlsResultsOnly && !integrationReady(selRow.eventId) && (
         <>
           <button onClick={backToList} className="btn-back flex items-center gap-1.5 text-xs px-3 py-1.5 mb-5 print:hidden">
             <ArrowLeft className="h-3.5 w-3.5" /> All Programs
@@ -978,7 +1024,7 @@ export default function AdminFixtures() {
                   {loadingParticipants ? (
                     <LoadingSpinner size="sm" label="Loading registered entries..." />
                   ) : selRowParticipants.length >= 2
-                    ? <button onClick={() => setShowWizard(true)} className="btn-primary inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold">Generate Fixture <ArrowRight className="h-4 w-4" /></button>
+                    ? <button onClick={() => { if (checkGenerationStatus()) setShowWizard(true); }} className="btn-primary inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold">Generate Fixture <ArrowRight className="h-4 w-4" /></button>
                     : <p className="text-xs opacity-30">Need at least 2 registered entries.</p>}
                 </div>
               )}

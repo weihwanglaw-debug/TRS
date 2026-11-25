@@ -245,7 +245,7 @@ export async function apiUpdateProgram(
 export async function apiUpdateProgramStatus(
   eventId: string,
   programId: string,
-  status: "O" | "CL",
+  status: "O" | "CL" | "H",
 ): Promise<ApiResult<{ programId: number; status: string }>> {
   await delay();
   const res = await apiFetch(`${API_BASE}/api/events/${eventId}/programs/${programId}/status`, {
@@ -355,4 +355,21 @@ export async function apiDeleteEventDocument(
   });
   if (!res.ok) return err("DELETE_FAILED", "Failed to delete document.");
   return ok(null);
+}
+
+export interface EventIntegrationReadiness { ready: boolean; errors?: string[]; }
+export async function apiGetEventIntegration(eventId: string): Promise<ApiResult<EventIntegrationReadiness>> {
+  const res = await apiFetch(`${API_BASE}/api/events/${eventId}/integration`, { headers: adminHeaders() });
+  if (!res.ok) { const parsed = await parseError(res); return err(parsed.code, parsed.message); }
+  return ok(await res.json());
+}
+export async function apiSetEventIntegration(eventId: string, ready: boolean): Promise<ApiResult<EventIntegrationReadiness>> {
+  const res = await apiFetch(`${API_BASE}/api/events/${eventId}/integration`, { method: 'PUT', headers: adminHeaders(), body: JSON.stringify({ready}) });
+  if (!res.ok) {
+    const body = await res.clone().json().catch(() => null);
+    const parsed = await parseError(res);
+    const reasons = Array.isArray(body?.errors) ? body.errors.filter((reason: unknown): reason is string => typeof reason === "string") : undefined;
+    return err(parsed.code, parsed.message, reasons);
+  }
+  return ok(await res.json());
 }

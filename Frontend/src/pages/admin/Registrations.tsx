@@ -1,3 +1,4 @@
+import { useEventIntegration, eventIntegrationMessage } from "@/hooks/useEventIntegration";
 /**
  * Registrations.tsx - Registration & Payment Management
  *
@@ -766,6 +767,7 @@ function GatewayRef({ label, value }: { label: string; value: string }) {
 
 
 export default function AdminRegistrations() {
+  const integrationReady = useEventIntegration();
   const [urlParams] = useSearchParams();
   const navigate    = useNavigate();
 
@@ -869,6 +871,8 @@ export default function AdminRegistrations() {
   const [savingCancel,    setSavingCancel]    = useState(false);
   const [savingRefund,    setSavingRefund]    = useState(false);
 
+  const warnIntegrationChange = () => setFeedback({ open: true, variant: "warning", title: "Event ready for integration", description: eventIntegrationMessage });
+
   //  Mutation helpers
   const showApiError = (message: string) => setApiError(message);
 
@@ -931,6 +935,7 @@ export default function AdminRegistrations() {
 
   const handleCancel = async (refundMode: CancellationRefundMode) => {
     if (!cancelModal || !cancelReason.trim()) return;
+    if (integrationReady(cancelModal.eventId)) { warnIntegrationChange(); return; }
     if (
       refundMode === "refundPaidItems" &&
       cancelRefundAction === "External" &&
@@ -1153,6 +1158,7 @@ export default function AdminRegistrations() {
 
   const handleRefundCancel = async () => {
     if (!refundCancelModal || !cancelReason.trim()) return;
+    if (refundCancelAction !== "refundOnly" && integrationReady(refundCancelModal.eventId)) { warnIntegrationChange(); return; }
     const payment = getPayment(refundCancelModal);
     if (!payment) { setApiError("This registration has no payment record."); return; }
 
@@ -1296,6 +1302,7 @@ export default function AdminRegistrations() {
 
   const handleConfirmReg = async () => {
     if (!confirmRegModal) return;
+    if (integrationReady(confirmRegModal.eventId)) { warnIntegrationChange(); return; }
     setSavingConfirmReg(true);
     try {
       const r = await apiConfirmRegistration(confirmRegModal.id, {
@@ -1569,7 +1576,7 @@ export default function AdminRegistrations() {
                 openAction.reg.regStatus === "P" &&
                 getPayment(openAction.reg)?.paymentStatus === "S"
               )}
-              onClick={() => { setConfirmRegModal(openAction.reg); setOpenAction(null); }}
+              onClick={() => { if (integrationReady(openAction.reg.eventId)) { setOpenAction(null); warnIntegrationChange(); return; } setConfirmRegModal(openAction.reg); setOpenAction(null); }}
             >
               <CheckCircle className="h-4 w-4" /> Confirm Registration
             </button>
@@ -1580,6 +1587,7 @@ export default function AdminRegistrations() {
                 <button
                   disabled={!(canRefund || canCancel)}
                   onClick={() => {
+                    if (!canRefund && integrationReady(openAction.reg.eventId)) { setOpenAction(null); warnIntegrationChange(); return; }
                     setRefundSel({});
                     setCancelReason("");
                     setRefundCancelAction(canRefund ? "refundOnly" : "cancelWithoutRefund");
@@ -1666,12 +1674,14 @@ export default function AdminRegistrations() {
           </DialogHeader>
           <div className="p-6 space-y-4">
             <div className={refundCancelAction !== "cancelWithoutRefund" ? "grid gap-4 md:grid-cols-2" : "grid gap-4"}>
+              {refundCancelModal && integrationReady(refundCancelModal.eventId) && <p className="text-sm">Refunds remain available. Cancel Event Integration before cancelling participants.</p>}
               <FG label="Action">
                 <select
                   className="field-input"
                   value={refundCancelAction}
                   onChange={e => {
                     const action = e.target.value as RefundCancelAction;
+                    if (action !== "refundOnly" && refundCancelModal && integrationReady(refundCancelModal.eventId)) { warnIntegrationChange(); return; }
                     setRefundCancelAction(action);
                     setRefundSel({});
                     setRefundCancelScope("selected");

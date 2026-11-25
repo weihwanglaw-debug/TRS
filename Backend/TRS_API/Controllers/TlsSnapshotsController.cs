@@ -1,5 +1,4 @@
-using System.Security.Cryptography;
-using System.Text;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +8,8 @@ using TRS_Data.Models;
 
 namespace TRS_API.Controllers;
 
-[ApiController, Route("api/tls/events"), RequestSizeLimit(5_000_000)]
+[EnableRateLimiting("event-integration")]
+[ApiController, Route("api/tls/events"), RequestSizeLimit(5_000_000), TlsReceiveAccess]
 public sealed class TlsSnapshotsController(TRSDbContext db, IConfiguration configuration) : ControllerBase
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -22,20 +22,79 @@ public sealed class TlsSnapshotsController(TRSDbContext db, IConfiguration confi
     public Task<IActionResult> Results(int eventId, int programId, [FromBody] ScoreSnapshot snapshot, CancellationToken ct)
         => Receive(eventId, programId, snapshot, false, ct);
 
+    [HttpPut("~/api/integration/live-scores")]
+    public Task<IActionResult> ReceiveLive([FromBody] ScoreSnapshot snapshot, CancellationToken ct)
+        => Receive(snapshot.EventId, null, snapshot, true, ct);
+
+    [HttpPut("{eventId:int}/results")]
+    public Task<IActionResult> EventResults(int eventId, [FromBody] ScoreSnapshot snapshot, CancellationToken ct)
+        => Receive(eventId, null, snapshot, false, ct);
+
+    [HttpPut("~/api/integration/event-results")]
+    public Task<IActionResult> ReceiveEventResults([FromBody] ScoreSnapshot snapshot, CancellationToken ct)
+        => Receive(snapshot.EventId, null, snapshot, false, ct);
+
+    [HttpPut("~/api/integration/results")]
+    public Task<IActionResult> ReceiveResults([FromBody] ScoreSnapshot snapshot, CancellationToken ct)
+        => Receive(snapshot.EventId, snapshot.ProgramId, snapshot, false, ct);
+
     private async Task<IActionResult> Receive(int eventId, int? programId, ScoreSnapshot snapshot, bool live, CancellationToken ct)
     {
-        var expected = configuration[$"TlsIntegration:Events:{eventId}:ApiKey"];
-        var supplied = Request.Headers["X-TLS-Key"].ToString();
-        if (string.IsNullOrEmpty(expected) || expected.Length < 32 || supplied.Length > 512
-            || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(expected)), SHA256.HashData(Encoding.UTF8.GetBytes(supplied))))
-            return Unauthorized(new { message = "Invalid integration credential for this event." });
+        if (!TlsIntegrationCredential.Matches(configuration, Request))
+            return Unauthorized(new { message = "Invalid integration credential." });
+        if (eventId <= 0 || programId is <= 0)
+            return BadRequest(new { message = "Provide a positive event ID and a positive program ID when publishing program results." });
         var error = ScoreSnapshotRules.Validate(snapshot, eventId, programId, live);
         if (error is not null) return BadRequest(new { message = error });
-        if (!await db.Events.AnyAsync(e => e.EventId == eventId && e.IsActive && e.IsSports, ct)) return NotFound();
-        var ids = snapshot.Matches.Select(m => m.ProgramId).Append(programId ?? 0).Where(id => id > 0).Distinct().ToArray();
-        if (await db.Programs.CountAsync(p => ids.Contains(p.ProgramId) && p.EventId == eventId && p.IsActive, ct) != ids.Length)
-            return BadRequest(new { message = "A program does not belong to this event or is inactive." });
         await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        if (!await db.Events.AnyAsync(e => e.EventId == eventId && e.IsActive, ct)) return NotFound();
+        if (!live && programId is null)
+        {
+            var current = await EventResultSnapshots.LockAsync(db, eventId, ct);
+            if (current?.Source == EventResultSnapshots.Trs || current is null &&
+                await EventResultSnapshots.BuildManualAsync(db, eventId, ct) is { } manual && EventResultSnapshots.HasResults(manual))
+                return Conflict(new { message = "This event publishes results from TRS manual entry." });
+
+            var previousVersion = current?.Version ?? 0;
+            if (snapshot.Version > previousVersion)
+            {
+                var activeProgramIds = await db.Programs.Where(p => p.EventId == eventId && p.IsActive)
+                    .Select(p => p.ProgramId).ToArrayAsync(ct);
+                var links = await db.TlsResultSnapshots.Where(r => r.EventId == eventId).ToDictionaryAsync(r => r.ProgramId, ct);
+                if (EventResultSnapshots.ProgramsMatch(activeProgramIds, snapshot.Programs!))
+                {
+                    foreach (var program in snapshot.Programs!)
+                    {
+                        if (!links.Remove(program.Id, out var link))
+                        {
+                            link = new() { EventId = eventId, ProgramId = program.Id };
+                            db.TlsResultSnapshots.Add(link);
+                        }
+                        link.Version = snapshot.Version;
+                        link.ReceivedAt = DateTimeOffset.UtcNow;
+                        link.PayloadJson = JsonSerializer.Serialize(new ScoreSnapshot
+                        {
+                            EventId = eventId, EventName = snapshot.EventName, ProgramId = program.Id, ProgramName = program.Name,
+                            Version = snapshot.Version, GeneratedAt = snapshot.GeneratedAt, TimeZone = snapshot.TimeZone,
+                            RefreshSeconds = snapshot.RefreshSeconds, Matches = snapshot.Matches.Where(m => m.ProgramId == program.Id).ToList()
+                        }, Json);
+                    }
+                }
+                db.TlsResultSnapshots.RemoveRange(links.Values);
+                EventResultSnapshots.Save(db, current, snapshot, EventResultSnapshots.Tls);
+                await db.SaveChangesAsync(ct);
+            }
+            await tx.CommitAsync(ct);
+            return Ok(new { accepted = snapshot.Version > previousVersion, version = Math.Max(previousVersion, snapshot.Version) });
+        }
+        if (!live)
+        {
+            var current = await EventResultSnapshots.LockAsync(db, eventId, ct);
+            if (current is not null)
+                return Conflict(new { message = "Use event-level results for this event." });
+            if (!await db.Programs.AnyAsync(p => p.ProgramId == programId && p.EventId == eventId && p.IsActive, ct))
+                return BadRequest(new { message = "The program does not belong to this event or is inactive." });
+        }
         long previous;
         var now = DateTimeOffset.UtcNow;
         if (live)
